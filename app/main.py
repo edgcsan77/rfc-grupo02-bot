@@ -11237,6 +11237,7 @@ def panel_RFC(
           <div class="filters" style="grid-template-columns: 1.2fr 1fr 220px 220px;">
             <div>
               <div class="small">Group JID</div>
+              <input id="manual_group_jid" placeholder="120363000000000000@g.us">
             </div>
         
             <div>
