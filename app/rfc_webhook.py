@@ -8,7 +8,7 @@ from fastapi import APIRouter, Request
 from app.queue import request_queue
 from app.services.evolution import send_text
 from app.db import SessionLocal
-from app.models import AuthorizedGroup
+from app.models import AuthorizedGroup, BotControl
 
 router = APIRouter()
 
@@ -153,6 +153,28 @@ def _upsert_authorized_group(db, group_jid: str, instance_name: str):
 def _dedupe_key(instance: str, remote_jid: str, requester: str, query: str, msg_id: str) -> str:
     base = f"{instance}|{remote_jid}|{requester}|{query or msg_id}"
     return hashlib.sha1(base.encode("utf-8")).hexdigest()
+
+
+def _bot_label_from_db(instance_name: str | None) -> str:
+    inst = (instance_name or "").strip()
+
+    if not inst:
+        return "RFC"
+
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(BotControl)
+            .filter(BotControl.instance_name == inst)
+            .first()
+        )
+
+        if row and (row.label or "").strip():
+            return row.label.strip()
+
+        return inst
+    finally:
+        db.close()
 
 
 @router.post("/webhook/evolution-rfc")
@@ -339,8 +361,7 @@ async def evolution_rfc_webhook(request: Request):
             try:
                 send_text(
                     remote_jid,
-                    f"🚀 RFC GRUPO02\nSolicitud recibida de {requester_label}.\nEsto puede tardar unos minutos...",
-                    instance_name=instance_name,
+                    f"{_bot_label_from_db(instance_name)}\nSolicitud recibida de {requester_label}.\nEsto puede tardar unos segundos..."                    instance_name=instance_name,
                 )
             except Exception as ack_exc:
                 print("RFC_ACK_SEND_ERROR =", repr(ack_exc), flush=True)
