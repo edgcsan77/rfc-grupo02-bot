@@ -2542,7 +2542,6 @@ def botpanel_audit_all_groups(
                 <th>Estado</th>
                 <th>Grupo</th>
                 <th>PDF</th>
-                <th>Error</th>
               </tr>
             </thead>
             <tbody>
@@ -2601,13 +2600,12 @@ def botpanel_audit_all_groups(
                   <span class="small">{_esc(gid)}</span>
                 </td>
                 <td>{pdf_btn}</td>
-                <td class="small">{_esc((r.error_message or "")[:180])}</td>
               </tr>
             """
     else:
         html += """
               <tr>
-                <td colspan="10">Sin movimientos en este periodo.</td>
+                <td colspan="9">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -4041,7 +4039,6 @@ def panel_recent_requests(
             <th>Origen</th>
             <th>Creado</th>
             <th>Actualizado</th>
-            <th>Error</th>
           </tr>
         </thead>
         <tbody>
@@ -4067,11 +4064,10 @@ def panel_recent_requests(
               <td>{_esc(_provider_label(r.provider_name))}</td>
               <td>{_esc(_fmt_dt(r.created_at))}</td>
               <td>{_esc(_fmt_dt(r.updated_at))}</td>
-              <td class="small">{_esc(r.error_message)}</td>
             </tr>
             """
     else:
-        html += '<tr><td colspan="10">Sin solicitudes en este periodo.</td></tr>'
+        html += '<tr><td colspan="9">Sin solicitudes en este periodo.</td></tr>'
 
     html += """
         </tbody>
@@ -11029,58 +11025,66 @@ def panel_RFC(
 
         audit_url = "/panel/auditoria-orígenes?" + urlencode(audit_params)
 
-        html += f"""
-        <div class="box">
-          <div class="head">
-            <div>
-              <strong>Control contable por origen</strong>
-              <div class="small">
-                Cuadre global de RFC recibidas/procesadas por todos los bots en el periodo: {_esc(period_label)}.
+        html += """
+            <div class="box">
+              <div class="head">
+                <div>
+                  <strong>Control contable por origen</strong>
+                  <div class="small">
+                    Conteo visible para corte: Éxito + Sin registro + Erróneas/duplicadas.
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <a class="btn btn-primary" href="{_esc(audit_url)}">
-              📊 Ver auditoría completa
-            </a>
-          </div>
-
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr style="background:#fff200;">
-                  <th>Origen</th>
-                  <th class="right">Total con éxito</th>
-                  <th class="right">RFC sin registro en sistema</th>
-                  <th class="right">RFC erróneas / duplicadas</th>
-                  <th class="right">Total de solicitudes</th>
-                </tr>
-              </thead>
-              <tbody>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Origen</th>
+                      <th class="right">Total con éxito</th>
+                      <th class="right">Sin registro</th>
+                      <th class="right">Erróneas / duplicadas</th>
+                      <th class="right">Total visible</th>
+                    </tr>
+                  </thead>
+                  <tbody>
         """
 
         if provider_control_rows:
             for r in provider_control_rows:
+                total_visible = (
+                    int(r["total_exito"] or 0)
+                    + int(r["sin_registro"] or 0)
+                    + int(r["RFC_erroneas"] or 0)
+                )
+
                 html += f"""
-                <tr>
-                  <td><strong>{_esc(_provider_label(r["provider_name"]))}</strong></td>
-                  <td class="right">{r["total_exito"]}</td>
-                  <td class="right">{r["sin_registro"]}</td>
-                  <td class="right">{r["RFC_erroneas"]}</td>
-                  <td class="right"><strong>{r["total_solicitudes"]}</strong></td>
-                </tr>
+                    <tr>
+                      <td><strong>{_esc(_provider_label(r["provider_name"]))}</strong></td>
+                      <td class="right">{r["total_exito"]}</td>
+                      <td class="right">{r["sin_registro"]}</td>
+                      <td class="right">{r["RFC_erroneas"]}</td>
+                      <td class="right"><strong>{total_visible}</strong></td>
+                    </tr>
                 """
 
+            total_visible_general = (
+                int(provider_control_totals["total_exito"] or 0)
+                + int(provider_control_totals["sin_registro"] or 0)
+                + int(provider_control_totals["RFC_erroneas"] or 0)
+            )
+
             html += f"""
-                <tr style="background:#f1f5f9;font-weight:900;">
-                  <td>TOTAL GENERAL</td>
-                  <td class="right">{provider_control_totals["total_exito"]}</td>
-                  <td class="right">{provider_control_totals["sin_registro"]}</td>
-                  <td class="right">{provider_control_totals["RFC_erroneas"]}</td>
-                  <td class="right">{provider_control_totals["total_solicitudes"]}</td>
-                </tr>
+                    <tr class="total-row">
+                      <td>TOTAL GENERAL</td>
+                      <td class="right">{provider_control_totals["total_exito"]}</td>
+                      <td class="right">{provider_control_totals["sin_registro"]}</td>
+                      <td class="right">{provider_control_totals["RFC_erroneas"]}</td>
+                      <td class="right">{total_visible_general}</td>
+                    </tr>
             """
         else:
-            html += '<tr><td colspan="7">Sin datos para este periodo.</td></tr>'
+            html += '<tr><td colspan="5">Sin datos para este periodo.</td></tr>'
 
         html += """
               </tbody>
@@ -11344,7 +11348,6 @@ def panel_RFC(
                   <th>Origen</th>
                   <th>Creado</th>
                   <th>Actualizado</th>
-                  <th>Error</th>
                 </tr>
               </thead>
               <tbody>
@@ -11370,11 +11373,10 @@ def panel_RFC(
                   <td>{_esc(_provider_label(r.provider_name))}</td>
                   <td>{_esc(_fmt_dt(r.created_at))}</td>
                   <td>{_esc(_fmt_dt(r.updated_at))}</td>
-                  <td class="small">{_esc(r.error_message)}</td>
                 </tr>
                 """
         else:
-            html += '<tr><td colspan="10">Sin solicitudes en este periodo.</td></tr>'
+            html += '<tr><td colspan="9">Sin solicitudes en este periodo.</td></tr>'
     
         html += f"""
               </tbody>
@@ -12939,8 +12941,7 @@ def panel_auditoria_orígenes(
                 <div>
                   <strong>Origen + bot</strong>
                   <div class="small">
-                    Sirve para detectar si el problema viene de un origen completo o de una combinación origen/bot.
-                  </div>
+                    Sirve para revisar producción por origen y bot sin mostrar errores ni pendientes.                  </div>
                 </div>
               </div>
 
@@ -12953,8 +12954,6 @@ def panel_auditoria_orígenes(
                       <th class="right">Éxito</th>
                       <th class="right">Sin registro</th>
                       <th class="right">Erróneas</th>
-                      <th class="right">Otros errores</th>
-                      <th class="right">Pendientes</th>
                       <th class="right">Total</th>
                     </tr>
                   </thead>
@@ -12963,6 +12962,12 @@ def panel_auditoria_orígenes(
 
         if provider_bot_rows:
             for r in provider_bot_rows:
+                total_visible = (
+                    int(r["total_exito"] or 0)
+                    + int(r["sin_registro"] or 0)
+                    + int(r["RFC_erroneas"] or 0)
+                )
+
                 html += f"""
                     <tr>
                       <td><strong>{_esc(_provider_label(r["provider_name"]))}</strong></td>
@@ -12970,13 +12975,11 @@ def panel_auditoria_orígenes(
                       <td class="right">{r["total_exito"]}</td>
                       <td class="right">{r["sin_registro"]}</td>
                       <td class="right">{r["RFC_erroneas"]}</td>
-                      <td class="right">{r["otros_errores"]}</td>
-                      <td class="right">{r["pendientes"]}</td>
-                      <td class="right"><strong>{r["total_solicitudes"]}</strong></td>
+                      <td class="right"><strong>{total_visible}</strong></td>
                     </tr>
                 """
         else:
-            html += '<tr><td colspan="8">Sin datos para este periodo.</td></tr>'
+            html += '<tr><td colspan="6">Sin datos para este periodo.</td></tr>'
 
         html += """
                   </tbody>
