@@ -9915,22 +9915,39 @@ def panel_RFC(
                 background: white;
               }}
 
-              .broadcast-section {{
+              .broadcast-communication-grid {{
                 display: grid;
                 grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
                 gap: 18px;
                 align-items: start;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
+                overflow: hidden;
               }}
-              
-              .broadcast-left,
-              .broadcast-right {{
+            
+              .broadcast-communication-grid > .broadcast-left,
+              .broadcast-communication-grid > .broadcast-right {{
+                min-width: 0;
                 display: flex;
                 flex-direction: column;
                 gap: 18px;
               }}
             
-              @media (max-width: 1000px) {{
-                 .broadcast-section {{
+              .broadcast-communication-grid .broadcast-block {{
+                min-width: 0;
+                box-sizing: border-box;
+              }}
+            
+              .broadcast-communication-grid textarea,
+              .broadcast-communication-grid select,
+              .broadcast-communication-grid input {{
+                max-width: 100%;
+                box-sizing: border-box;
+              }}
+            
+              @media (max-width: 1100px) {{
+                .broadcast-communication-grid {{
                   grid-template-columns: 1fr;
                 }}
               }}
@@ -10335,7 +10352,7 @@ def panel_RFC(
                     </div>
                   </div>
                 
-                  <div class="broadcast-section">
+                  <div class="broadcast-section broadcast-communication-grid">
 
                       <div class="broadcast-left">
                         <div class="broadcast-block">
