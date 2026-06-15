@@ -12892,8 +12892,6 @@ def panel_auditoria_orígenes(
                       <th class="right">Total con éxito</th>
                       <th class="right">Sin registro</th>
                       <th class="right">Erróneas / duplicadas</th>
-                      <th class="right">Otros errores</th>
-                      <th class="right">Pendientes</th>
                       <th class="right">Total solicitudes</th>
                     </tr>
                   </thead>
@@ -12908,8 +12906,6 @@ def panel_auditoria_orígenes(
                       <td class="right">{r["total_exito"]}</td>
                       <td class="right">{r["sin_registro"]}</td>
                       <td class="right">{r["RFC_erroneas"]}</td>
-                      <td class="right">{r["otros_errores"]}</td>
-                      <td class="right">{r["pendientes"]}</td>
                       <td class="right"><strong>{r["total_solicitudes"]}</strong></td>
                     </tr>
                 """
@@ -12920,13 +12916,11 @@ def panel_auditoria_orígenes(
                       <td class="right">{provider_control_totals["total_exito"]}</td>
                       <td class="right">{provider_control_totals["sin_registro"]}</td>
                       <td class="right">{provider_control_totals["RFC_erroneas"]}</td>
-                      <td class="right">{provider_control_totals["otros_errores"]}</td>
-                      <td class="right">{provider_control_totals["pendientes"]}</td>
                       <td class="right">{provider_control_totals["total_solicitudes"]}</td>
                     </tr>
             """
         else:
-            html += '<tr><td colspan="7">Sin datos para este periodo.</td></tr>'
+            html += '<tr><td colspan="5">Sin datos para este periodo.</td></tr>'
 
         html += """
                   </tbody>
