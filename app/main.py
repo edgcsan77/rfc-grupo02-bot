@@ -9914,42 +9914,10 @@ def panel_RFC(
                 color: #111827;
                 background: white;
               }}
-
-              .broadcast-communication-grid {{
+            
+              .broadcast-section {{
                 display: grid;
-                grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
                 gap: 18px;
-                align-items: start;
-                width: 100%;
-                max-width: 100%;
-                box-sizing: border-box;
-                overflow: hidden;
-              }}
-            
-              .broadcast-communication-grid > .broadcast-left,
-              .broadcast-communication-grid > .broadcast-right {{
-                min-width: 0;
-                display: flex;
-                flex-direction: column;
-                gap: 18px;
-              }}
-            
-              .broadcast-communication-grid .broadcast-block {{
-                min-width: 0;
-                box-sizing: border-box;
-              }}
-            
-              .broadcast-communication-grid textarea,
-              .broadcast-communication-grid select,
-              .broadcast-communication-grid input {{
-                max-width: 100%;
-                box-sizing: border-box;
-              }}
-            
-              @media (max-width: 1100px) {{
-                .broadcast-communication-grid {{
-                  grid-template-columns: 1fr;
-                }}
               }}
             
               .broadcast-block {{
@@ -10352,150 +10320,146 @@ def panel_RFC(
                     </div>
                   </div>
                 
-                  <div class="broadcast-section broadcast-communication-grid">
-
-                      <div class="broadcast-left">
-                        <div class="broadcast-block">
-                          <div class="broadcast-block-title">Mensajes predefinidos</div>
-                    
-                          <div class="broadcast-buttons-grid">
-                            <button class="btn btn-success" onclick="sendBroadcast('activas')">Servicio activo</button>
-                            <button class="btn btn-warning" onclick="sendBroadcast('restablecido')">Servicio restablecido</button>
-                            <button class="btn btn-danger" onclick="sendBroadcast('suspendido')">Servicio suspendido</button>
-                            <button class="btn btn-closed" onclick="sendBroadcast('cerrado')">Servicio cerrado</button>
-                          </div>
-                        </div>
-                    
-                        <div class="broadcast-block">
-                          <div class="broadcast-block-title">Mensaje libre</div>
-                    
-                          <textarea
-                            id="broadcastMessage"
-                            class="broadcast-textarea"
-                            placeholder="Escribe aquí el mensaje que deseas enviar..."
-                          ></textarea>
-                    
-                          <div style="margin-top:10px;padding:10px;border:1px dashed #e5e7eb;border-radius:12px;background:rgba(255,255,255,.08);">
-                            <div style="font-size:12px;font-weight:700;margin-bottom:8px;">
-                              Audio opcional
-                            </div>
-                    
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                              <button type="button" class="btn btn-warning" onclick="startPanelAudioRecording('free')">
-                                Grabar audio
-                              </button>
-                    
-                              <button type="button" class="btn btn-danger" onclick="stopPanelAudioRecording()" disabled id="freeAudioStopBtn">
-                                Detener
-                              </button>
-                    
-                              <button type="button" class="btn btn-light" onclick="clearPanelAudio('free')">
-                                Quitar audio
-                              </button>
-                    
-                              <span id="freeAudioStatus" style="font-size:12px;color:#d1d5db;font-weight:700;">
-                                Sin audio
-                              </span>
-                            </div>
-                    
-                            <audio id="freeAudioPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
-                          </div>
-                    
-                          <div class="broadcast-actions">
-                            <button class="btn btn-success" onclick="sendFreeBroadcast()">Enviar mensaje libre</button>
-                            <button class="btn btn-light" onclick="clearBroadcast()">Limpiar</button>
-                          </div>
-                        </div>
+                  <div class="broadcast-section">
+                    <div class="broadcast-block">
+                      <div class="broadcast-block-title">Mensajes predefinidos</div>
+                
+                      <div class="broadcast-buttons-grid">
+                        <button class="btn btn-success" onclick="sendBroadcast('activas')">Servicio activo</button>
+                        <button class="btn btn-warning" onclick="sendBroadcast('restablecido')">Servicio restablecido</button>
+                        <button class="btn btn-danger" onclick="sendBroadcast('suspendido')">Servicio suspendido</button>
+                        <button class="btn btn-closed" onclick="sendBroadcast('cerrado')">Servicio cerrado</button>
                       </div>
-                    
-                      <div class="broadcast-right">
-                        <div class="broadcast-block">
-                          <div class="broadcast-block-title">Mensaje privado a mini gestores RFC</div>
-                    
-                          <div style="font-size:12px;color:#d1d5db;margin-bottom:8px;font-weight:600;">
-                            Selecciona qué mini gestores RFC recibirán el aviso por privado.
-                          </div>
-                    
-                          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-                            <button
-                              type="button"
-                              class="btn btn-light"
-                              style="font-size:11px;padding:6px 9px;"
-                              onclick="selectAllPrivateBots(true)"
-                            >
-                              Seleccionar todos configurados
-                            </button>
-                    
-                            <button
-                              type="button"
-                              class="btn btn-light"
-                              style="font-size:11px;padding:6px 9px;"
-                              onclick="selectAllPrivateBots(false)"
-                            >
-                              Quitar selección
-                            </button>
-                    
-                            <span
-                              id="privateBotSelectedCount"
-                              style="font-size:11px;color:#d1d5db;font-weight:700;"
-                            >
-                              0 seleccionados
-                            </span>
-                          </div>
-                    
-                          <div
-                            id="privateBotTargets"
-                            style="max-height:220px;overflow:auto;border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#f8fafc;color:#111827;"
-                          >
-                            Cargando bots...
-                          </div>
-                    
-                          <textarea
-                            id="privateBotsBroadcastMessage"
-                            class="broadcast-textarea"
-                            placeholder="Escribe aquí el mensaje privado para los bots seleccionados..."
-                            style="margin-top:10px;"
-                          ></textarea>
-                    
-                          <div style="margin-top:10px;padding:10px;border:1px dashed #e5e7eb;border-radius:12px;background:#f8fafc;color:#111827;">
-                            <div style="font-size:12px;font-weight:800;margin-bottom:8px;">
-                              Audio opcional
-                            </div>
-                    
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                              <button type="button" class="btn btn-warning" onclick="startPanelAudioRecording('private')">
-                                Grabar audio
-                              </button>
-                    
-                              <button type="button" class="btn btn-danger" onclick="stopPanelAudioRecording()" disabled id="privateAudioStopBtn">
-                                Detener
-                              </button>
-                    
-                              <button type="button" class="btn btn-light" onclick="clearPanelAudio('private')">
-                                Quitar audio
-                              </button>
-                    
-                              <span id="privateAudioStatus" style="font-size:12px;color:#64748b;font-weight:800;">
-                                Sin audio
-                              </span>
-                            </div>
-                    
-                            <audio id="privateAudioPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
-                          </div>
-                    
-                          <div
-                            id="privateBotsBroadcastProgress"
-                            style="display:none;margin-top:10px;padding:10px;border-radius:10px;background:#f8fafc;border:1px solid #e5e7eb;font-size:12px;color:#111827;font-weight:600;"
-                          ></div>
-                    
-                          <div class="broadcast-actions">
-                            <button class="btn btn-success" onclick="sendPrivateBotsBroadcast()">Enviar privado a seleccionados</button>
-                            <button class="btn btn-light" onclick="document.getElementById('privateBotsBroadcastMessage').value=''">Limpiar</button>
-                          </div>
-                        </div>
-                      </div>
-                    
                     </div>
+                
+                    <div class="broadcast-block">
+                      <div class="broadcast-block-title">Mensaje libre</div>
+                
+                      <textarea
+                        id="broadcastMessage"
+                        class="broadcast-textarea"
+                        placeholder="Escribe aquí el mensaje que deseas enviar..."
+                      ></textarea>
+
+                      <div style="margin-top:10px;padding:10px;border:1px dashed #e5e7eb;border-radius:12px;background:rgba(255,255,255,.08);">
+                        <div style="font-size:12px;font-weight:700;margin-bottom:8px;">
+                          Audio opcional
+                        </div>
+                    
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                          <button type="button" class="btn btn-warning" onclick="startPanelAudioRecording('free')">
+                            Grabar audio
+                          </button>
+                    
+                          <button type="button" class="btn btn-danger" onclick="stopPanelAudioRecording()" disabled id="freeAudioStopBtn">
+                            Detener
+                          </button>
+                    
+                          <button type="button" class="btn btn-light" onclick="clearPanelAudio('free')">
+                            Quitar audio
+                          </button>
+                    
+                          <span id="freeAudioStatus" style="font-size:12px;color:#d1d5db;font-weight:700;">
+                            Sin audio
+                          </span>
+                        </div>
+                    
+                        <audio id="freeAudioPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
+                      </div>
+                
+                      <div class="broadcast-actions">
+                        <button class="btn btn-success" onclick="sendFreeBroadcast()">Enviar mensaje libre</button>
+                        <button class="btn btn-light" onclick="clearBroadcast()">Limpiar</button>
+                      </div>
+                    </div>
+
+                    <div class="broadcast-block">
+                      </div>
+<div class="broadcast-block-title">Mensaje privado a mini gestores RFC</div>
+                    
+                      <div style="font-size:12px;color:#d1d5db;margin-bottom:8px;font-weight:600;">
+                        Selecciona qué mini gestores RFC recibirán el aviso por privado.
+                      </div>
+
+                      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+                        <button
+                          type="button"
+                          class="btn btn-light"
+                          style="font-size:11px;padding:6px 9px;"
+                          onclick="selectAllPrivateBots(true)"
+                        >
+                          Seleccionar todos configurados
+                        </button>
+                    
+                        <button
+                          type="button"
+                          class="btn btn-light"
+                          style="font-size:11px;padding:6px 9px;"
+                          onclick="selectAllPrivateBots(false)"
+                        >
+                          Quitar selección
+                        </button>
+                    
+                        <span
+                          id="privateBotSelectedCount"
+                          style="font-size:11px;color:#d1d5db;font-weight:700;"
+                        >
+                          0 seleccionados
+                        </span>
+                      </div>
+                    
+                      <div
+                        id="privateBotTargets"
+                        style="max-height:220px;overflow:auto;border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#f8fafc;color:#111827;"
+                      >
+                        Cargando bots...
+                      </div>
+                    
+                      <textarea
+                        id="privateBotsBroadcastMessage"
+                        class="broadcast-textarea"
+                        placeholder="Escribe aquí el mensaje privado para los bots seleccionados..."
+                        style="margin-top:10px;"
+                      ></textarea>
+
+                      <div style="margin-top:10px;padding:10px;border:1px dashed #e5e7eb;border-radius:12px;background:#f8fafc;color:#111827;">
+                        <div style="font-size:12px;font-weight:800;margin-bottom:8px;">
+                          Audio opcional
+                        </div>
+                    
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                          <button type="button" class="btn btn-warning" onclick="startPanelAudioRecording('private')">
+                            Grabar audio
+                          </button>
+                    
+                          <button type="button" class="btn btn-danger" onclick="stopPanelAudioRecording()" disabled id="privateAudioStopBtn">
+                            Detener
+                          </button>
+                    
+                          <button type="button" class="btn btn-light" onclick="clearPanelAudio('private')">
+                            Quitar audio
+                          </button>
+                    
+                          <span id="privateAudioStatus" style="font-size:12px;color:#64748b;font-weight:800;">
+                            Sin audio
+                          </span>
+                        </div>
+                    
+                        <audio id="privateAudioPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
+                      </div>
+                    
+                      <div
+                        id="privateBotsBroadcastProgress"
+                        style="display:none;margin-top:10px;padding:10px;border-radius:10px;background:#f8fafc;border:1px solid #e5e7eb;font-size:12px;color:#111827;font-weight:600;"
+                      ></div>
+                    
+                      <div class="broadcast-actions">
+                        <button class="btn btn-success" onclick="sendPrivateBotsBroadcast()">Enviar privado a seleccionados</button>
+                        <button class="btn btn-light" onclick="document.getElementById('privateBotsBroadcastMessage').value=''">Limpiar</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 
               </div>
             </div>
@@ -19933,4 +19897,3 @@ def is_instance_admin_blocked(instance_name: str) -> bool:
     except Exception as e:
         print("[IS_INSTANCE_ADMIN_BLOCKED_OVERRIDE_ERROR]", repr(e), {"instance_name": instance_name}, flush=True)
         return False
-
