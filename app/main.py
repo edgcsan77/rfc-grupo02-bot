@@ -2080,10 +2080,6 @@ def botpanel_audit_all_groups(
     if not instance_name:
         return HTMLResponse("<h3>Panel no válido.</h3>", status_code=404)
 
-    if not _is_child_bot(instance_name):
-        if instance_name == MAIN_PANEL_INSTANCE:
-            return HTMLResponse("<h3>El bot principal entra por /panel, no por /botpanel.</h3>", status_code=400)
-
     period_view = period or "day"
     time_min, time_max, view = _panel_period_bounds(period_view)
 
@@ -7918,10 +7914,6 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
     if not instance_name:
         return HTMLResponse("<h3>Panel no válido.</h3>", status_code=404)
 
-    if not _is_child_bot(instance_name):
-        if instance_name == MAIN_PANEL_INSTANCE:
-            return HTMLResponse("<h3>El bot principal entra por /panel, no por /botpanel.</h3>", status_code=400)
-
     title = _bot_title(db, instance_name)
     today_sales = _bot_sales_today(db, instance_name)
     month_sales = _bot_sales_30d(db, instance_name)
@@ -8184,6 +8176,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             <div style="display:grid;grid-template-columns:1.4fr 1fr auto;gap:12px;align-items:end;">
               <div>
                 <div class="small" style="margin-bottom:6px;">Group JID</div>
+                <input id="manual_group_jid" placeholder="120363000000000000@g.us">
               </div>
               <div>
                 <div class="small" style="margin-bottom:6px;">Nombre del grupo</div>
