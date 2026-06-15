@@ -1,4 +1,5 @@
 .env
+.env.*
 venv/
 __pycache__/
 *.pyc
@@ -29,8 +30,15 @@ temp/
 media/
 uploads/
 cache/
+data/
+app/data/
 
-app/main.py.before-*
-app/main.py.roto-*
+*.before-*
+*.original-*
 *.backup
 *.bak
+*.roto-*
+*.broken-*
+
+source-actas/
+constancia-backend-main/
