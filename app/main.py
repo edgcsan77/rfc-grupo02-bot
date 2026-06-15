@@ -9919,6 +9919,35 @@ def panel_RFC(
                 display: grid;
                 gap: 18px;
               }}
+
+              .broadcast-communication-grid {{
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+                gap: 18px;
+                align-items: start;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
+              }}
+            
+              .broadcast-communication-grid > .broadcast-left,
+              .broadcast-communication-grid > .broadcast-right {{
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 18px;
+              }}
+            
+              .broadcast-communication-grid .broadcast-block {{
+                min-width: 0;
+                box-sizing: border-box;
+              }}
+            
+              @media (max-width: 1100px) {{
+                .broadcast-communication-grid {{
+                  grid-template-columns: 1fr;
+                }}
+              }}
             
               .broadcast-block {{
                 background: rgba(255,255,255,.06);
@@ -10301,6 +10330,7 @@ def panel_RFC(
                     <strong>Estado actual</strong><br><br>
                     {provider_states}
                   </div>
+                  </div>
                 </div>
         
                 <div class="glass">
@@ -10320,7 +10350,8 @@ def panel_RFC(
                     </div>
                   </div>
                 
-                  <div class="broadcast-section">
+                  <div class="broadcast-section broadcast-communication-grid">
+                    <div class="broadcast-left">
                     <div class="broadcast-block">
                       <div class="broadcast-block-title">Mensajes predefinidos</div>
                 
@@ -10371,11 +10402,13 @@ def panel_RFC(
                         <button class="btn btn-success" onclick="sendFreeBroadcast()">Enviar mensaje libre</button>
                         <button class="btn btn-light" onclick="clearBroadcast()">Limpiar</button>
                       </div>
+                      </div>
+                      
                     </div>
 
-                    <div class="broadcast-block">
-                      </div>
-<div class="broadcast-block-title">Mensaje privado a mini gestores RFC</div>
+                    <div class="broadcast-right">
+                      <div class="broadcast-block">
+                        <div class="broadcast-block-title">Mensaje privado a mini gestores RFC</div>
                     
                       <div style="font-size:12px;color:#d1d5db;margin-bottom:8px;font-weight:600;">
                         Selecciona qué mini gestores RFC recibirán el aviso por privado.
@@ -10459,8 +10492,8 @@ def panel_RFC(
                       </div>
                     </div>
                   </div>
+                  </div>
                 </div>
-                
               </div>
             </div>
         
