@@ -18800,7 +18800,7 @@ def panel_rfc_owner_status_fragment(request: Request):
                 DO NOTHING
             """), {
                 "owner": owner,
-                "owner_name": bot_label(owner, db) or owner or "RFC",
+                "owner_name": owner,
             })
 
             row = conn.execute(text("""
