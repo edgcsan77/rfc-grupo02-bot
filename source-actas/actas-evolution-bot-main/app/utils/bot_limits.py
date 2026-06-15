@@ -1,0 +1,176 @@
+from datetime import datetime, timezone
+from sqlalchemy.orm import Session
+
+from app.models import AppSetting, RequestLog
+from app.queue import redis_conn
+
+BLOCKED_INSTANCES_KEY = "blocked_instances_no_response"
+
+
+def block_instance(instance_name: str):
+    instance_name = (instance_name or "").strip()
+    if not instance_name:
+        return
+    redis_conn.sadd(BLOCKED_INSTANCES_KEY, instance_name)
+
+
+def unblock_instance(instance_name: str):
+    instance_name = (instance_name or "").strip()
+    if not instance_name:
+        return
+    redis_conn.srem(BLOCKED_INSTANCES_KEY, instance_name)
+    redis_conn.srem(BLOCKED_INSTANCES_KEY, instance_name.encode("utf-8"))
+
+
+# =========================
+# TIME
+# =========================
+def _utc_now_naive():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# =========================
+# APP SETTINGS (KV STORE)
+# =========================
+def _app_setting_get(db: Session, key: str, default: str = "") -> str:
+    row = db.query(AppSetting).filter(AppSetting.key == key).first()
+    return (row.value or default) if row else default
+
+
+def _app_setting_set(db: Session, key: str, value: str):
+    row = db.query(AppSetting).filter(AppSetting.key == key).first()
+    if row:
+        row.value = str(value)
+        row.updated_at = _utc_now_naive()
+    else:
+        row = AppSetting(
+            key=key,
+            value=str(value),
+            updated_at=_utc_now_naive(),
+        )
+        db.add(row)
+    db.commit()
+
+
+# =========================
+# KEYS
+# =========================
+def _bot_limit_key(instance_name: str) -> str:
+    return f"bot_limit:{instance_name}"
+
+
+def _bot_used_key(instance_name: str) -> str:
+    return f"bot_used:{instance_name}"
+
+
+def _bot_used_offset_key(instance_name: str) -> str:
+    return f"bot_used_offset:{instance_name}"
+
+
+# =========================
+# GETTERS
+# =========================
+def get_bot_limit(db: Session, instance_name: str) -> int:
+    try:
+        return int(_app_setting_get(db, _bot_limit_key(instance_name), "0") or "0")
+    except Exception:
+        return 0
+
+
+def get_bot_used(db: Session, instance_name: str) -> int:
+    instance_name = (instance_name or "").strip()
+    if not instance_name:
+        return 0
+
+    try:
+        value = _app_setting_get(db, _bot_used_key(instance_name), None)
+
+        if value is not None and str(value).strip() != "":
+            return max(0, int(value or 0))
+
+        total_done = (
+            db.query(RequestLog)
+            .filter(
+                RequestLog.instance_name == instance_name,
+                RequestLog.status == "DONE",
+            )
+            .count()
+        )
+
+        offset = int(_app_setting_get(db, _bot_used_offset_key(instance_name), "0") or "0")
+
+        return max(0, int(total_done or 0) - offset)
+
+    except Exception:
+        return 0
+
+
+# =========================
+# SETTERS
+# =========================
+def set_bot_limit(db: Session, instance_name: str, limit_value: int):
+    _app_setting_set(
+        db,
+        _bot_limit_key(instance_name),
+        str(max(0, int(limit_value))),
+    )
+
+
+def set_bot_used(db: Session, instance_name: str, used_value: int):
+    instance_name = (instance_name or "").strip()
+    if not instance_name:
+        return
+
+    used_value = max(0, int(used_value or 0))
+
+    if used_value == 0:
+        total_done = (
+            db.query(RequestLog)
+            .filter(
+                RequestLog.instance_name == instance_name,
+                RequestLog.status == "DONE",
+            )
+            .count()
+        )
+
+        _app_setting_set(
+            db,
+            _bot_used_offset_key(instance_name),
+            str(int(total_done or 0)),
+        )
+        return
+
+    _app_setting_set(
+        db,
+        _bot_used_key(instance_name),
+        str(used_value),
+    )
+
+
+# =========================
+# MAIN LOGIC
+# =========================
+def increment_bot_used_and_maybe_block(
+    db: Session,
+    instance_name: str
+) -> tuple[int, int, bool]:
+
+    instance_name = (instance_name or "").strip()
+
+    used = get_bot_used(db, instance_name)
+    limit_value = get_bot_limit(db, instance_name)
+
+    new_used = used + 1
+
+    _app_setting_set(
+        db,
+        _bot_used_key(instance_name),
+        str(new_used),
+    )
+
+    blocked_now = False
+    if limit_value > 0 and new_used >= limit_value:
+        block_instance(instance_name)
+        blocked_now = True
+
+    return new_used, limit_value, blocked_now

@@ -1,0 +1,46 @@
+# Entorno / secretos
+.env
+.env.*
+*.env
+*.swp
+*.swo
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Logs
+*.log
+logs/
+cleanup_timeout.log
+
+# Backups
+*.bak
+*.backup
+*.old
+app/*.bak*
+*.tar
+*.tar.gz
+*.zip
+*.dump
+
+# Archivos generados / PDFs
+*.pdf
+pdfs/
+tmp/
+temp/
+
+# Sistema
+.DS_Store
+
+# Backups manuales con sufijos
+*.bak_*
+*.py.bak*
+*.py.bak_*
+app/**/*.bak*
+app/**/*.bak_*
