@@ -11093,7 +11093,7 @@ def panel_RFC(
 
           <div class="small" style="margin-top:10px;color:#64748b;">
             Fórmula de cuadre:
-            Total de solicitudes = Total con éxito + Sin registro + RFC erróneas/duplicadas + Otros errores + Pendientes.
+            Total de solicitudes = Total con éxito + Sin registro + RFC erróneas/duplicadas.
           </div>
         </div>
         """
@@ -12879,7 +12879,7 @@ def panel_auditoria_orígenes(
                 <div>
                   <strong>Control contable por origen</strong>
                   <div class="small">
-                    Fórmula: Total = Éxito + Sin registro + Erróneas/duplicadas + Otros errores + Pendientes.
+                    Fórmula: Total = Éxito + Sin registro + Erróneas/duplicadas.
                   </div>
                 </div>
               </div>
