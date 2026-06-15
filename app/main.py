@@ -12892,7 +12892,7 @@ def panel_auditoria_orígenes(
                       <th class="right">Total con éxito</th>
                       <th class="right">Sin registro</th>
                       <th class="right">Erróneas / duplicadas</th>
-                      <th class="right">Total solicitudes</th>
+                      <th class="right">Total visible</th>
                     </tr>
                   </thead>
                   <tbody>
