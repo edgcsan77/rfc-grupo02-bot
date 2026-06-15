@@ -6238,7 +6238,7 @@ BROADCAST_RESTABLECIDO_MSG = """⚡⚡⚡ *SERVICIO SUPER RÁPIDO* ⚡⚡⚡
 💫 *MANDEN, MANDEN* 💫
 """
 
-BROADCAST_SUSPENDIDO_MSG = """⛔ *RFC GRUPO02 SUSPENDIDO TEMPORALMENTE*
+BROADCAST_SUSPENDIDO_MSG = """⛔ *SERVICIO SUSPENDIDO TEMPORALMENTE*
 
 Por el momento el servicio está suspendido temporalmente.
 En cuanto vuelva a operar les avisaremos por este medio.
@@ -16060,6 +16060,7 @@ BOT_AUTO_MESSAGES_PREFIXES = (
     "❌ No se pudo procesar",
     "🔁 Reintentando solicitud",
     "🚀 RFC GRUPO02",
+    "🚀 DOCU EXPRES",
 )
 
 def is_bot_generated_text(text: str | None) -> bool:
@@ -16284,8 +16285,10 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
         print("DEBUG_MESSAGE_KEYS =", list(message.keys()), flush=True)
 
         if not bot_is_open() and terms and not is_provider_message and not is_admin_command:
+            bot_name = bot_label(instance_name, db) or instance_name or "RFC"
+        
             msg = (
-                "🚀 *RFC GRUPO02*\n"
+                f"*{bot_name}*\n"
                 "El sistema está cerrado.\n\n"
                 "Horario de solicitudes:\n"
                 "🕗 8:00 AM - 10:00 PM\n"
@@ -18797,7 +18800,7 @@ def panel_rfc_owner_status_fragment(request: Request):
                 DO NOTHING
             """), {
                 "owner": owner,
-                "owner_name": "RFC GRUPO02",
+                "owner_name": bot_label(owner, db) or owner or "RFC",
             })
 
             row = conn.execute(text("""
