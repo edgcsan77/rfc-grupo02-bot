@@ -2401,9 +2401,6 @@ def botpanel_audit_all_groups(
             <select name="status">
               <option value="DONE" {"selected" if status == "DONE" else ""}>Solo vendidas / DONE</option>
               <option value="" {"selected" if status == "" else ""}>Todas</option>
-              <option value="ERROR" {"selected" if status == "ERROR" else ""}>Errores</option>
-              <option value="PROCESSING" {"selected" if status == "PROCESSING" else ""}>Procesando</option>
-              <option value="QUEUED" {"selected" if status == "QUEUED" else ""}>En cola</option>
             </select>
 
             <button class="btn" type="submit" style="border:0;cursor:pointer;">Filtrar</button>
@@ -2412,9 +2409,6 @@ def botpanel_audit_all_groups(
           <div class="stats">
             <div class="stat"><span>Total</span><strong>{totals["total"]}</strong></div>
             <div class="stat"><span>DONE</span><strong>{totals["done"]}</strong></div>
-            <div class="stat"><span>ERROR</span><strong>{totals["error"]}</strong></div>
-            <div class="stat"><span>PROCESSING</span><strong>{totals["processing"]}</strong></div>
-            <div class="stat"><span>QUEUED</span><strong>{totals["queued"]}</strong></div>
           </div>
         </div>
     """
@@ -2433,9 +2427,6 @@ def botpanel_audit_all_groups(
                 <th>Fecha</th>
                 <th>Total</th>
                 <th>DONE</th>
-                <th>ERROR</th>
-                <th>PROCESSING</th>
-                <th>QUEUED</th>
               </tr>
             </thead>
             <tbody>
@@ -2465,9 +2456,6 @@ def botpanel_audit_all_groups(
                 <td>{_esc(d["date"])}</td>
                 <td>{int(d["total"] or 0)}</td>
                 <td>{int(d["done"] or 0)}</td>
-                <td>{int(d["error"] or 0)}</td>
-                <td>{int(d["processing"] or 0)}</td>
-                <td>{int(d["queued"] or 0)}</td>
               </tr>
             """
 
@@ -2481,9 +2469,6 @@ def botpanel_audit_all_groups(
                     <td>{_esc(weekly_start)} a {_esc(d["date"])}</td>
                     <td>{weekly_total}</td>
                     <td>{weekly_done}</td>
-                    <td>{weekly_error}</td>
-                    <td>{weekly_processing}</td>
-                    <td>{weekly_queued}</td>
                   </tr>
                 """
 
@@ -2496,7 +2481,7 @@ def botpanel_audit_all_groups(
     else:
         html += """
               <tr>
-                <td colspan="7">Sin movimientos en este periodo.</td>
+                <td colspan="4">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -2514,9 +2499,6 @@ def botpanel_audit_all_groups(
                 <th>Grupo</th>
                 <th>Total</th>
                 <th>DONE</th>
-                <th>ERROR</th>
-                <th>PROCESSING</th>
-                <th>QUEUED</th>
               </tr>
             </thead>
             <tbody>
@@ -2532,15 +2514,12 @@ def botpanel_audit_all_groups(
                 </td>
                 <td>{g["total"]}</td>
                 <td>{g["done"]}</td>
-                <td>{g["error"]}</td>
-                <td>{g["processing"]}</td>
-                <td>{g["queued"]}</td>
               </tr>
             """
     else:
         html += """
               <tr>
-                <td colspan="6">Sin movimientos en este periodo.</td>
+                <td colspan="3">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -5828,9 +5807,6 @@ def panel_group_detail(
                 <th>Fecha</th>
                 <th class="right">Total</th>
                 <th class="right">Hecho</th>
-                <th class="right">Error</th>
-                <th class="right">En cola</th>
-                <th class="right">Procesando</th>
                 <th class="right">Precio</th>
                 <th class="right">$ Hecho</th>
               </tr>
@@ -5862,9 +5838,6 @@ def panel_group_detail(
                 <td>{_esc(r["date"])}</td>
                 <td class="right">{r["total"]}</td>
                 <td class="right">{r["done"]}</td>
-                <td class="right">{r["error"]}</td>
-                <td class="right">{r["queued"]}</td>
-                <td class="right">{r["processing"]}</td>
                 <td class="right">${RFC_price_num:,.2f}</td>
                 <td class="right">${done_amount:,.2f}</td>
               </tr>
@@ -5881,9 +5854,6 @@ def panel_group_detail(
                 <td>{_esc(weekly_start)} a {_esc(r["date"])}</td>
                 <td class="right">{weekly_total}</td>
                 <td class="right">{weekly_done}</td>
-                <td class="right">{weekly_error}</td>
-                <td class="right">{weekly_queued}</td>
-                <td class="right">{weekly_processing}</td>
                 <td class="right">${RFC_price_num:,.2f}</td>
                 <td class="right">${weekly_amount:,.2f}</td>
               </tr>
@@ -5903,9 +5873,6 @@ def panel_group_detail(
                 <td colspan="2">TOTAL</td>
                 <td class="right">{t["total"]}</td>
                 <td class="right">{t["done"]}</td>
-                <td class="right">{t["error"]}</td>
-                <td class="right">{t["queued"]}</td>
-                <td class="right">{t["processing"]}</td>
                 <td class="right">${RFC_price_num:,.2f}</td>
                 <td class="right">${total_amount:,.2f}</td>
               </tr>
@@ -10723,23 +10690,8 @@ def panel_RFC(
             </div>
         
             <div class="card">
-              <div class="label">En cola</div>
-              <div class="value">{summary["queued"]}</div>
-            </div>
-        
-            <div class="card">
-              <div class="label">Procesando</div>
-              <div class="value">{summary["processing"]}</div>
-            </div>
-        
-            <div class="card">
               <div class="label">Hecho</div>
               <div class="value">{summary["done"]}</div>
-            </div>
-        
-            <div class="card">
-              <div class="label">Error</div>
-              <div class="value">{summary["error"]}</div>
             </div>
           </div>
         </div>
@@ -11007,7 +10959,6 @@ def panel_RFC(
                   <th>Bot</th>
                   <th class="right">Total</th>
                   <th class="right">HECHO</th>
-                  <th class="right">ERROR</th>
                 </tr>
               </thead>
               <tbody>
@@ -11020,11 +10971,10 @@ def panel_RFC(
                   <td>{_esc(bot_labels_map.get(r["instance_name"]) or r["instance_name"])}</td>
                   <td class="right">{r["total"]}</td>
                   <td class="right">{r["done"]}</td>
-                  <td class="right">{r["error"]}</td>
                 </tr>
                 """
         else:
-            html += '<tr><td colspan="4">Sin datos.</td></tr>'
+            html += '<tr><td colspan="3">Sin datos.</td></tr>'
     
         html += """
               </tbody>
@@ -11043,7 +10993,6 @@ def panel_RFC(
                   <th>Origen</th>
                   <th class="right">Total</th>
                   <th class="right">HECHO</th>
-                  <th class="right">ERROR</th>
                 </tr>
               </thead>
               <tbody>
@@ -11056,11 +11005,10 @@ def panel_RFC(
                   <td>{_esc(_provider_label(r["provider_name"]))}</td>
                   <td class="right">{r["total"]}</td>
                   <td class="right">{r["done"]}</td>
-                  <td class="right">{r["error"]}</td>
                 </tr>
                 """
         else:
-            html += '<tr><td colspan="4">Sin datos.</td></tr>'
+            html += '<tr><td colspan="3">Sin datos.</td></tr>'
     
         html += """
               </tbody>
@@ -11162,7 +11110,6 @@ def panel_RFC(
                   <th>Tipo</th>
                   <th class="right">Total</th>
                   <th class="right">HECHO</th>
-                  <th class="right">ERROR</th>
                 </tr>
               </thead>
               <tbody>
@@ -11175,11 +11122,10 @@ def panel_RFC(
                   <td>{_esc(r["act_type"])}</td>
                   <td class="right">{r["total"]}</td>
                   <td class="right">{r["done"]}</td>
-                  <td class="right">{r["error"]}</td>
                 </tr>
                 """
         else:
-            html += '<tr><td colspan="4">Sin datos.</td></tr>'
+            html += '<tr><td colspan="3">Sin datos.</td></tr>'
     
         html += """
               </tbody>
@@ -11282,7 +11228,6 @@ def panel_RFC(
                   <th>Grupo</th>
                   <th class="right">Total</th>
                   <th class="right">HECHO</th>
-                  <th class="right">ERROR</th>
                   <th>Bolsa RFC</th>
                   <th>Última actualización</th>
                   <th>Bloqueo</th>
@@ -11355,7 +11300,6 @@ def panel_RFC(
                   </td>
                   <td class="right">{r["total"]}</td>
                   <td class="right">{r["done"]}</td>
-                  <td class="right">{r["error"]}</td>
                   <td>{promo_cell}</td>
                   <td>{_esc(_fmt_dt(r["last_update"]))}</td>
                   <td>{blocked_text}</td>
@@ -11371,7 +11315,7 @@ def panel_RFC(
                 </tr>
                 """
         else:
-            html += '<tr><td colspan="8">Sin datos.</td></tr>'
+            html += '<tr><td colspan="7">Sin datos.</td></tr>'
     
         html += """
               </tbody>
