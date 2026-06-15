@@ -1,3 +1,0 @@
-libreoffice
-fonts-dejavu
-fonts-liberation
