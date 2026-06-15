@@ -10162,9 +10162,9 @@ def panel_RFC(
                 </button>
               </form>
         
-              <div class="grid-hero">
-                <div class="glass">
-                  <div style="display:none"><h3 class="section-title">Orígenes</h3>
+              <div class="grid-hero" style="grid-template-columns:1fr;">
+                <div class="glass" style="display:none;">
+                  <div><h3 class="section-title">Orígenes</h3>
             
                   <div class="provider-grid">
 
