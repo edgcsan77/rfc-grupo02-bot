@@ -7351,8 +7351,15 @@ def procesar_solicitud_interna_para_pdf(
         )
         
         instance_name = (instance_name or "").strip()
-        SKIP_PRIMARY_INTERNAL = instance_name not in CHECKID_ENABLED_INSTANCES
 
+        # Por defecto, solo las instancias permitidas usan CheckID
+        SKIP_PRIMARY_INTERNAL = instance_name not in CHECKID_ENABLED_INSTANCES
+        
+        # EXCEPCIÓN: RFC_ONLY sí puede usar CheckID en cualquier instancia
+        if input_type == "RFC_ONLY":
+            SKIP_PRIMARY_INTERNAL = False
+        
+        # Estos grupos también fuerzan CheckID aunque la instancia no esté permitida
         if strict_checkid_group or checkid_first_then_clon_group:
             SKIP_PRIMARY_INTERNAL = False
         
