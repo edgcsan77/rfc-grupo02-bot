@@ -361,7 +361,8 @@ async def evolution_rfc_webhook(request: Request):
             try:
                 send_text(
                     remote_jid,
-                    f"{_bot_label_from_db(instance_name)}\nSolicitud recibida de {requester_label}.\nEsto puede tardar unos segundos..."                    instance_name=instance_name,
+                    f"{_bot_label_from_db(instance_name)}\nSolicitud recibida de {requester_label}.\nEsto puede tardar unos segundos...",
+                    instance_name=instance_name,
                 )
             except Exception as ack_exc:
                 print("RFC_ACK_SEND_ERROR =", repr(ack_exc), flush=True)
