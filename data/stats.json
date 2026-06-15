@@ -1,0 +1,129 @@
+{
+  "request_total": 16,
+  "success_total": 0,
+  "por_dia": {
+    "2026-06-14": {
+      "requests": 13,
+      "success": 0
+    },
+    "2026-06-15": {
+      "requests": 3,
+      "success": 0
+    }
+  },
+  "por_usuario": {
+    "527555592077": {
+      "hoy": "2026-06-15",
+      "count": 3,
+      "success": 0,
+      "rfcs_ok": []
+    }
+  },
+  "por_usuario_dia": {
+    "527555592077": {
+      "2026-06-14": {
+        "requests": 13,
+        "success": 0
+      },
+      "2026-06-15": {
+        "requests": 3,
+        "success": 0
+      }
+    }
+  },
+  "attempts": {},
+  "last_success": [],
+  "updated_at": "2026-06-15T00:31:27.929377-06:00",
+  "refresh": {
+    "last_manual": null,
+    "last_auto": null,
+    "last_reason": ""
+  },
+  "billing": {
+    "total_billed": 4,
+    "total_revenue_mxn": 10,
+    "by_user": {
+      "527555592077": {
+        "billed": 4,
+        "revenue_mxn": 10,
+        "by_type": {
+          "CURP": {
+            "billed": 3,
+            "revenue_mxn": 9
+          },
+          "RFC_IDCIF": {
+            "billed": 1,
+            "revenue_mxn": 1
+          }
+        },
+        "keys": [
+          "CURP:CASE020722HTSRNDA8",
+          "RFC:GUPF681210D61",
+          "CURP:ZAGA900615MMCCNN06",
+          "CURP:GUPF681210HJCTRS02"
+        ],
+        "last": "2026-06-14T23:56:44.297937-06:00"
+      }
+    },
+    "by_type": {
+      "CURP": {
+        "billed": 3,
+        "revenue_mxn": 9
+      },
+      "RFC_IDCIF": {
+        "billed": 1,
+        "revenue_mxn": 1
+      },
+      "QR": {
+        "billed": 0,
+        "revenue_mxn": 0
+      },
+      "RFC_ONLY": {
+        "billed": 0,
+        "revenue_mxn": 0
+      }
+    },
+    "base_price_mxn": 0
+  },
+  "pricing": {
+    "default": {
+      "CURP": 3,
+      "RFC_IDCIF": 1,
+      "QR": 1,
+      "RFC_ONLY": 3
+    },
+    "users": {}
+  },
+  "ok_index": {
+    "CURP:CASE020722HTSRNDA8": {
+      "user": "527555592077",
+      "ts": "2026-06-14T20:18:15.178479-06:00",
+      "type": "CURP",
+      "price": 3
+    },
+    "RFC:GUPF681210D61": {
+      "user": "527555592077",
+      "ts": "2026-06-14T21:16:30.789671-06:00",
+      "type": "RFC_IDCIF",
+      "price": 1
+    },
+    "CURP:ZAGA900615MMCCNN06": {
+      "user": "527555592077",
+      "ts": "2026-06-14T23:45:19.422010-06:00",
+      "type": "CURP",
+      "price": 3
+    },
+    "CURP:GUPF681210HJCTRS02": {
+      "user": "527555592077",
+      "ts": "2026-06-14T23:56:44.297928-06:00",
+      "type": "CURP",
+      "price": 3
+    }
+  },
+  "rfc_ok_index": {},
+  "blocked_users": {},
+  "allowlist_enabled": false,
+  "allowlist_wa": [],
+  "allowlist_meta": {},
+  "events": []
+}
