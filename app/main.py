@@ -11052,8 +11052,6 @@ def panel_RFC(
                   <th class="right">Total con éxito</th>
                   <th class="right">RFC sin registro en sistema</th>
                   <th class="right">RFC erróneas / duplicadas</th>
-                  <th class="right">Otros errores</th>
-                  <th class="right">Pendientes</th>
                   <th class="right">Total de solicitudes</th>
                 </tr>
               </thead>
@@ -11068,8 +11066,6 @@ def panel_RFC(
                   <td class="right">{r["total_exito"]}</td>
                   <td class="right">{r["sin_registro"]}</td>
                   <td class="right">{r["RFC_erroneas"]}</td>
-                  <td class="right">{r["otros_errores"]}</td>
-                  <td class="right">{r["pendientes"]}</td>
                   <td class="right"><strong>{r["total_solicitudes"]}</strong></td>
                 </tr>
                 """
@@ -11080,8 +11076,6 @@ def panel_RFC(
                   <td class="right">{provider_control_totals["total_exito"]}</td>
                   <td class="right">{provider_control_totals["sin_registro"]}</td>
                   <td class="right">{provider_control_totals["RFC_erroneas"]}</td>
-                  <td class="right">{provider_control_totals["otros_errores"]}</td>
-                  <td class="right">{provider_control_totals["pendientes"]}</td>
                   <td class="right">{provider_control_totals["total_solicitudes"]}</td>
                 </tr>
             """
@@ -12943,98 +12937,6 @@ def panel_auditoria_orígenes(
             <div class="box">
               <div class="head">
                 <div>
-                  <strong>Detalle de errores por origen</strong>
-                  <div class="small">
-                    Agrupa los mensajes técnicos de error en categorías entendibles.
-                  </div>
-                </div>
-              </div>
-
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Origen</th>
-                      <th>Tipo de error</th>
-                      <th class="right">Cantidad</th>
-                      <th>Ejemplo técnico</th>
-                      <th>Solicitudes / CURP</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-        """
-
-        if error_detail_rows:
-            for r in error_detail_rows:
-                examples_html = "<br>".join(_esc(x) for x in r.get("examples", []))
-
-                item_rows_html = ""
-
-                for item in r.get("items", []):
-                    item_rows_html += f"""
-                        <tr>
-                          <td class="mono">{item["id"]}</td>
-                          <td class="mono">{_esc(item["created_at"])}</td>
-                          <td class="mono">{_esc(item["curp"])}</td>
-                          <td>{_esc(item["act_type"])}</td>
-                          <td>{_esc(bot_label(item["instance_name"], db))}<br><span class="small mono">{_esc(item["instance_name"])}</span></td>
-                          <td class="mono">{_esc(item["source_group_id"])}</td>
-                          <td class="mono">{_esc(item["requester_wa_id"])}</td>
-                          <td class="small mono">{_esc(item["error_message"][:260])}</td>
-                        </tr>
-                    """
-
-                if item_rows_html:
-                    items_html = f"""
-                        <details>
-                          <summary>Ver {len(r.get("items", []))} solicitud(es)</summary>
-                          <div style="margin-top:8px; max-height:360px; overflow:auto;">
-                            <table>
-                              <thead>
-                                <tr>
-                                  <th>ID</th>
-                                  <th>Fecha MTY</th>
-                                  <th>CURP / dato</th>
-                                  <th>Tipo</th>
-                                  <th>Bot</th>
-                                  <th>Grupo origen</th>
-                                  <th>Solicitante</th>
-                                  <th>Error técnico</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {item_rows_html}
-                              </tbody>
-                            </table>
-                          </div>
-                        </details>
-                    """
-                else:
-                    items_html = '<span class="small">Sin detalle.</span>'
-
-                html += f"""
-                    <tr>
-                      <td><strong>{_esc(_provider_label(r["provider_name"]))}</strong></td>
-                      <td>{_esc(r["error_type"])}</td>
-                      <td class="right"><strong>{r["total"]}</strong></td>
-                      <td class="small mono">{examples_html}</td>
-                      <td>{items_html}</td>
-                    </tr>
-                """
-        else:
-            html += '<tr><td colspan="5">Sin errores registrados para este periodo.</td></tr>'
-            
-        html += """
-                  </tbody>
-                </table>
-              </div>
-            </div>
-        """
-
-        html += """
-            <div class="box">
-              <div class="head">
-                <div>
                   <strong>Origen + bot</strong>
                   <div class="small">
                     Sirve para detectar si el problema viene de un origen completo o de una combinación origen/bot.
@@ -13084,70 +12986,6 @@ def panel_auditoria_orígenes(
         """
 
         html += """
-            <div class="box">
-              <div class="head">
-                <div>
-                  <strong>Pendientes críticas</strong>
-                  <div class="small">
-                    Muestra las solicitudes más viejas que siguen en QUEUED o PROCESSING.
-                  </div>
-                </div>
-              </div>
-
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Solicitud</th>
-                      <th>Tipo</th>
-                      <th>Bot</th>
-                      <th>Origen</th>
-                      <th>Estado</th>
-                      <th>Creado</th>
-                      <th>Tiempo esperando</th>
-                      <th>Último error</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-        """
-
-        if pending_rows:
-            now_utc = _utc_now_naive()
-
-            for r in pending_rows:
-                try:
-                    waiting = _fmt_duration_seconds((now_utc - r.created_at).total_seconds()) if r.created_at else ""
-                except Exception:
-                    waiting = ""
-
-                status_class = {
-                    "QUEUED": "status-q",
-                    "PROCESSING": "status-p",
-                }.get(r.status, "")
-
-                html += f"""
-                    <tr>
-                      <td>{r.id}</td>
-                      <td class="mono">{_esc(r.curp)}</td>
-                      <td>{_esc(r.act_type)}</td>
-                      <td>{_esc(bot_label(r.instance_name or MAIN_PANEL_INSTANCE, db))}<br><span class="small mono">{_esc(r.instance_name or MAIN_PANEL_INSTANCE)}</span></td>
-                      <td>{_esc(_provider_label(r.provider_name))}</td>
-                      <td class="{status_class}">{_esc(r.status)}</td>
-                      <td>{_esc(_fmt_dt(r.created_at))}</td>
-                      <td><strong>{_esc(waiting)}</strong></td>
-                      <td class="small mono">{_esc((r.error_message or "")[:220])}</td>
-                    </tr>
-                """
-        else:
-            html += '<tr><td colspan="9">No hay pendientes en este periodo.</td></tr>'
-
-        html += """
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
           </div>
         </body>
         </html>
