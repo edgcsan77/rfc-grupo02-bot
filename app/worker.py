@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from app.db import SessionLocal
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from app.models import RequestLog, ProviderSetting, AppSetting, GroupPromotion, ApiClient, ApiCreditLog
 from app.services.evolution import send_group_text, send_text, send_document_base64, send_group_document_base64
@@ -38,6 +39,31 @@ SLOW_PROVIDERS = {"PROVIDER4", "PROVIDER10", "PROVIDER11"}
 PROVIDER4_NEW_FLOW_TTL_SEC = 60 * 20
 PROVIDER4_NEW_CHECK_DELAY_SEC = 30
 PROVIDER4_NEW_MAX_CHECK_ATTEMPTS = 90
+
+
+def _increment_rfc_bot_family_used(db, instance_name: str | None, act_type: str | None):
+    instance_name = (instance_name or "").strip()
+    if not instance_name:
+        return
+
+    family = _rfc_request_family_worker(act_type)
+
+    if family == "IDCIF":
+        db.execute(text("""
+            UPDATE bot_control
+            SET idcif_used = COALESCE(idcif_used, 0) + 1,
+                used = COALESCE(used, 0) + 1,
+                updated_at = now()
+            WHERE instance_name = :instance_name
+        """), {"instance_name": instance_name})
+    else:
+        db.execute(text("""
+            UPDATE bot_control
+            SET clon_used = COALESCE(clon_used, 0) + 1,
+                used = COALESCE(used, 0) + 1,
+                updated_at = now()
+            WHERE instance_name = :instance_name
+        """), {"instance_name": instance_name})
 
 
 def _current_queue_name() -> str:
@@ -2608,8 +2634,13 @@ def _handle_group_promotion_after_done(req, db):
 
     # 3) Incremento atómico dentro del lock
     for row in rows:
-        row.total_actas = total_before
-        row.used_actas = used_after
+        if family == "IDCIF":
+            row.idcif_used = used_after
+        else:
+            row.clon_used = used_after
+        
+        row.used_actas = int(row.clon_used or 0) + int(row.idcif_used or 0)
+        row.total_actas = int(row.clon_total or 0) + int(row.idcif_total or 0)
 
         if (row.group_jid or "").strip() == source_group_id:
             current_group_row = row
@@ -3144,6 +3175,24 @@ def _detect_pdf_act_type(pdf_bytes: bytes) -> str:
     return ""
 
 
+def _rfc_request_family_worker(act_type: str | None) -> str:
+    t = (act_type or "").strip().upper()
+
+    if t in {"QR", "RFC_IDCIF"}:
+        return "IDCIF"
+
+    if t in {"RFC", "RFC_ONLY", "CURP"}:
+        return "CLON"
+
+    if "IDCIF" in t or t == "QR":
+        return "IDCIF"
+
+    if t.startswith("RFC") or "CURP" in t:
+        return "CLON"
+
+    return "CLON"
+
+
 def _expected_act_type_group(act_type: str | None) -> str:
     t = (act_type or "").upper().strip()
 
@@ -3213,6 +3262,7 @@ def _after_done_accounting(req, db):
 
     try:
         if req.instance_name:
+            _increment_rfc_bot_family_used(db, req.instance_name, req.act_type)
             used, limit_value, blocked_now = increment_bot_used_and_maybe_block(
                 db,
                 req.instance_name
