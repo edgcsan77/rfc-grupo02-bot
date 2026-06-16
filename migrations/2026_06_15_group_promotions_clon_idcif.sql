@@ -1,0 +1,37 @@
+ALTER TABLE group_promotions
+ADD COLUMN IF NOT EXISTS clon_total INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE group_promotions
+ADD COLUMN IF NOT EXISTS clon_used INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE group_promotions
+ADD COLUMN IF NOT EXISTS idcif_total INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE group_promotions
+ADD COLUMN IF NOT EXISTS idcif_used INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE bot_control
+ADD COLUMN IF NOT EXISTS clon_limit INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE bot_control
+ADD COLUMN IF NOT EXISTS clon_used INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE bot_control
+ADD COLUMN IF NOT EXISTS clon_recharges INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE bot_control
+ADD COLUMN IF NOT EXISTS idcif_limit INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE bot_control
+ADD COLUMN IF NOT EXISTS idcif_used INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE bot_control
+ADD COLUMN IF NOT EXISTS idcif_recharges INTEGER NOT NULL DEFAULT 0;
+
+UPDATE group_promotions
+SET
+    clon_total = CASE WHEN clon_total = 0 THEN COALESCE(total_actas, 0) ELSE clon_total END,
+    clon_used = CASE WHEN clon_used = 0 THEN COALESCE(used_actas, 0) ELSE clon_used END
+WHERE COALESCE(total_actas, 0) > 0
+  AND COALESCE(clon_total, 0) = 0
+  AND COALESCE(idcif_total, 0) = 0;
