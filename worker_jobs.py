@@ -2785,6 +2785,23 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                     WHERE instance_name = :instance_name
                 """), {"count": count, "instance_name": instance_name})
 
+                # ✅ Descontar bolsa del grupo para que panel group detail y mini panel reflejen CLON usado
+                conn.execute(text("""
+                    UPDATE group_promotions
+                    SET
+                        clon_used = LEAST(COALESCE(clon_used, 0) + :count, COALESCE(clon_total, 0)),
+                        used_actas = COALESCE(used_actas, 0) + :count,
+                        updated_at = now()
+                    WHERE group_jid = :group_jid
+                      AND is_active = TRUE
+                """), {"count": count, "group_jid": group_jid})
+
+                print("[RFC_CLON_GROUP_PROMO_DEDUCTED]", {
+                    "group_jid": group_jid,
+                    "kind": kind,
+                    "count": count,
+                }, flush=True)
+
                 print("[RFC_CLON_GLOBAL_AND_BOT_DEDUCTED]", {
                     "owner": owner,
                     "instance_name": instance_name,
@@ -2810,6 +2827,23 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                         updated_at = now()
                     WHERE instance_name = :instance_name
                 """), {"count": count, "instance_name": instance_name})
+
+                # ✅ Descontar bolsa del grupo para que panel group detail y mini panel reflejen IDCIF usado
+                conn.execute(text("""
+                    UPDATE group_promotions
+                    SET
+                        idcif_used = LEAST(COALESCE(idcif_used, 0) + :count, COALESCE(idcif_total, 0)),
+                        used_actas = COALESCE(used_actas, 0) + :count,
+                        updated_at = now()
+                    WHERE group_jid = :group_jid
+                      AND is_active = TRUE
+                """), {"count": count, "group_jid": group_jid})
+
+                print("[RFC_IDCIF_GROUP_PROMO_USED_INC]", {
+                    "group_jid": group_jid,
+                    "kind": kind,
+                    "count": count,
+                }, flush=True)
 
                 print("[RFC_IDCIF_GLOBAL_AND_BOT_USED_INC]", {
                     "owner": owner,
