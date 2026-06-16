@@ -5974,6 +5974,9 @@ def panel_group_detail(
     weekly_error = 0
     weekly_queued = 0
     weekly_processing = 0
+    weekly_clon_amount = 0.0
+    weekly_idcif_amount = 0.0
+    weekly_amount = 0.0
     weekly_start = None
     
     for r in detail["rows"]:
@@ -6016,7 +6019,6 @@ def panel_group_detail(
         is_last_day = r == detail["rows"][-1]
     
         if is_sunday or is_last_day:
-            weekly_amount = weekly_clon * RFC_price_num
             html += f"""
                   <tr class="weekly-row">
                     <td>CORTE SEMANAL</td>
