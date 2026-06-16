@@ -131,6 +131,11 @@ class GroupPromotion(Base):
 
     total_actas = Column(Integer, nullable=False, default=0)
     used_actas = Column(Integer, nullable=False, default=0)
+
+    clon_total = Column(Integer, nullable=False, default=0)
+    clon_used = Column(Integer, nullable=False, default=0)
+    idcif_total = Column(Integer, nullable=False, default=0)
+    idcif_used = Column(Integer, nullable=False, default=0)
     
     price_per_piece = Column(String(30), nullable=True)
 
