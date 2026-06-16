@@ -52,7 +52,6 @@ def _increment_rfc_bot_family_used(db, instance_name: str | None, act_type: str 
         db.execute(text("""
             UPDATE bot_control
             SET idcif_used = COALESCE(idcif_used, 0) + 1,
-                used = COALESCE(used, 0) + 1,
                 updated_at = now()
             WHERE instance_name = :instance_name
         """), {"instance_name": instance_name})
@@ -60,7 +59,6 @@ def _increment_rfc_bot_family_used(db, instance_name: str | None, act_type: str 
         db.execute(text("""
             UPDATE bot_control
             SET clon_used = COALESCE(clon_used, 0) + 1,
-                used = COALESCE(used, 0) + 1,
                 updated_at = now()
             WHERE instance_name = :instance_name
         """), {"instance_name": instance_name})
@@ -2617,13 +2615,18 @@ def _handle_group_promotion_after_done(req, db):
 
     leader = rows[0]
 
-    total_before = int(leader.total_actas or 0)
-    if shared_key:
-        used_before = max(
-            int(leader.used_actas or 0),
-            sum(int(r.shared_group_used_actas or 0) for r in rows)
-        )
+    family = _rfc_request_family_worker(getattr(req, "act_type", ""))
+    
+    if family == "IDCIF":
+        total_before = int(getattr(leader, "idcif_total", 0) or 0)
+        used_before = int(getattr(leader, "idcif_used", 0) or 0)
     else:
+        total_before = int(getattr(leader, "clon_total", 0) or 0)
+        used_before = int(getattr(leader, "clon_used", 0) or 0)
+    
+    # Fallback para bolsas viejas no migradas
+    if total_before <= 0:
+        total_before = int(leader.total_actas or 0)
         used_before = int(leader.used_actas or 0)
     
     available_before = max(0, total_before - used_before)
