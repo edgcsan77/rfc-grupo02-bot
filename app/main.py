@@ -1164,8 +1164,21 @@ def _bot_group_stats(db: Session, instance_name: str):
             "month_done": month_map.get(gid, 0),
             "prev_month_done": prev_month_map.get(gid, 0),
             "blocked": gid in blocked_set,
-            "promo_total": int(promo.total_actas or 0) if promo else 0,
-            "promo_used": int(promo.used_actas or 0) if promo else 0,
+            "promo_clon_total": int(getattr(promo, "clon_total", 0) or 0) if promo else 0,
+            "promo_clon_used": int(getattr(promo, "clon_used", 0) or 0) if promo else 0,
+            "promo_idcif_total": int(getattr(promo, "idcif_total", 0) or 0) if promo else 0,
+            "promo_idcif_used": int(getattr(promo, "idcif_used", 0) or 0) if promo else 0,
+            
+            "promo_total": (
+                int(getattr(promo, "clon_total", 0) or 0)
+                + int(getattr(promo, "idcif_total", 0) or 0)
+            ) if promo else 0,
+            
+            "promo_used": (
+                int(getattr(promo, "clon_used", 0) or 0)
+                + int(getattr(promo, "idcif_used", 0) or 0)
+            ) if promo else 0,
+            
             "promo_active": bool(promo.is_active) if promo else False,
         })
 
