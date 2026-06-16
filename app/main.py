@@ -5337,6 +5337,22 @@ def _set_group_RFC_price(db: Session, group_jid: str, price: float):
     return row
 
 
+def _group_idcif_price_key(group_jid: str) -> str:
+    return f"GROUP_IDCIF_PRICE:{(group_jid or '').strip()}"
+
+
+def _get_group_IDCIF_price(db: Session, group_jid: str) -> float:
+    try:
+        raw = _get_app_setting(db, _group_idcif_price_key(group_jid), "0")
+        return float(raw or 0)
+    except Exception:
+        return 0.0
+
+
+def _set_group_IDCIF_price(db: Session, group_jid: str, price: float):
+    return _set_app_setting(db, _group_idcif_price_key(group_jid), str(float(price or 0)))
+
+
 @app.post("/panel/group/{group_jid}/RFC-price")
 async def panel_save_group_RFC_price(
     group_jid: str,
@@ -5362,6 +5378,37 @@ async def panel_save_group_RFC_price(
             "ok": True,
             "message": "Precio guardado correctamente",
             "RFC_price": price,
+        }
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/panel/group/{group_jid}/IDCIF-price")
+async def panel_save_group_IDCIF_price(
+    group_jid: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    try:
+        data = await request.json()
+        price_raw = str(data.get("IDCIF_price", "")).strip()
+
+        if not price_raw:
+            return {"ok": False, "error": "Falta precio IDCIF"}
+
+        price = float(price_raw)
+
+        if price < 0:
+            return {"ok": False, "error": "El precio IDCIF no puede ser negativo"}
+
+        _set_group_IDCIF_price(db, group_jid, price)
+
+        _clear_panel_cache()
+        return {
+            "ok": True,
+            "message": "Precio IDCIF guardado correctamente",
+            "IDCIF_price": price,
         }
 
     except Exception as e:
@@ -5410,7 +5457,11 @@ def panel_group_detail(
     promo_shared_group_limit = promo.shared_group_limit_RFC if promo else 0
     group_category = _get_group_category(db, group_jid)
 
-    RFC_price_num = _get_group_RFC_price(db, group_jid)
+    clon_price_num = _get_group_RFC_price(db, group_jid)
+    idcif_price_num = _get_group_IDCIF_price(db, group_jid)
+    
+    # compatibilidad por si alguna parte vieja todavía usa RFC_price_num
+    RFC_price_num = clon_price_num
 
     time_min, time_max, view = _panel_period_bounds(view, date_from, date_to)
 
@@ -5849,17 +5900,28 @@ def panel_group_detail(
 
     html += f"""
         <div class="box">
-          <div class="head"><strong>Precio de RFC</strong></div>
+          <div class="head"><strong>Precios de RFC</strong></div>
           
-          <div class="filters" style="grid-template-columns: 220px 180px;">
+          <div class="filters" style="grid-template-columns: 220px 220px 180px 180px;">
             <div>
-              <div class="small">Precio por RFC</div>
+              <div class="small">Precio por CLON</div>
               <input 
                 id="RFC_price" 
                 type="number" 
                 step="0.01" 
                 min="0" 
-                value="{RFC_price_num}"
+                value="{clon_price_num}"
+              >
+            </div>
+
+            <div>
+              <div class="small">Precio por IDCIF</div>
+              <input 
+                id="IDCIF_price" 
+                type="number" 
+                step="0.01" 
+                min="0" 
+                value="{idcif_price_num}"
               >
             </div>
     
@@ -5869,7 +5931,17 @@ def panel_group_detail(
                 class="btn btn-primary" 
                 style="width:100%;" 
                 onclick="saveRFCPrice('{group_jid}')">
-                Guardar precio
+                Guardar CLON
+              </button>
+            </div>
+
+            <div style="display:flex;align-items:end;">
+              <button 
+                type="button" 
+                class="btn btn-primary" 
+                style="width:100%;" 
+                onclick="saveIDCIFPrice('{group_jid}')">
+                Guardar IDCIF
               </button>
             </div>
           </div>
@@ -6001,6 +6073,38 @@ def panel_group_detail(
                 location.reload();
               }} else {{
                 alert(data.error || "Error guardando precio");
+              }}
+            }} catch (e) {{
+              alert("No se pudo conectar con el servidor");
+            }}
+          }}
+
+          async function saveIDCIFPrice(groupJid) {{
+            const price = document.getElementById("IDCIF_price")?.value?.trim() || "";
+        
+            if (!price) {{
+              alert("Ingresa el precio del IDCIF");
+              return;
+            }}
+        
+            try {{
+              const res = await fetch(`/panel/group/${{encodeURIComponent(groupJid)}}/IDCIF-price`, {{
+                method: "POST",
+                headers: {{
+                  "Content-Type": "application/json"
+                }},
+                body: JSON.stringify({{
+                  IDCIF_price: price
+                }})
+              }});
+        
+              const data = await res.json();
+        
+              if (data.ok) {{
+                alert("Precio IDCIF guardado");
+                location.reload();
+              }} else {{
+                alert(data.error || "Error guardando precio IDCIF");
               }}
             }} catch (e) {{
               alert("No se pudo conectar con el servidor");
