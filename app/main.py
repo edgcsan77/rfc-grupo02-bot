@@ -5418,6 +5418,7 @@ def panel_group_detail(
         db.query(
             RequestLog.created_at,
             RequestLog.status,
+            RequestLog.act_type,
         )
         .filter(
             RequestLog.created_at >= time_min,
@@ -5446,30 +5447,50 @@ def panel_group_detail(
             "date": day_str,
             "total": 0,
             "done": 0,
+            "clon": 0,
+            "idcif": 0,
+            "done_clon": 0,
+            "done_idcif": 0,
             "error": 0,
             "queued": 0,
             "processing": 0,
         }
         cur += timedelta(days=1)
 
-    for created_at, status_value in rows:
+    for created_at, status_value, act_type_value in rows:
         if not created_at:
             continue
+    
         local_dt = _to_panel_tz(created_at)
         day_str = local_dt.strftime("%Y-%m-%d")
+    
         if day_str not in days:
             continue
-
+    
         item = days[day_str]
         item["total"] += 1
-
-        if status_value == "DONE":
+    
+        st = (status_value or "").upper()
+        family = _rfc_request_family(act_type_value)
+    
+        if family == "CLON":
+            item["clon"] += 1
+        elif family == "IDCIF":
+            item["idcif"] += 1
+    
+        if st == "DONE":
             item["done"] += 1
-        elif status_value == "ERROR":
+    
+            if family == "CLON":
+                item["done_clon"] += 1
+            elif family == "IDCIF":
+                item["done_idcif"] += 1
+    
+        elif st == "ERROR":
             item["error"] += 1
-        elif status_value == "QUEUED":
+        elif st == "QUEUED":
             item["queued"] += 1
-        elif status_value == "PROCESSING":
+        elif st == "PROCESSING":
             item["processing"] += 1
 
     rows_out = list(days.values())
@@ -5482,6 +5503,10 @@ def panel_group_detail(
         "totals": {
             "total": sum(x["total"] for x in rows_out),
             "done": sum(x["done"] for x in rows_out),
+            "clon": sum(x["clon"] for x in rows_out),
+            "idcif": sum(x["idcif"] for x in rows_out),
+            "done_clon": sum(x["done_clon"] for x in rows_out),
+            "done_idcif": sum(x["done_idcif"] for x in rows_out),
             "error": sum(x["error"] for x in rows_out),
             "queued": sum(x["queued"] for x in rows_out),
             "processing": sum(x["processing"] for x in rows_out),
@@ -5860,8 +5885,10 @@ def panel_group_detail(
                 <th>Fecha</th>
                 <th class="right">Total</th>
                 <th class="right">Hecho</th>
-                <th class="right">Precio</th>
-                <th class="right">$ Hecho</th>
+                <th class="right">CLON</th>
+                <th class="right">IDCIF</th>
+                <th class="right">Precio CLON</th>
+                <th class="right">$ CLON</th>
               </tr>
             </thead>
             <tbody>
@@ -5869,6 +5896,8 @@ def panel_group_detail(
 
     weekly_total = 0
     weekly_done = 0
+    weekly_clon = 0
+    weekly_idcif = 0
     weekly_error = 0
     weekly_queued = 0
     weekly_processing = 0
@@ -5880,10 +5909,13 @@ def panel_group_detail(
     
         weekly_total += r["total"]
         weekly_done += r["done"]
+        weekly_clon += r["done_clon"]
+        weekly_idcif += r["done_idcif"]
         weekly_error += r["error"]
         weekly_queued += r["queued"]
         weekly_processing += r["processing"]
-        done_amount = r["done"] * RFC_price_num
+        
+        done_amount = r["done_clon"] * RFC_price_num
     
         html += f"""
               <tr>
@@ -5891,6 +5923,8 @@ def panel_group_detail(
                 <td>{_esc(r["date"])}</td>
                 <td class="right">{r["total"]}</td>
                 <td class="right">{r["done"]}</td>
+                <td class="right">{r["done_clon"]}</td>
+                <td class="right">{r["done_idcif"]}</td>
                 <td class="right">${RFC_price_num:,.2f}</td>
                 <td class="right">${done_amount:,.2f}</td>
               </tr>
@@ -5900,13 +5934,15 @@ def panel_group_detail(
         is_last_day = r == detail["rows"][-1]
     
         if is_sunday or is_last_day:
-            weekly_amount = weekly_done * RFC_price_num
+            weekly_amount = weekly_clon * RFC_price_num
             html += f"""
               <tr class="weekly-row">
                 <td>CORTE SEMANAL</td>
                 <td>{_esc(weekly_start)} a {_esc(r["date"])}</td>
                 <td class="right">{weekly_total}</td>
                 <td class="right">{weekly_done}</td>
+                <td class="right">{weekly_clon}</td>
+                <td class="right">{weekly_idcif}</td>
                 <td class="right">${RFC_price_num:,.2f}</td>
                 <td class="right">${weekly_amount:,.2f}</td>
               </tr>
@@ -5914,18 +5950,22 @@ def panel_group_detail(
     
             weekly_total = 0
             weekly_done = 0
+            weekly_clon = 0
+            weekly_idcif = 0
             weekly_error = 0
             weekly_queued = 0
             weekly_processing = 0
             weekly_start = None
 
     t = detail["totals"]
-    total_amount = t["done"] * RFC_price_num
+    total_amount = t["done_clon"] * RFC_price_num
     html += f"""
               <tr class="total-row">
                 <td colspan="2">TOTAL</td>
                 <td class="right">{t["total"]}</td>
                 <td class="right">{t["done"]}</td>
+                <td class="right">{t["done_clon"]}</td>
+                <td class="right">{t["done_idcif"]}</td>
                 <td class="right">${RFC_price_num:,.2f}</td>
                 <td class="right">${total_amount:,.2f}</td>
               </tr>
@@ -10791,31 +10831,7 @@ def panel_RFC(
         </script>
         """
 
-
-        html += f"""
-        <div class="box">
-          <div class="head">
-            <strong>📊 Estado de solicitudes</strong>
-            <span class="small">Resumen del periodo seleccionado</span>
-          </div>
-        
-          <div class="cards" style="padding:16px; grid-template-columns: repeat(5, minmax(0, 1fr));">
-            <div class="card">
-              <div class="label">Total</div>
-              <div class="value">{summary["total"]}</div>
-            </div>
-        
-            <div class="card">
-              <div class="label">Hecho</div>
-              <div class="value">{summary["done"]}</div>
-            </div>
-          </div>
-        </div>
-        """
-
-
         html += bot_status_html
-
 
         html += """
         <script>
@@ -11085,40 +11101,6 @@ def panel_RFC(
                 html += f"""
                 <tr>
                   <td>{_esc(bot_labels_map.get(r["instance_name"]) or r["instance_name"])}</td>
-                  <td class="right">{r["total"]}</td>
-                  <td class="right">{r["done"]}</td>
-                </tr>
-                """
-        else:
-            html += '<tr><td colspan="3">Sin datos.</td></tr>'
-    
-        html += """
-              </tbody>
-            </table>
-          </div>
-        </div>
-        """
-
-        html += f"""
-        <div class="box">
-          <div class="head"><strong>Resumen por origen</strong></div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Origen</th>
-                  <th class="right">Total</th>
-                  <th class="right">HECHO</th>
-                </tr>
-              </thead>
-              <tbody>
-        """
-    
-        if by_provider:
-            for r in by_provider:
-                html += f"""
-                <tr>
-                  <td>{_esc(_provider_label(r["provider_name"]))}</td>
                   <td class="right">{r["total"]}</td>
                   <td class="right">{r["done"]}</td>
                 </tr>
@@ -18962,6 +18944,7 @@ def panel_rfc_owner_status_fragment(request: Request):
         clon_balance = int(row.get("clon_balance") or 0)
         clon_used = int(row.get("clon_used") or 0)
         idcif_used = int(row.get("idcif_used") or 0)
+        total_rfc_used = clon_used + idcif_used
 
         html = f"""
         <div class="box">
@@ -18971,6 +18954,11 @@ def panel_rfc_owner_status_fragment(request: Request):
           </div>
 
           <div class="cards" style="padding:16px;">
+            <div class="card">
+              <div class="label">TOTAL RFC USADOS</div>
+              <div class="value">{total_rfc_used}</div>
+            </div>
+
             <div class="card">
               <div class="label">RFC CLON disponibles</div>
               <div class="value">{clon_balance}</div>
