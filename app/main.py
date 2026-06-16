@@ -16574,6 +16574,38 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
         text_upper = normalize_text(text_body)
 
         # =========================
+        # COMANDO: /groupid
+        # =========================
+        cmd_text = (text_body or "").strip().lower()
+        
+        if is_group and cmd_text in {"/groupid", "groupid", "/idgrupo", "idgrupo"}:
+            msg = (
+                "🆔 ID del grupo:\n"
+                f"{source_group_id}\n\n"
+                f"Instancia: {instance_name}"
+            )
+        
+            try:
+                send_group_text(
+                    source_group_id,
+                    msg,
+                    instance_name=instance_name,
+                )
+                print("RFC_GROUPID_OK =", {
+                    "group_jid": source_group_id,
+                    "instance": instance_name,
+                }, flush=True)
+            except Exception as e:
+                print("RFC_GROUPID_SEND_ERROR =", str(e), flush=True)
+        
+            return {
+                "ok": True,
+                "command": "groupid",
+                "group_jid": source_group_id,
+                "instance": instance_name,
+            }
+        
+        # =========================
         # BLOQUEO DE BUCLE ENTRE BOTS
         # =========================
         if from_me and not text_upper.startswith("/"):
