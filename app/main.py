@@ -1931,7 +1931,7 @@ def is_group_blocked(group_jid: str) -> bool:
         total = int(promo.total_actas or 0)
         used = int(promo.used_actas or 0)
 
-        shared_limit = int(promo.shared_group_limit_RFC or 0)
+        shared_limit = int(promo.shared_group_limit_actas or 0)
         shared_used = int(promo.shared_group_used_actas or 0)
 
         promo_agotada = (
@@ -5456,16 +5456,34 @@ def panel_group_detail(
     promo_html = _promotion_badge_html(promo)
     group_display_name = _esc(_group_name_cached(group_jid, group_cache))
     promo_name = _esc(promo.promo_name if promo else "")
-    promo_total = promo.total_actas if promo else 0
-    promo_used = promo.used_actas if promo else 0
-    promo_available = _promotion_available(promo) if promo else 0
+
+    promo_clon_total = int(getattr(promo, "clon_total", 0) or 0) if promo else 0
+    promo_clon_used = int(getattr(promo, "clon_used", 0) or 0) if promo else 0
+    promo_idcif_total = int(getattr(promo, "idcif_total", 0) or 0) if promo else 0
+    promo_idcif_used = int(getattr(promo, "idcif_used", 0) or 0) if promo else 0
+
+    promo_total = promo_clon_total + promo_idcif_total
+    promo_used = promo_clon_used + promo_idcif_used
+    promo_available = max(0, promo_total - promo_used)
+
+    # fallback por si hay bolsas viejas sin migrar
+    if promo and promo_total <= 0:
+        promo_total = int(promo.total_actas or 0)
+        promo_used = int(promo.used_actas or 0)
+        promo_available = max(0, promo_total - promo_used)
+        promo_clon_total = promo_total
+        promo_clon_used = promo_used
+        promo_idcif_total = 0
+        promo_idcif_used = 0
+
     promo_price = _esc(promo.price_per_piece if promo else "")
 
     promo_is_credit = bool(promo.is_credit) if promo else False
     promo_credit_abono = promo.credit_abono if promo else 0
     promo_credit_debe = promo.credit_debe if promo else 0
     promo_type_label = "Crédito" if promo_is_credit else "Pagada"
-    promo_shared_group_limit = promo.shared_group_limit_RFC if promo else 0
+    promo_shared_group_limit = getattr(promo, "shared_group_limit_actas", 0) if promo else 0
+
     group_category = _get_group_category(db, group_jid)
 
     clon_price_num = _get_group_RFC_price(db, group_jid)
@@ -5833,8 +5851,12 @@ def panel_group_detail(
               <div style="margin-top:8px;font-weight:800;">{promo_name or 'Sin nombre'}</div>
             </div>
             <div>
-              <div class="small">Total / Usadas / Disponibles</div>
-              <div style="margin-top:8px;font-weight:800;">{promo_total} / {promo_used} / {promo_available}</div>
+              <div class="small">CLON / IDCIF</div>
+              <div style="margin-top:8px;font-weight:800;">
+                CLON: {promo_clon_used}/{promo_clon_total}<br>
+                IDCIF: {promo_idcif_used}/{promo_idcif_total}<br>
+                Total disp.: {promo_available}
+              </div>
             </div>
             <div>
               <div class="small">Precio</div>
@@ -5857,8 +5879,13 @@ def panel_group_detail(
             </div>
         
             <div>
-              <div class="small">Total de RFC</div>
-              <input id="promo_total" placeholder="" type="number" min="1" value="{promo_total if promo_total else ''}">
+              <div class="small">Total CLON</div>
+              <input id="promo_clon_total" placeholder="" type="number" min="0" value="{promo_clon_total if promo_clon_total else ''}">
+            </div>
+            
+            <div>
+              <div class="small">Total IDCIF</div>
+              <input id="promo_idcif_total" placeholder="" type="number" min="0" value="{promo_idcif_total if promo_idcif_total else ''}">
             </div>
           
             <div>
@@ -6342,6 +6369,7 @@ def panel_group_detail(
 
           async function rechargePromotion(groupJid) {{
             const extraRFC = document.getElementById("promo_recharge")?.value?.trim() || "";
+            const family = document.getElementById("promo_recharge_family")?.value || "CLON";
 
             if (!extraRFC) {{
               alert("Ingresa cuántas RFC deseas recargar");
@@ -6355,7 +6383,8 @@ def panel_group_detail(
                   "Content-Type": "application/json"
                 }},
                 body: JSON.stringify({{
-                  extra_RFC: extraRFC
+                  extra_RFC: extraRFC,
+                  family: family
                 }})
               }});
 
@@ -7734,20 +7763,21 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
         if not instance_name:
             return {"ok": False, "error": "Panel no válido"}
 
+        payload = await request.json()
+
+        group_jid = (payload.get("group_jid") or "").strip()
+        promo_name = (payload.get("promo_name") or "").strip()
+        price_per_piece = (payload.get("price_per_piece") or "").strip()
+
         clon_total = int(payload.get("clon_total") or 0)
         idcif_total = int(payload.get("idcif_total") or 0)
         total_actas = clon_total + idcif_total
-        
+
         # Compatibilidad con frontend viejo
         if total_actas <= 0:
             total_actas = int(payload.get("total_actas") or 0)
             clon_total = total_actas
             idcif_total = 0
-
-        payload = await request.json()
-        group_jid = (payload.get("group_jid") or "").strip()
-        promo_name = (payload.get("promo_name") or "").strip()
-        price_per_piece = (payload.get("price_per_piece") or "").strip()
 
         group = db.query(AuthorizedGroup).filter(
             AuthorizedGroup.group_jid == group_jid
@@ -15448,7 +15478,19 @@ def _unblock_client_groups_main(rows: list):
 
 
 def _promotion_available(promo: GroupPromotion) -> int:
-    return max(0, (promo.total_actas or 0) - (promo.used_actas or 0))
+    clon_total = int(getattr(promo, "clon_total", 0) or 0)
+    clon_used = int(getattr(promo, "clon_used", 0) or 0)
+    idcif_total = int(getattr(promo, "idcif_total", 0) or 0)
+    idcif_used = int(getattr(promo, "idcif_used", 0) or 0)
+
+    total = clon_total + idcif_total
+    used = clon_used + idcif_used
+
+    if total <= 0:
+        total = int(getattr(promo, "total_actas", 0) or 0)
+        used = int(getattr(promo, "used_actas", 0) or 0)
+
+    return max(0, total - used)
 
 
 def _real_promo_used_count(db: Session, promo: GroupPromotion) -> int:
@@ -15464,8 +15506,17 @@ def _promotion_badge_html(promo: GroupPromotion | None) -> str:
         return '<span style="color:#6b7280;font-weight:700;">Sin bolsa RFC</span>'
 
     promo_name = (promo.promo_name or "").strip()
-    total_actas = int(promo.total_actas or 0)
-    used_actas = int(promo.used_actas or 0)
+    clon_total = int(getattr(promo, "clon_total", 0) or 0)
+    clon_used = int(getattr(promo, "clon_used", 0) or 0)
+    idcif_total = int(getattr(promo, "idcif_total", 0) or 0)
+    idcif_used = int(getattr(promo, "idcif_used", 0) or 0)
+    
+    total_actas = clon_total + idcif_total
+    used_actas = clon_used + idcif_used
+    
+    if total_actas <= 0:
+        total_actas = int(promo.total_actas or 0)
+        used_actas = int(promo.used_actas or 0)
 
     if not promo_name and total_actas == 0 and used_actas == 0:
         return '<span style="color:#6b7280;font-weight:700;">Sin bolsa RFC</span>'
@@ -16009,6 +16060,10 @@ def panel_remove_group_promotion(
     row.is_active = False
     row.used_actas = 0
     row.total_actas = 0
+    row.clon_total = 0
+    row.clon_used = 0
+    row.idcif_total = 0
+    row.idcif_used = 0
     row.promo_name = ""
     row.price_per_piece = ""
     row.client_key = None
@@ -16066,6 +16121,10 @@ def panel_recharge_group_promotion(
 ):
     extra_RFC = int(payload.get("extra_RFC") or 0)
 
+    family = (payload.get("family") or "CLON").strip().upper()
+    if family not in {"CLON", "IDCIF"}:
+        family = "CLON"
+
     if extra_RFC <= 0:
         return {"ok": False, "error": "EXTRA_RFC_INVALID"}
 
@@ -16090,10 +16149,32 @@ def panel_recharge_group_promotion(
             return {"ok": False, "error": "SHARED_PROMOTION_NOT_FOUND"}
 
         leader = rows[0]
-        current_total = int(leader.total_actas or 0)
-        current_used = int(leader.used_actas or 0)
-
-        new_total = current_total + extra_RFC
+        if family == "IDCIF":
+            current_family_total = int(leader.idcif_total or 0)
+            new_family_total = current_family_total + extra_RFC
+        else:
+            current_family_total = int(leader.clon_total or 0)
+            new_family_total = current_family_total + extra_RFC
+        
+        for r in rows:
+            if family == "IDCIF":
+                r.idcif_total = new_family_total
+            else:
+                r.clon_total = new_family_total
+        
+            r.total_actas = int(r.clon_total or 0) + int(r.idcif_total or 0)
+            r.used_actas = int(r.clon_used or 0) + int(r.idcif_used or 0)
+        
+            r.warning_sent_200 = False
+            r.warning_sent_100 = False
+            r.warning_sent_50 = False
+            r.warning_sent_10 = False
+            r.warning_sent_0 = False
+            r.is_active = True
+            r.updated_at = _utc_now_naive()
+        
+        new_total = int(leader.clon_total or 0) + int(leader.idcif_total or 0)
+        current_used = int(leader.clon_used or 0) + int(leader.idcif_used or 0)
         available = max(0, new_total - current_used)
 
         for r in rows:
@@ -16160,8 +16241,13 @@ def panel_recharge_group_promotion(
     # =========================
     # RECARGA INDIVIDUAL
     # =========================
-    row.total_actas = (row.total_actas or 0) + extra_RFC
-    row.used_actas = row.used_actas or 0
+    if family == "IDCIF":
+        row.idcif_total = int(row.idcif_total or 0) + extra_RFC
+    else:
+        row.clon_total = int(row.clon_total or 0) + extra_RFC
+    
+    row.total_actas = int(row.clon_total or 0) + int(row.idcif_total or 0)
+    row.used_actas = int(row.clon_used or 0) + int(row.idcif_used or 0)
     row.warning_sent_200 = False
     row.warning_sent_100 = False
     row.warning_sent_50 = False
@@ -16194,6 +16280,7 @@ def panel_recharge_group_promotion(
             (
                 f"🔄 *Recarga aplicada*\n\n"
                 f"Tu paquete promocional fue recargado correctamente.\n"
+                f"Tipo recargado: *{family}*.\n"
                 f"Ahora cuentas con *{available} RFC disponibles*.\n\n"
                 f"Gracias por tu preferencia."
             )
