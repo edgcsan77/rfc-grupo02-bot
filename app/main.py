@@ -7941,9 +7941,9 @@ def botpanel_remove_promotion(
         if not instance_name:
             return {"ok": False, "error": "Panel no válido"}
 
-        if not _is_child_bot(instance_name):
-            return {"ok": False, "error": "Panel no permitido"}
-
+        # Mini panel autorizado por panel_token.
+        # No obligamos _is_child_bot porque algunos bots internos principales
+        # como RFC LELI usan panel propio y deben poder quitar sus promos.
         group_jid = (payload.get("group_jid") or "").strip()
 
         if not group_jid:
