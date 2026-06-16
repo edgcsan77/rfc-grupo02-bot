@@ -1197,6 +1197,29 @@ def bot_label(inst, db: Session = None):
     return inst
 
 
+def _rfc_request_family(act_type: str | None) -> str:
+    """
+    Familias comerciales RFC:
+      CLON  = RFC solo + CURP
+      IDCIF = QR + RFC_IDCIF
+    """
+    t = (act_type or "").strip().upper()
+
+    if t in {"QR", "RFC_IDCIF"}:
+        return "IDCIF"
+
+    if t in {"RFC", "RFC_ONLY", "CURP"}:
+        return "CLON"
+
+    if "IDCIF" in t or t == "QR":
+        return "IDCIF"
+
+    if t.startswith("RFC") or "CURP" in t:
+        return "CLON"
+
+    return "OTRO"
+
+
 BOT_PRIVATE_NOTIFY_KEY_PREFIX = "BOT_PRIVATE_NOTIFY_JID:"
 
 
@@ -2130,9 +2153,26 @@ def botpanel_audit_all_groups(
     totals = {
         "total": len(rows),
         "done": sum(1 for r in rows if r.status == "DONE"),
-        "error": sum(1 for r in rows if r.status == "ERROR"),
-        "queued": sum(1 for r in rows if r.status == "QUEUED"),
-        "processing": sum(1 for r in rows if r.status == "PROCESSING"),
+    
+        "clon": sum(
+            1 for r in rows
+            if _rfc_request_family(getattr(r, "act_type", "")) == "CLON"
+        ),
+        "idcif": sum(
+            1 for r in rows
+            if _rfc_request_family(getattr(r, "act_type", "")) == "IDCIF"
+        ),
+    
+        "done_clon": sum(
+            1 for r in rows
+            if r.status == "DONE"
+            and _rfc_request_family(getattr(r, "act_type", "")) == "CLON"
+        ),
+        "done_idcif": sum(
+            1 for r in rows
+            if r.status == "DONE"
+            and _rfc_request_family(getattr(r, "act_type", "")) == "IDCIF"
+        ),
     }
 
     # ==========================================================
@@ -2160,9 +2200,10 @@ def botpanel_audit_all_groups(
                 "day_name": _day_name_es_from_date(day_key),
                 "total": 0,
                 "done": 0,
-                "error": 0,
-                "queued": 0,
-                "processing": 0,
+                "clon": 0,
+                "idcif": 0,
+                "done_clon": 0,
+                "done_idcif": 0,
             }
 
             current_day = current_day + timedelta(days=1)
@@ -2181,24 +2222,30 @@ def botpanel_audit_all_groups(
                 "day_name": _day_name_es_from_date(day_key),
                 "total": 0,
                 "done": 0,
-                "error": 0,
-                "queued": 0,
-                "processing": 0,
+                "clon": 0,
+                "idcif": 0,
+                "done_clon": 0,
+                "done_idcif": 0,
             }
 
         item = daily_cut_map[day_key]
         item["total"] += 1
-
+        
         st = (r.status or "").upper()
-
+        family = _rfc_request_family(getattr(r, "act_type", ""))
+        
+        if family == "CLON":
+            item["clon"] += 1
+        elif family == "IDCIF":
+            item["idcif"] += 1
+        
         if st == "DONE":
             item["done"] += 1
-        elif st == "ERROR":
-            item["error"] += 1
-        elif st == "QUEUED":
-            item["queued"] += 1
-        elif st == "PROCESSING":
-            item["processing"] += 1
+        
+            if family == "CLON":
+                item["done_clon"] += 1
+            elif family == "IDCIF":
+                item["done_idcif"] += 1
 
     daily_cut_rows = sorted(
         daily_cut_map.values(),
@@ -2216,22 +2263,29 @@ def botpanel_audit_all_groups(
                 "group_name": _group_name_cached(gid, group_cache),
                 "total": 0,
                 "done": 0,
-                "error": 0,
-                "queued": 0,
-                "processing": 0,
+                "clon": 0,
+                "idcif": 0,
+                "done_clon": 0,
+                "done_idcif": 0,
             }
 
         item = by_group[gid]
         item["total"] += 1
-
+        
+        family = _rfc_request_family(getattr(r, "act_type", ""))
+        
+        if family == "CLON":
+            item["clon"] += 1
+        elif family == "IDCIF":
+            item["idcif"] += 1
+        
         if r.status == "DONE":
             item["done"] += 1
-        elif r.status == "ERROR":
-            item["error"] += 1
-        elif r.status == "QUEUED":
-            item["queued"] += 1
-        elif r.status == "PROCESSING":
-            item["processing"] += 1
+        
+            if family == "CLON":
+                item["done_clon"] += 1
+            elif family == "IDCIF":
+                item["done_idcif"] += 1
 
     group_rows = list(by_group.values())
     group_rows.sort(key=lambda x: (-x["total"], x["group_name"] or ""))
@@ -2407,8 +2461,9 @@ def botpanel_audit_all_groups(
           </form>
 
           <div class="stats">
-            <div class="stat"><span>Total</span><strong>{totals["total"]}</strong></div>
-            <div class="stat"><span>DONE</span><strong>{totals["done"]}</strong></div>
+            <div class="stat"><span>Total vendido</span><strong>{totals["done"]}</strong></div>
+            <div class="stat"><span>CLON</span><strong>{totals["done_clon"]}</strong></div>
+            <div class="stat"><span>IDCIF</span><strong>{totals["done_idcif"]}</strong></div>
           </div>
         </div>
     """
@@ -2425,8 +2480,9 @@ def botpanel_audit_all_groups(
               <tr>
                 <th>Día</th>
                 <th>Fecha</th>
-                <th>Total</th>
-                <th>DONE</th>
+                <th>Total vendido</th>
+                <th>CLON</th>
+                <th>IDCIF</th>
               </tr>
             </thead>
             <tbody>
@@ -2435,27 +2491,26 @@ def botpanel_audit_all_groups(
     if daily_cut_rows:
         weekly_total = 0
         weekly_done = 0
-        weekly_error = 0
-        weekly_processing = 0
-        weekly_queued = 0
+        weekly_clon = 0
+        weekly_idcif = 0
         weekly_start = None
 
         for idx, d in enumerate(daily_cut_rows):
             if weekly_start is None:
                 weekly_start = d["date"]
 
-            weekly_total += int(d["total"] or 0)
+            weekly_total += int(d["done"] or 0)
             weekly_done += int(d["done"] or 0)
-            weekly_error += int(d["error"] or 0)
-            weekly_processing += int(d["processing"] or 0)
-            weekly_queued += int(d["queued"] or 0)
+            weekly_clon += int(d["done_clon"] or 0)
+            weekly_idcif += int(d["done_idcif"] or 0)
 
             html += f"""
               <tr>
                 <td>{_esc(d["day_name"])}</td>
                 <td>{_esc(d["date"])}</td>
-                <td>{int(d["total"] or 0)}</td>
                 <td>{int(d["done"] or 0)}</td>
+                <td>{int(d["done_clon"] or 0)}</td>
+                <td>{int(d["done_idcif"] or 0)}</td>
               </tr>
             """
 
@@ -2467,21 +2522,21 @@ def botpanel_audit_all_groups(
                   <tr class="weekly-row">
                     <td>CORTE SEMANAL</td>
                     <td>{_esc(weekly_start)} a {_esc(d["date"])}</td>
-                    <td>{weekly_total}</td>
                     <td>{weekly_done}</td>
+                    <td>{weekly_clon}</td>
+                    <td>{weekly_idcif}</td>
                   </tr>
                 """
 
                 weekly_total = 0
                 weekly_done = 0
-                weekly_error = 0
-                weekly_processing = 0
-                weekly_queued = 0
+                weekly_clon = 0
+                weekly_idcif = 0
                 weekly_start = None
     else:
         html += """
               <tr>
-                <td colspan="4">Sin movimientos en este periodo.</td>
+                <td colspan="5">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -2497,8 +2552,9 @@ def botpanel_audit_all_groups(
             <thead>
               <tr>
                 <th>Grupo</th>
-                <th>Total</th>
-                <th>DONE</th>
+                <th>Total vendido</th>
+                <th>CLON</th>
+                <th>IDCIF</th>
               </tr>
             </thead>
             <tbody>
@@ -2512,14 +2568,15 @@ def botpanel_audit_all_groups(
                   <strong>{_esc(g["group_name"])}</strong><br>
                   <span class="small">{_esc(g["group_jid"])}</span>
                 </td>
-                <td>{g["total"]}</td>
                 <td>{g["done"]}</td>
+                <td>{g["done_clon"]}</td>
+                <td>{g["done_idcif"]}</td>
               </tr>
             """
     else:
         html += """
               <tr>
-                <td colspan="3">Sin movimientos en este periodo.</td>
+                <td colspan="4">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -7295,33 +7352,74 @@ def _bot_recharge_history(db: Session, instance_name: str, limit: int = 30):
 
 def _bot_credit_stats(db: Session, instance_name: str):
     try:
+        from sqlalchemy import text
+
         instance_name = (instance_name or "").strip()
 
-        limit_value = get_bot_limit(db, instance_name)
-        used_value = get_bot_used(db, instance_name)
+        row = db.execute(text("""
+            SELECT
+                COALESCE(clon_limit, 0) AS clon_limit,
+                COALESCE(clon_used, 0) AS clon_used,
+                COALESCE(idcif_limit, 0) AS idcif_limit,
+                COALESCE(idcif_used, 0) AS idcif_used,
+                COALESCE(recharges, 0) AS recharges
+            FROM bot_control
+            WHERE instance_name = :instance_name
+            LIMIT 1
+        """), {"instance_name": instance_name}).mappings().first()
 
-        available = max(int(limit_value or 0) - int(used_value or 0), 0)
+        if not row:
+            return {
+                "clon_limit": 0,
+                "clon_used": 0,
+                "clon_available": 0,
+                "idcif_limit": 0,
+                "idcif_used": 0,
+                "idcif_available": 0,
+                "recharges": 0,
 
-        recharge_count = (
-            db.query(BotRechargeLog)
-            .filter(BotRechargeLog.instance_name == instance_name)
-            .count()
-        )
+                # compatibilidad con tarjetas viejas
+                "limit": 0,
+                "used": 0,
+                "available": 0,
+            }
+
+        clon_limit = int(row["clon_limit"] or 0)
+        clon_used = int(row["clon_used"] or 0)
+        idcif_limit = int(row["idcif_limit"] or 0)
+        idcif_used = int(row["idcif_used"] or 0)
+
+        clon_available = 0 if clon_limit == 0 else max(clon_limit - clon_used, 0)
+        idcif_available = 0 if idcif_limit == 0 else max(idcif_limit - idcif_used, 0)
 
         return {
-            "limit": int(limit_value or 0),
-            "used": int(used_value or 0),
-            "available": int(available or 0),
-            "recharges": int(recharge_count or 0),
+            "clon_limit": clon_limit,
+            "clon_used": clon_used,
+            "clon_available": clon_available,
+            "idcif_limit": idcif_limit,
+            "idcif_used": idcif_used,
+            "idcif_available": idcif_available,
+            "recharges": int(row["recharges"] or 0),
+
+            # compatibilidad
+            "limit": clon_limit,
+            "used": clon_used,
+            "available": clon_available,
         }
 
     except Exception as e:
         print("BOT_CREDIT_STATS_ERROR =", instance_name, repr(e), flush=True)
         return {
+            "clon_limit": 0,
+            "clon_used": 0,
+            "clon_available": 0,
+            "idcif_limit": 0,
+            "idcif_used": 0,
+            "idcif_available": 0,
+            "recharges": 0,
             "limit": 0,
             "used": 0,
             "available": 0,
-            "recharges": 0,
         }
         
 
@@ -7891,6 +7989,18 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
     credits["available"] = max(0, credits["limit"] - credits["used"])
     credits.setdefault("recharges", 0)
 
+    credits.setdefault("clon_limit", 0)
+    credits.setdefault("clon_used", 0)
+    credits.setdefault("clon_available", 0)
+    credits.setdefault("idcif_limit", 0)
+    credits.setdefault("idcif_used", 0)
+    credits.setdefault("idcif_available", 0)
+    
+    clon_limit_txt = "∞" if int(credits["clon_limit"] or 0) == 0 else str(credits["clon_limit"])
+    clon_available_txt = "∞" if int(credits["clon_limit"] or 0) == 0 else str(credits["clon_available"])
+    idcif_limit_txt = "∞" if int(credits["idcif_limit"] or 0) == 0 else str(credits["idcif_limit"])
+    idcif_available_txt = "∞" if int(credits["idcif_limit"] or 0) == 0 else str(credits["idcif_available"])
+
     groups = groups or []
     total_groups = len(groups)
     blocked_groups = sum(1 for g in groups if g["blocked"])
@@ -8087,23 +8197,33 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
 
         <div class="cards">
           <div class="card">
-            <div class="label">RFC cargadas</div>
-            <div class="value">{credits['limit']}</div>
+            <div class="label">CLON límite</div>
+            <div class="value">{clon_limit_txt}</div>
           </div>
         
           <div class="card">
-            <div class="label">RFC usadas</div>
-            <div class="value">{credits['used']}</div>
+            <div class="label">CLON usados</div>
+            <div class="value">{credits['clon_used']}</div>
           </div>
         
           <div class="card">
-            <div class="label">RFC disponibles</div>
-            <div class="value">{credits['available']}</div>
+            <div class="label">CLON disponibles</div>
+            <div class="value">{clon_available_txt}</div>
           </div>
         
           <div class="card">
-            <div class="label">Recargas realizadas</div>
-            <div class="value">{credits['recharges']}</div>
+            <div class="label">IDCIF límite</div>
+            <div class="value">{idcif_limit_txt}</div>
+          </div>
+        
+          <div class="card">
+            <div class="label">IDCIF usados</div>
+            <div class="value">{credits['idcif_used']}</div>
+          </div>
+        
+          <div class="card">
+            <div class="label">IDCIF disponibles</div>
+            <div class="value">{idcif_available_txt}</div>
           </div>
         </div>
 
