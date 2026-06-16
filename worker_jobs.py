@@ -2660,24 +2660,27 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                     LIMIT 1
                 """), {"group_jid": group_jid}).mappings().first()
 
-                if not group_promo:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} este grupo no tiene bolsa activa para RFC.",
-                        instance_name=instance_name
-                    )
-                    return False
+                # Bolsa por grupo OPCIONAL.
+                # Si NO hay promo activa para el grupo, NO se bloquea:
+                # consume del límite general del bot interno.
+                # Si SÍ hay promo activa, se respeta el límite CLON de ese grupo.
+                if group_promo:
+                    group_clon_total = int(group_promo.get("clon_total") or 0)
+                    group_clon_used = int(group_promo.get("clon_used") or 0)
 
-                group_clon_total = int(group_promo.get("clon_total") or 0)
-                group_clon_used = int(group_promo.get("clon_used") or 0)
-
-                if group_clon_total > 0 and group_clon_used >= group_clon_total:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} este grupo ya no tiene RFC CLON disponibles.",
-                        instance_name=instance_name
-                    )
-                    return False
+                    if group_clon_total > 0 and group_clon_used >= group_clon_total:
+                        evolution_send_text_to_group(
+                            group_jid,
+                            f"⚠️ {requester_label} este grupo ya no tiene RFC CLON disponibles.",
+                            instance_name=instance_name
+                        )
+                        return False
+                else:
+                    print("[RFC_CLON_GROUP_WITHOUT_PROMO_USE_BOT_LIMIT]", {
+                        "group_jid": group_jid,
+                        "instance_name": instance_name,
+                        "kind": kind,
+                    }, flush=True)
 
                 if global_balance <= 0:
                     evolution_send_text_to_group(
@@ -2720,24 +2723,27 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                     LIMIT 1
                 """), {"group_jid": group_jid}).mappings().first()
 
-                if not group_promo:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} este grupo no tiene bolsa activa para RFC.",
-                        instance_name=instance_name
-                    )
-                    return False
+                # Bolsa por grupo OPCIONAL.
+                # Si NO hay promo activa para el grupo, NO se bloquea:
+                # consume del límite general del bot interno.
+                # Si SÍ hay promo activa, se respeta el límite IDCIF de ese grupo.
+                if group_promo:
+                    group_idcif_total = int(group_promo.get("idcif_total") or 0)
+                    group_idcif_used = int(group_promo.get("idcif_used") or 0)
 
-                group_idcif_total = int(group_promo.get("idcif_total") or 0)
-                group_idcif_used = int(group_promo.get("idcif_used") or 0)
-
-                if group_idcif_total > 0 and group_idcif_used >= group_idcif_total:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} este grupo ya no tiene RFC IDCIF disponibles.",
-                        instance_name=instance_name
-                    )
-                    return False
+                    if group_idcif_total > 0 and group_idcif_used >= group_idcif_total:
+                        evolution_send_text_to_group(
+                            group_jid,
+                            f"⚠️ {requester_label} este grupo ya no tiene RFC IDCIF disponibles.",
+                            instance_name=instance_name
+                        )
+                        return False
+                else:
+                    print("[RFC_IDCIF_GROUP_WITHOUT_PROMO_USE_BOT_LIMIT]", {
+                        "group_jid": group_jid,
+                        "instance_name": instance_name,
+                        "kind": kind,
+                    }, flush=True)
 
                 if not bool(wallet.get("idcif_enabled")):
                     evolution_send_text_to_group(
