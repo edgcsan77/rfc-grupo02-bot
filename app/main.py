@@ -7031,9 +7031,10 @@ def botpanel_free_broadcast(
     if not instance_name:
         return {"ok": False, "error": "Panel no válido"}
 
-    if not _is_child_bot(instance_name):
-        return {"ok": False, "error": "No permitido"}
-
+    # Mini panel autorizado por panel_token.
+    # No obligamos _is_child_bot porque bots internos principales
+    # como RFC LELI usan panel propio y deben poder enviar masivos
+    # a sus grupos asignados.
     message = (payload.get("message") or "").strip()
 
     if not message:
