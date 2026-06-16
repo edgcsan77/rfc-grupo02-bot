@@ -5298,50 +5298,41 @@ A partir de ahora este grupo ya no utilizará el saldo compartido.
     }
 
 
-def _get_group_RFC_price(db: Session, group_jid: str) -> float:
-    row = (
-        db.query(GroupAlias)
-        .filter(GroupAlias.group_jid == group_jid)
-        .first()
-    )
-
-    if not row:
-        return 0.0
-
-    try:
-        return float(row.RFC_price or 0)
-    except Exception:
-        return 0.0
-
-
-def _set_group_RFC_price(db: Session, group_jid: str, price: float):
-    row = (
-        db.query(GroupAlias)
-        .filter(GroupAlias.group_jid == group_jid)
-        .first()
-    )
-
-    if not row:
-        row = GroupAlias(
-            group_jid=group_jid,
-            custom_name="",
-            RFC_price=price,
-            updated_at=_utc_now_naive(),
-        )
-        db.add(row)
-    else:
-        row.RFC_price = price
-        row.updated_at = _utc_now_naive()
-
-    db.commit()
-    return row
+def _group_clon_price_key(group_jid: str) -> str:
+    return f"GROUP_CLON_PRICE:{(group_jid or '').strip()}"
 
 
 def _group_idcif_price_key(group_jid: str) -> str:
     return f"GROUP_IDCIF_PRICE:{(group_jid or '').strip()}"
 
 
+def _get_group_RFC_price(db: Session, group_jid: str) -> float:
+    """
+    Precio CLON.
+    Se guarda en AppSetting para no depender de columnas extra en GroupAlias.
+    """
+    try:
+        raw = _get_app_setting(db, _group_clon_price_key(group_jid), "0")
+        return float(raw or 0)
+    except Exception:
+        return 0.0
+
+
+def _set_group_RFC_price(db: Session, group_jid: str, price: float):
+    """
+    Guarda precio CLON.
+    """
+    return _set_app_setting(
+        db,
+        _group_clon_price_key(group_jid),
+        str(float(price or 0)),
+    )
+
+
 def _get_group_IDCIF_price(db: Session, group_jid: str) -> float:
+    """
+    Precio IDCIF.
+    """
     try:
         raw = _get_app_setting(db, _group_idcif_price_key(group_jid), "0")
         return float(raw or 0)
@@ -5350,7 +5341,14 @@ def _get_group_IDCIF_price(db: Session, group_jid: str) -> float:
 
 
 def _set_group_IDCIF_price(db: Session, group_jid: str, price: float):
-    return _set_app_setting(db, _group_idcif_price_key(group_jid), str(float(price or 0)))
+    """
+    Guarda precio IDCIF.
+    """
+    return _set_app_setting(
+        db,
+        _group_idcif_price_key(group_jid),
+        str(float(price or 0)),
+    )
 
 
 @app.post("/panel/group/{group_jid}/RFC-price")
@@ -5961,6 +5959,9 @@ def panel_group_detail(
                 <th class="right">IDCIF</th>
                 <th class="right">Precio CLON</th>
                 <th class="right">$ CLON</th>
+                <th class="right">Precio IDCIF</th>
+                <th class="right">$ IDCIF</th>
+                <th class="right">$ Total</th>
               </tr>
             </thead>
             <tbody>
@@ -5987,7 +5988,13 @@ def panel_group_detail(
         weekly_queued += r["queued"]
         weekly_processing += r["processing"]
         
-        done_amount = r["done_clon"] * RFC_price_num
+        clon_amount = r["done_clon"] * clon_price_num
+        idcif_amount = r["done_idcif"] * idcif_price_num
+        done_amount = clon_amount + idcif_amount
+
+        weekly_clon_amount += clon_amount
+        weekly_idcif_amount += idcif_amount
+        weekly_amount += done_amount
     
         html += f"""
               <tr>
@@ -5997,8 +6004,11 @@ def panel_group_detail(
                 <td class="right">{r["done"]}</td>
                 <td class="right">{r["done_clon"]}</td>
                 <td class="right">{r["done_idcif"]}</td>
-                <td class="right">${RFC_price_num:,.2f}</td>
-                <td class="right">${done_amount:,.2f}</td>
+                <td class="right">${clon_price_num:,.2f}</td>
+                <td class="right">${clon_amount:,.2f}</td>
+                <td class="right">${idcif_price_num:,.2f}</td>
+                <td class="right">${idcif_amount:,.2f}</td>
+                <td class="right"><b>${done_amount:,.2f}</b></td>
               </tr>
         """
     
@@ -6008,29 +6018,37 @@ def panel_group_detail(
         if is_sunday or is_last_day:
             weekly_amount = weekly_clon * RFC_price_num
             html += f"""
-              <tr class="weekly-row">
-                <td>CORTE SEMANAL</td>
-                <td>{_esc(weekly_start)} a {_esc(r["date"])}</td>
-                <td class="right">{weekly_total}</td>
-                <td class="right">{weekly_done}</td>
-                <td class="right">{weekly_clon}</td>
-                <td class="right">{weekly_idcif}</td>
-                <td class="right">${RFC_price_num:,.2f}</td>
-                <td class="right">${weekly_amount:,.2f}</td>
-              </tr>
+                  <tr class="weekly-row">
+                    <td>CORTE SEMANAL</td>
+                    <td>{_esc(weekly_start)} a {_esc(r["date"])}</td>
+                    <td class="right">{weekly_total}</td>
+                    <td class="right">{weekly_done}</td>
+                    <td class="right">{weekly_clon}</td>
+                    <td class="right">{weekly_idcif}</td>
+                    <td class="right">${clon_price_num:,.2f}</td>
+                    <td class="right">${weekly_clon_amount:,.2f}</td>
+                    <td class="right">${idcif_price_num:,.2f}</td>
+                    <td class="right">${weekly_idcif_amount:,.2f}</td>
+                    <td class="right"><b>${weekly_amount:,.2f}</b></td>
+                  </tr>
             """
     
             weekly_total = 0
             weekly_done = 0
             weekly_clon = 0
             weekly_idcif = 0
+            weekly_clon_amount = 0.0
+            weekly_idcif_amount = 0.0
+            weekly_amount = 0.0
             weekly_error = 0
             weekly_queued = 0
             weekly_processing = 0
             weekly_start = None
 
     t = detail["totals"]
-    total_amount = t["done_clon"] * RFC_price_num
+    total_clon_amount = t["done_clon"] * clon_price_num
+    total_idcif_amount = t["done_idcif"] * idcif_price_num
+    total_amount = total_clon_amount + total_idcif_amount
     html += f"""
               <tr class="total-row">
                 <td colspan="2">TOTAL</td>
@@ -6038,8 +6056,11 @@ def panel_group_detail(
                 <td class="right">{t["done"]}</td>
                 <td class="right">{t["done_clon"]}</td>
                 <td class="right">{t["done_idcif"]}</td>
-                <td class="right">${RFC_price_num:,.2f}</td>
-                <td class="right">${total_amount:,.2f}</td>
+                <td class="right">${clon_price_num:,.2f}</td>
+                <td class="right">${total_clon_amount:,.2f}</td>
+                <td class="right">${idcif_price_num:,.2f}</td>
+                <td class="right">${total_idcif_amount:,.2f}</td>
+                <td class="right"><b>${total_amount:,.2f}</b></td>
               </tr>
             </tbody>
           </table>
