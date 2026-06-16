@@ -2651,6 +2651,34 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                 clon_limit = int(bot.get("clon_limit") or 0)
                 clon_used = int(bot.get("clon_used") or 0)
 
+                group_promo = conn.execute(text("""
+                    SELECT clon_total, clon_used, idcif_total, idcif_used, is_active
+                    FROM group_promotions
+                    WHERE group_jid = :group_jid
+                      AND is_active = TRUE
+                    ORDER BY updated_at DESC NULLS LAST, id DESC
+                    LIMIT 1
+                """), {"group_jid": group_jid}).mappings().first()
+
+                if not group_promo:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        f"⚠️ {requester_label} este grupo no tiene bolsa activa para RFC.",
+                        instance_name=instance_name
+                    )
+                    return False
+
+                group_clon_total = int(group_promo.get("clon_total") or 0)
+                group_clon_used = int(group_promo.get("clon_used") or 0)
+
+                if group_clon_total > 0 and group_clon_used >= group_clon_total:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        f"⚠️ {requester_label} este grupo ya no tiene RFC CLON disponibles.",
+                        instance_name=instance_name
+                    )
+                    return False
+
                 if global_balance <= 0:
                     evolution_send_text_to_group(
                         group_jid,
@@ -2682,6 +2710,34 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
             if family == "IDCIF":
                 idcif_limit = int(bot.get("idcif_limit") or 0)
                 idcif_used = int(bot.get("idcif_used") or 0)
+
+                group_promo = conn.execute(text("""
+                    SELECT clon_total, clon_used, idcif_total, idcif_used, is_active
+                    FROM group_promotions
+                    WHERE group_jid = :group_jid
+                      AND is_active = TRUE
+                    ORDER BY updated_at DESC NULLS LAST, id DESC
+                    LIMIT 1
+                """), {"group_jid": group_jid}).mappings().first()
+
+                if not group_promo:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        f"⚠️ {requester_label} este grupo no tiene bolsa activa para RFC.",
+                        instance_name=instance_name
+                    )
+                    return False
+
+                group_idcif_total = int(group_promo.get("idcif_total") or 0)
+                group_idcif_used = int(group_promo.get("idcif_used") or 0)
+
+                if group_idcif_total > 0 and group_idcif_used >= group_idcif_total:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        f"⚠️ {requester_label} este grupo ya no tiene RFC IDCIF disponibles.",
+                        instance_name=instance_name
+                    )
+                    return False
 
                 if not bool(wallet.get("idcif_enabled")):
                     evolution_send_text_to_group(
