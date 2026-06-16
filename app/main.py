@@ -4284,7 +4284,15 @@ def panel_apply_shared_promotion(
     price_per_piece = (payload.get("price_per_piece") or "").strip()
     client_key = (payload.get("client_key") or "").strip().upper()
     shared_key = (payload.get("shared_key") or "").strip().upper()
-    total_actas = int(payload.get("total_actas") or 0)
+    clon_total = int(payload.get("clon_total") or 0)
+    idcif_total = int(payload.get("idcif_total") or 0)
+    total_actas = clon_total + idcif_total
+    
+    # Compatibilidad con formulario viejo
+    if total_actas <= 0:
+        total_actas = int(payload.get("total_actas") or 0)
+        clon_total = total_actas
+        idcif_total = 0
 
     is_credit = bool(payload.get("is_credit") or False)
     credit_abono = int(payload.get("credit_abono") or 0)
@@ -4320,6 +4328,10 @@ def panel_apply_shared_promotion(
                 shared_key=shared_key,
                 total_actas=total_actas,
                 used_actas=0,
+                clon_total=clon_total,
+                clon_used=0,
+                idcif_total=idcif_total,
+                idcif_used=0,
                 price_per_piece=price_per_piece,
                 is_credit=is_credit,
                 credit_abono=credit_abono,
@@ -4343,6 +4355,10 @@ def panel_apply_shared_promotion(
             row.shared_key = shared_key
             row.total_actas = total_actas
             row.used_actas = 0
+            row.clon_total = clon_total
+            row.clon_used = 0
+            row.idcif_total = idcif_total
+            row.idcif_used = 0
             row.price_per_piece = price_per_piece
             row.is_credit = is_credit
             row.credit_abono = credit_abono
@@ -4524,7 +4540,10 @@ def panel_recharge_promotion(
     # Recarga = sumar al total.
     # NO tocamos used_actas.
     previous_total = int(row.total_actas or 0)
-    row.total_actas = previous_total + add_RFC
+
+    row.clon_total = int(row.clon_total or 0) + add_RFC
+    row.total_actas = int(row.clon_total or 0) + int(row.idcif_total or 0)
+    row.used_actas = int(row.clon_used or 0) + int(row.idcif_used or 0)
 
     # Si estaba agotada, la reactivamos y liberamos avisos.
     row.is_active = True
@@ -4619,6 +4638,12 @@ def panel_add_group_to_shared_promotion(
         row.client_key = leader.client_key
         row.shared_key = leader.shared_key
         row.total_actas = leader.total_actas
+        row.clon_total = int(getattr(leader, "clon_total", 0) or 0)
+        row.clon_used = int(getattr(leader, "clon_used", 0) or 0)
+        row.idcif_total = int(getattr(leader, "idcif_total", 0) or 0)
+        row.idcif_used = int(getattr(leader, "idcif_used", 0) or 0)
+        row.used_actas = int(row.clon_used or 0) + int(row.idcif_used or 0)
+        row.total_actas = int(row.clon_total or 0) + int(row.idcif_total or 0)
         #row.used_actas = 0
         row.price_per_piece = leader.price_per_piece
         row.is_credit = leader.is_credit
@@ -4640,7 +4665,14 @@ def panel_add_group_to_shared_promotion(
             client_key=leader.client_key,
             shared_key=leader.shared_key,
             total_actas=leader.total_actas,
-            used_actas=0,
+            used_actas=(
+                int(getattr(leader, "clon_used", 0) or 0)
+                + int(getattr(leader, "idcif_used", 0) or 0)
+            ),
+            clon_total=int(getattr(leader, "clon_total", 0) or 0),
+            clon_used=int(getattr(leader, "clon_used", 0) or 0),
+            idcif_total=int(getattr(leader, "idcif_total", 0) or 0),
+            idcif_used=int(getattr(leader, "idcif_used", 0) or 0),
             price_per_piece=leader.price_per_piece,
             is_credit=leader.is_credit,
             credit_abono=leader.credit_abono or 0,
@@ -5284,8 +5316,14 @@ def remove_group_from_shared_promotion(
     row.shared_key = None
     row.shared_group_limit_actas = None
     row.shared_group_used_actas = 0
+
     row.used_actas = 0
     row.total_actas = 0
+    row.clon_total = 0
+    row.clon_used = 0
+    row.idcif_total = 0
+    row.idcif_used = 0
+
     row.updated_at = _utc_now_naive()
 
     db.commit()
@@ -19787,232 +19825,6 @@ def panel_rfc_bot_control_update(request: Request):
     except Exception as e:
         print("panel_rfc_bot_control_update error:", repr(e), flush=True)
         return HTMLResponse(f"Error: {_esc(str(e))}", status_code=500)
-
-
-# =========================================================
-# CONTROL POR BOT RFC CLON / IDCIF
-# Panel visual separado por familia.
-# =========================================================
-
-def _rfc_bot_control_engine():
-    import os
-    from dotenv import load_dotenv
-    from sqlalchemy import create_engine
-
-    load_dotenv("/opt/rfc-grupo02-bot/.env")
-    db_url = (os.getenv("DATABASE_URL") or "").strip()
-    if not db_url:
-        raise RuntimeError("DATABASE_URL_EMPTY")
-    return create_engine(db_url, pool_pre_ping=True)
-
-
-def _rfc_bot_control_ensure_columns(conn):
-    from sqlalchemy import text
-
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_limit INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_used INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_recharges INTEGER NOT NULL DEFAULT 0'))
-
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_limit INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_used INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_recharges INTEGER NOT NULL DEFAULT 0'))
-
-
-@app.get("/panel/rfc-bot-control-fragment", response_class=HTMLResponse)
-def panel_rfc_bot_control_fragment(request: Request):
-    if not _is_valid_admin_panel_token(request):
-        return HTMLResponse("No autorizado", status_code=403)
-
-    try:
-        from sqlalchemy import text
-
-        token = request.query_params.get("token", "")
-        engine = _rfc_bot_control_engine()
-
-        with engine.begin() as conn:
-            _rfc_bot_control_ensure_columns(conn)
-
-            rows = conn.execute(text("""
-                SELECT
-                    instance_name,
-                    COALESCE(label, instance_name) AS label,
-                    COALESCE(clon_limit, 0) AS clon_limit,
-                    COALESCE(clon_used, 0) AS clon_used,
-                    COALESCE(clon_recharges, 0) AS clon_recharges,
-                    COALESCE(idcif_limit, 0) AS idcif_limit,
-                    COALESCE(idcif_used, 0) AS idcif_used,
-                    COALESCE(idcif_recharges, 0) AS idcif_recharges,
-                    COALESCE(is_blocked, FALSE) AS is_blocked,
-                    COALESCE(is_active, TRUE) AS is_active
-                FROM bot_control
-                ORDER BY instance_name
-            """)).mappings().all()
-
-        html = """
-        <div class="box" id="rfcBotControlNewBox">
-          <div class="head">
-            <strong>Control por bot</strong>
-            <span class="small">Límites separados para RFC CLON e IDCIF. 0 significa ilimitado para ese bot, sujeto al saldo global del panel.</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Bot</th>
-                  <th>Estado</th>
-
-                  <th class="right">CLON usados</th>
-                  <th class="right">CLON límite</th>
-                  <th class="right">CLON disponibles</th>
-                  <th>Nuevo límite CLON</th>
-                  <th>Recarga CLON</th>
-
-                  <th class="right">IDCIF usados</th>
-                  <th class="right">IDCIF límite</th>
-                  <th class="right">IDCIF disponibles</th>
-                  <th>Nuevo límite IDCIF</th>
-                  <th>Recarga IDCIF</th>
-
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-        """
-
-        for r in rows:
-            inst = r["instance_name"] or ""
-            label = r["label"] or inst
-
-            clon_limit = int(r["clon_limit"] or 0)
-            clon_used = int(r["clon_used"] or 0)
-            clon_avail = "∞" if clon_limit == 0 else str(max(clon_limit - clon_used, 0))
-            clon_limit_txt = "∞" if clon_limit == 0 else str(clon_limit)
-
-            idcif_limit = int(r["idcif_limit"] or 0)
-            idcif_used = int(r["idcif_used"] or 0)
-            idcif_avail = "∞" if idcif_limit == 0 else str(max(idcif_limit - idcif_used, 0))
-            idcif_limit_txt = "∞" if idcif_limit == 0 else str(idcif_limit)
-
-            blocked = bool(r["is_blocked"])
-            active = bool(r["is_active"])
-
-            if not active:
-                badge = '<span class="badge badge-danger">INACTIVO</span>'
-            elif blocked:
-                badge = '<span class="badge badge-danger">BLOQUEADO</span>'
-            else:
-                badge = '<span class="badge badge-success">ACTIVO</span>'
-
-            inst_e = _esc(inst)
-            label_e = _esc(label)
-
-            html += f"""
-                <tr>
-                  <td>
-                    <strong>{label_e}</strong><br>
-                    <span class="small">{inst_e}</span>
-                  </td>
-
-                  <td>{badge}</td>
-
-                  <td class="right">{clon_used}</td>
-                  <td class="right">{clon_limit_txt}</td>
-                  <td class="right"><strong>{clon_avail}</strong></td>
-
-                  <td>
-                    <input id="clon_limit_{inst_e}" type="number" min="0" value="{clon_limit}" style="width:90px;">
-                    <button class="btn" onclick="rfcBotSetLimit('{inst_e}', 'clon')">Guardar</button>
-                  </td>
-
-                  <td>
-                    <input id="clon_add_{inst_e}" type="number" min="1" value="10" style="width:80px;">
-                    <button class="btn btn-success" onclick="rfcBotRecharge('{inst_e}', 'clon')">Recargar</button>
-                  </td>
-
-                  <td class="right">{idcif_used}</td>
-                  <td class="right">{idcif_limit_txt}</td>
-                  <td class="right"><strong>{idcif_avail}</strong></td>
-
-                  <td>
-                    <input id="idcif_limit_{inst_e}" type="number" min="0" value="{idcif_limit}" style="width:90px;">
-                    <button class="btn" onclick="rfcBotSetLimit('{inst_e}', 'idcif')">Guardar</button>
-                  </td>
-
-                  <td>
-                    <input id="idcif_add_{inst_e}" type="number" min="1" value="10" style="width:80px;">
-                    <button class="btn btn-success" onclick="rfcBotRecharge('{inst_e}', 'idcif')">Recargar</button>
-                  </td>
-
-                  <td>
-                    <button class="btn" onclick="rfcBotReset('{inst_e}', 'clon')">Reset CLON</button>
-                    <button class="btn" onclick="rfcBotReset('{inst_e}', 'idcif')">Reset IDCIF</button>
-            """
-
-            if blocked:
-                html += f"""<button class="btn btn-success" onclick="rfcBotBlock('{inst_e}', 'unblock')">Desbloquear</button>"""
-            else:
-                html += f"""<button class="btn btn-danger" onclick="rfcBotBlock('{inst_e}', 'block')">Bloquear</button>"""
-
-            html += """
-                  </td>
-                </tr>
-            """
-
-        html += f"""
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <script>
-        function rfcBotUpdate(params) {{
-          const token = {token!r};
-          const qs = new URLSearchParams(params);
-          qs.set("token", token);
-
-          fetch("/panel/rfc-bot-control-update?" + qs.toString(), {{
-            method: "POST"
-          }})
-          .then(function(r) {{
-            if (!r.ok) throw new Error("HTTP " + r.status);
-            return r.text();
-          }})
-          .then(function() {{
-            location.href = "/panel?token=" + encodeURIComponent(token) + "&v=" + Date.now();
-          }})
-          .catch(function(e) {{
-            alert("Error actualizando bot: " + e);
-          }});
-        }}
-
-        function rfcBotSetLimit(inst, family) {{
-          const el = document.getElementById(family + "_limit_" + inst);
-          const value = el ? el.value : "0";
-          rfcBotUpdate({{instance: inst, action: "set_limit", family: family, value: value}});
-        }}
-
-        function rfcBotRecharge(inst, family) {{
-          const el = document.getElementById(family + "_add_" + inst);
-          const value = el ? el.value : "0";
-          rfcBotUpdate({{instance: inst, action: "recharge", family: family, value: value}});
-        }}
-
-        function rfcBotReset(inst, family) {{
-          if (!confirm("¿Resetear usados de " + family.toUpperCase() + " para " + inst + "?")) return;
-          rfcBotUpdate({{instance: inst, action: "reset", family: family, value: "0"}});
-        }}
-
-        function rfcBotBlock(inst, action) {{
-          rfcBotUpdate({{instance: inst, action: action, family: "all", value: "0"}});
-        }}
-        </script>
-        """
-
-        return HTMLResponse(html)
-
-    except Exception as e:
-        print("panel_rfc_bot_control_fragment error:", repr(e), flush=True)
-        return HTMLResponse(f"<pre>Error Control por bot RFC: {_esc(str(e))}</pre>", status_code=500)
 
 
 # =========================================================
