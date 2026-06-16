@@ -37,6 +37,7 @@ from app.worker import (
     _detect_pdf_act_type,
     _expected_act_type_group,
     retry_pdf_delivery,
+    _increment_rfc_bot_family_used,
 )
 from app.services.provider3 import Provider3Client
 from app.services.provider4 import Provider4Client
@@ -4193,7 +4194,7 @@ def panel_remove_shared_promotion(
         row.shared_key = None
         row.credit_abono = 0
         row.credit_debe = 0
-        row.shared_group_limit_RFC = None
+        row.shared_group_limit_actas = None
         row.shared_group_used_actas = 0
         row.warning_sent_200 = False
         row.warning_sent_100 = False
@@ -4239,7 +4240,7 @@ def panel_set_shared_group_limit(
     if not (row.shared_key or "").strip():
         return {"ok": False, "error": "GROUP_NOT_IN_SHARED_PROMOTION"}
 
-    row.shared_group_limit_RFC = limit_RFC if limit_RFC > 0 else None
+    row.shared_group_limit_actas = limit_RFC if limit_RFC > 0 else None
     row.updated_at = _utc_now_naive()
     db.commit()
 
@@ -4268,7 +4269,7 @@ Ahora puede usar libremente la bolsa compartida disponible.
         "ok": True,
         "message": "Límite individual actualizado correctamente",
         "group_jid": group_jid,
-        "shared_group_limit_RFC": row.shared_group_limit_RFC,
+        "shared_group_limit_RFC": row.shared_group_limit_actas,
         "shared_group_used_actas": row.shared_group_used_actas or 0,
     }
 
@@ -4323,7 +4324,7 @@ def panel_apply_shared_promotion(
                 is_credit=is_credit,
                 credit_abono=credit_abono,
                 credit_debe=credit_debe,
-                shared_group_limit_RFC=shared_group_limit_RFC or None,
+                shared_group_limit_actas=shared_group_limit_RFC or None,
                 shared_group_used_actas=0,
                 warning_sent_200=False,
                 warning_sent_100=False,
@@ -4346,7 +4347,7 @@ def panel_apply_shared_promotion(
             row.is_credit = is_credit
             row.credit_abono = credit_abono
             row.credit_debe = credit_debe
-            row.shared_group_limit_RFC = shared_group_limit_RFC or None
+            row.shared_group_limit_actas = shared_group_limit_RFC or None
             row.shared_group_used_actas = 0
             row.warning_sent_200 = False
             row.warning_sent_100 = False
@@ -4470,7 +4471,7 @@ def panel_edit_promotion(
 
     if "shared_group_limit_RFC" in payload:
         limit_value = int(payload.get("shared_group_limit_RFC") or 0)
-        row.shared_group_limit_RFC = limit_value if limit_value > 0 else None
+        row.shared_group_limit_actas = limit_value if limit_value > 0 else None
 
     row.is_active = bool(payload.get("is_active", row.is_active))
     row.updated_at = _utc_now_naive()
@@ -4486,7 +4487,7 @@ def panel_edit_promotion(
         "total_actas": int(row.total_actas or 0),
         "used_actas": int(row.used_actas or 0),
         "available": max(0, int(row.total_actas or 0) - int(row.used_actas or 0)),
-        "shared_group_limit_RFC": row.shared_group_limit_RFC,
+        "shared_group_limit_RFC": row.shared_group_limit_actas,
         "shared_group_used_actas": int(row.shared_group_used_actas or 0),
         "is_active": bool(row.is_active),
     }
@@ -4623,7 +4624,7 @@ def panel_add_group_to_shared_promotion(
         row.is_credit = leader.is_credit
         row.credit_abono = leader.credit_abono or 0
         row.credit_debe = leader.credit_debe or 0
-        row.shared_group_limit_RFC = shared_group_limit_RFC or None
+        row.shared_group_limit_actas = shared_group_limit_RFC or None
         row.shared_group_used_actas = 0
         row.warning_sent_200 = bool(leader.warning_sent_200)
         row.warning_sent_100 = bool(leader.warning_sent_100)
@@ -4644,7 +4645,7 @@ def panel_add_group_to_shared_promotion(
             is_credit=leader.is_credit,
             credit_abono=leader.credit_abono or 0,
             credit_debe=leader.credit_debe or 0,
-            shared_group_limit_RFC=shared_group_limit_RFC or None,
+            shared_group_limit_actas=shared_group_limit_RFC or None,
             shared_group_used_actas=0,
             warning_sent_200=bool(leader.warning_sent_200),
             warning_sent_100=bool(leader.warning_sent_100),
@@ -5281,7 +5282,7 @@ def remove_group_from_shared_promotion(
 
     # quitar de bolsa
     row.shared_key = None
-    row.shared_group_limit_RFC = None
+    row.shared_group_limit_actas = None
     row.shared_group_used_actas = 0
     row.used_actas = 0
     row.total_actas = 0
@@ -16216,7 +16217,7 @@ def panel_recharge_group_promotion(
                                 (
                                     f"🔄 *Recarga aplicada a bolsa compartida*\n\n"
                                     f"Bolsa: *{shared_key}*\n"
-                                    f"Se agregaron *{extra_RFC} RFC*.\n"
+                                    f"Se agregaron *{extra_RFC} RFC {family}*.\n"
                                     f"Ahora cuentan con *{available} RFC disponibles*.\n\n"
                                     f"Gracias por tu preferencia."
                                 )
@@ -17587,6 +17588,8 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 else:
                     try:
                         if open_req.instance_name:
+                            _increment_rfc_bot_family_used(db, open_req.instance_name, open_req.act_type)
+                        
                             used, limit_value, blocked_now = increment_bot_used_and_maybe_block(
                                 db,
                                 open_req.instance_name
@@ -19627,6 +19630,17 @@ def panel_rfc_bot_control_update(request: Request):
                 if value <= 0:
                     return HTMLResponse("Recarga debe ser mayor a 0", status_code=400)
 
+                before = conn.execute(text("""
+                    SELECT
+                        COALESCE(clon_limit, 0) AS clon_limit,
+                        COALESCE(clon_used, 0) AS clon_used,
+                        COALESCE(idcif_limit, 0) AS idcif_limit,
+                        COALESCE(idcif_used, 0) AS idcif_used
+                    FROM bot_control
+                    WHERE instance_name = :instance
+                    LIMIT 1
+                """), {"instance": instance}).mappings().first() or {}
+
                 if family == "clon":
                     wallet = conn.execute(text("""
                         SELECT COALESCE(clon_balance, 0) AS clon_balance
@@ -19643,24 +19657,102 @@ def panel_rfc_bot_control_update(request: Request):
                             status_code=400
                         )
 
+                    previous_limit = int(before.get("clon_limit") or 0)
+                    used_now = int(before.get("clon_used") or 0)
+                    new_limit = previous_limit + value
+                    available_after = max(new_limit - used_now, 0)
+
                     conn.execute(text("""
                         UPDATE bot_control
                         SET
-                            clon_limit = clon_limit + :value,
-                            clon_recharges = clon_recharges + :value,
+                            clon_limit = COALESCE(clon_limit, 0) + :value,
+                            clon_recharges = COALESCE(clon_recharges, 0) + :value,
                             updated_at = now()
                         WHERE instance_name = :instance
                     """), {"value": value, "instance": instance})
 
+                    conn.execute(text("""
+                        INSERT INTO bot_recharge_logs (
+                            instance_name,
+                            amount,
+                            previous_limit,
+                            new_limit,
+                            used_at_recharge,
+                            available_after,
+                            source,
+                            note,
+                            created_at
+                        )
+                        VALUES (
+                            :instance,
+                            :amount,
+                            :previous_limit,
+                            :new_limit,
+                            :used_at_recharge,
+                            :available_after,
+                            :source,
+                            :note,
+                            now()
+                        )
+                    """), {
+                        "instance": instance,
+                        "amount": value,
+                        "previous_limit": previous_limit,
+                        "new_limit": new_limit,
+                        "used_at_recharge": used_now,
+                        "available_after": available_after,
+                        "source": "panel principal",
+                        "note": "Recarga CLON desde Control por bot",
+                    })
+
                 else:
+                    previous_limit = int(before.get("idcif_limit") or 0)
+                    used_now = int(before.get("idcif_used") or 0)
+                    new_limit = previous_limit + value
+                    available_after = max(new_limit - used_now, 0)
+
                     conn.execute(text("""
                         UPDATE bot_control
                         SET
-                            idcif_limit = idcif_limit + :value,
-                            idcif_recharges = idcif_recharges + :value,
+                            idcif_limit = COALESCE(idcif_limit, 0) + :value,
+                            idcif_recharges = COALESCE(idcif_recharges, 0) + :value,
                             updated_at = now()
                         WHERE instance_name = :instance
                     """), {"value": value, "instance": instance})
+
+                    conn.execute(text("""
+                        INSERT INTO bot_recharge_logs (
+                            instance_name,
+                            amount,
+                            previous_limit,
+                            new_limit,
+                            used_at_recharge,
+                            available_after,
+                            source,
+                            note,
+                            created_at
+                        )
+                        VALUES (
+                            :instance,
+                            :amount,
+                            :previous_limit,
+                            :new_limit,
+                            :used_at_recharge,
+                            :available_after,
+                            :source,
+                            :note,
+                            now()
+                        )
+                    """), {
+                        "instance": instance,
+                        "amount": value,
+                        "previous_limit": previous_limit,
+                        "new_limit": new_limit,
+                        "used_at_recharge": used_now,
+                        "available_after": available_after,
+                        "source": "panel principal",
+                        "note": "Recarga IDCIF desde Control por bot",
+                    })
 
             elif action == "reset":
                 if family == "clon":
@@ -19921,141 +20013,6 @@ def panel_rfc_bot_control_fragment(request: Request):
     except Exception as e:
         print("panel_rfc_bot_control_fragment error:", repr(e), flush=True)
         return HTMLResponse(f"<pre>Error Control por bot RFC: {_esc(str(e))}</pre>", status_code=500)
-
-
-@app.post("/panel/rfc-bot-control-update", response_class=HTMLResponse)
-def panel_rfc_bot_control_update(request: Request):
-    if not _is_valid_admin_panel_token(request):
-        return HTMLResponse("No autorizado", status_code=403)
-
-    try:
-        from sqlalchemy import text
-
-        q = request.query_params
-        instance = (q.get("instance") or "").strip()
-        action = (q.get("action") or "").strip().lower()
-        family = (q.get("family") or "").strip().lower()
-        value = int(q.get("value") or 0)
-
-        if not instance:
-            return HTMLResponse("Falta instance", status_code=400)
-
-        if family not in ("clon", "idcif", "all"):
-            return HTMLResponse("family inválida", status_code=400)
-
-        if action not in ("set_limit", "recharge", "reset", "block", "unblock"):
-            return HTMLResponse("action inválida", status_code=400)
-
-        engine = _rfc_bot_control_engine()
-
-        with engine.begin() as conn:
-            _rfc_bot_control_ensure_columns(conn)
-
-            conn.execute(text("""
-                INSERT INTO bot_control (
-                    instance_name,
-                    label,
-                    panel_token,
-                    "limit",
-                    used,
-                    recharges,
-                    clon_limit,
-                    clon_used,
-                    clon_recharges,
-                    idcif_limit,
-                    idcif_used,
-                    idcif_recharges,
-                    is_blocked,
-                    is_active,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    :instance,
-                    :instance,
-                    NULL,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    FALSE,
-                    TRUE,
-                    now(),
-                    now()
-                )
-                ON CONFLICT (instance_name)
-                DO NOTHING
-            """), {"instance": instance})
-
-            if action == "set_limit":
-                col = "clon_limit" if family == "clon" else "idcif_limit"
-                conn.execute(text(f"""
-                    UPDATE bot_control
-                    SET {col} = :value, updated_at = now()
-                    WHERE instance_name = :instance
-                """), {"value": max(value, 0), "instance": instance})
-
-            elif action == "recharge":
-                if value <= 0:
-                    return HTMLResponse("Recarga debe ser mayor a 0", status_code=400)
-
-                if family == "clon":
-                    conn.execute(text("""
-                        UPDATE bot_control
-                        SET
-                            clon_limit = clon_limit + :value,
-                            clon_recharges = clon_recharges + :value,
-                            updated_at = now()
-                        WHERE instance_name = :instance
-                    """), {"value": value, "instance": instance})
-                else:
-                    conn.execute(text("""
-                        UPDATE bot_control
-                        SET
-                            idcif_limit = idcif_limit + :value,
-                            idcif_recharges = idcif_recharges + :value,
-                            updated_at = now()
-                        WHERE instance_name = :instance
-                    """), {"value": value, "instance": instance})
-
-            elif action == "reset":
-                if family == "clon":
-                    conn.execute(text("""
-                        UPDATE bot_control
-                        SET clon_used = 0, updated_at = now()
-                        WHERE instance_name = :instance
-                    """), {"instance": instance})
-                elif family == "idcif":
-                    conn.execute(text("""
-                        UPDATE bot_control
-                        SET idcif_used = 0, updated_at = now()
-                        WHERE instance_name = :instance
-                    """), {"instance": instance})
-
-            elif action == "block":
-                conn.execute(text("""
-                    UPDATE bot_control
-                    SET is_blocked = TRUE, updated_at = now()
-                    WHERE instance_name = :instance
-                """), {"instance": instance})
-
-            elif action == "unblock":
-                conn.execute(text("""
-                    UPDATE bot_control
-                    SET is_blocked = FALSE, is_active = TRUE, updated_at = now()
-                    WHERE instance_name = :instance
-                """), {"instance": instance})
-
-        return HTMLResponse("OK")
-
-    except Exception as e:
-        print("panel_rfc_bot_control_update error:", repr(e), flush=True)
-        return HTMLResponse(f"Error: {_esc(str(e))}", status_code=500)
 
 
 # =========================================================
