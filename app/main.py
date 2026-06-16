@@ -5902,7 +5902,11 @@ def panel_group_detail(
           </div>
     
           <div class="filters" style="grid-template-columns: 1fr 220px 220px;">
-            <input id="promo_recharge" placeholder="Recargar RFC" type="number" min="1">
+            <select id="promo_recharge_family">
+              <option value="CLON">Recargar CLON</option>
+              <option value="IDCIF">Recargar IDCIF</option>
+            </select>
+            <input id="promo_recharge" placeholder="Cantidad a recargar" type="number" min="1">
             <button type="button" class="btn btn-success" onclick="rechargePromotion('{group_jid}')">Recargar bolsa RFC</button>
             <button type="button" class="btn btn-danger" onclick="removePromotion('{group_jid}')">Quitar bolsa RFC</button>
           </div>
@@ -6149,7 +6153,9 @@ def panel_group_detail(
           
           async function savePromotion(groupJid) {{
             const promoName = document.getElementById("promo_name")?.value?.trim() || "";
-            const totalRFC = document.getElementById("promo_total")?.value?.trim() || "";
+            const clonTotal = Number(document.getElementById("promo_clon_total").value.trim() || 0);
+            const idcifTotal = Number(document.getElementById("promo_idcif_total").value.trim() || 0);
+            const totalRFC = clonTotal + idcifTotal;
             const pricePerPiece = document.getElementById("promo_price")?.value?.trim() || "";
 
             const promoType = document.getElementById("promo_type")?.value || "paid";
@@ -6183,7 +6189,9 @@ def panel_group_detail(
                   price_per_piece: pricePerPiece,
                   is_credit: isCredit,
                   credit_abono: creditAbono,
-                  credit_debe: creditDebe
+                  credit_debe: creditDebe,
+                  clon_total: clonTotal,
+                  idcif_total: idcifTotal
                 }})
               }});
 
@@ -7726,10 +7734,19 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
         if not instance_name:
             return {"ok": False, "error": "Panel no válido"}
 
+        clon_total = int(payload.get("clon_total") or 0)
+        idcif_total = int(payload.get("idcif_total") or 0)
+        total_actas = clon_total + idcif_total
+        
+        # Compatibilidad con frontend viejo
+        if total_actas <= 0:
+            total_actas = int(payload.get("total_actas") or 0)
+            clon_total = total_actas
+            idcif_total = 0
+
         payload = await request.json()
         group_jid = (payload.get("group_jid") or "").strip()
         promo_name = (payload.get("promo_name") or "").strip()
-        total_actas = int(payload.get("total_actas") or 0)
         price_per_piece = (payload.get("price_per_piece") or "").strip()
 
         group = db.query(AuthorizedGroup).filter(
@@ -7760,6 +7777,12 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
             row.is_active = True
             row.owner_instance = instance_name
             row.updated_at = _utc_now_naive()
+            row.clon_total = clon_total
+            row.clon_used = 0
+            row.idcif_total = idcif_total
+            row.idcif_used = 0
+            row.total_actas = total_actas
+            row.used_actas = 0
         else:
             row = GroupPromotion(
                 group_jid=group_jid,
@@ -7777,6 +7800,10 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
                 warning_sent_0=False,
                 created_at=_utc_now_naive(),
                 updated_at=_utc_now_naive(),
+                clon_total=clon_total,
+                clon_used=0,
+                idcif_total=idcif_total,
+                idcif_used=0,
             )
             db.add(row)
 
@@ -8572,10 +8599,18 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
 
     if groups:
         for g in groups:
-            promo_text = (
-                f'{g["promo_used"]}/{g["promo_total"]}'
-                if g["promo_total"] > 0 else "Sin promo"
-            )
+            clon_total = int(g.get("promo_clon_total") or 0)
+            clon_used = int(g.get("promo_clon_used") or 0)
+            idcif_total = int(g.get("promo_idcif_total") or 0)
+            idcif_used = int(g.get("promo_idcif_used") or 0)
+            
+            if clon_total > 0 or idcif_total > 0:
+                promo_text = f"""
+                <div><b>CLON:</b> {clon_used}/{clon_total}</div>
+                <div><b>IDCIF:</b> {idcif_used}/{idcif_total}</div>
+                """
+            else:
+                promo_text = "Sin promo"
             status_badge = (
                 '<span class="badge badge-danger">BLOQUEADO</span>'
                 if g["blocked"] else
@@ -8655,7 +8690,8 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   <td>
                     <div style="display:grid;gap:8px;min-width:260px;">
                       <input id="promo_name_{_esc(g["group_jid"])}" placeholder="Nombre promo">
-                      <input id="promo_total_{_esc(g["group_jid"])}" type="number" min="10" step="1" placeholder="Total RFC (mín. 10)">
+                      <input id="promo_clon_total_{_esc(g["group_jid"])}" type="number" min="0" step="1" placeholder="Total CLON">
+                      <input id="promo_idcif_total_{_esc(g["group_jid"])}" type="number" min="0" step="1" placeholder="Total IDCIF">
                       <input id="promo_price_{_esc(g["group_jid"])}" placeholder="Precio por RFC">
                 
                       <button class="btn btn-success"
@@ -8965,7 +9001,9 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
 
         async function assignBotPromo(groupJid) {
           const promoName = document.getElementById(`promo_name_${groupJid}`).value.trim();
-          const totalRFC = Number(document.getElementById(`promo_total_${groupJid}`).value.trim());
+          const clonTotal = Number(document.getElementById(`promo_clon_total_${groupJid}`).value.trim() || 0);
+          const idcifTotal = Number(document.getElementById(`promo_idcif_total_${groupJid}`).value.trim() || 0);
+          const totalRFC = clonTotal + idcifTotal;
           const pricePerPiece = document.getElementById(`promo_price_${groupJid}`).value.trim();
 
           if (!totalRFC || totalRFC < 10) {
@@ -8980,6 +9018,8 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
               group_jid: groupJid,
               promo_name: promoName,
               total_actas: totalRFC,
+              clon_total: clonTotal,
+              idcif_total: idcifTotal,
               price_per_piece: pricePerPiece
             })
           });
@@ -15831,7 +15871,15 @@ def panel_set_group_promotion(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
 ):
-    total_actas = int(payload.get("total_actas") or 0)
+    clon_total = int(payload.get("clon_total") or 0)
+    idcif_total = int(payload.get("idcif_total") or 0)
+    total_actas = clon_total + idcif_total
+    
+    if total_actas <= 0:
+        total_actas = int(payload.get("total_actas") or 0)
+        clon_total = total_actas
+        idcif_total = 0
+    
     promo_name = (payload.get("promo_name") or "").strip()
     price_per_piece = (payload.get("price_per_piece") or "").strip()
 
@@ -15853,6 +15901,13 @@ def panel_set_group_promotion(
         row.credit_debe = credit_debe
         row.is_active = True
         row.updated_at = _utc_now_naive()
+
+        row.total_actas = total_actas
+        row.used_actas = 0
+        row.clon_total = clon_total
+        row.clon_used = 0
+        row.idcif_total = idcif_total
+        row.idcif_used = 0
 
         row.used_actas = 0
         row.warning_sent_200 = False
@@ -15884,6 +15939,10 @@ def panel_set_group_promotion(
             shared_key=None,
             created_at=_utc_now_naive(),
             updated_at=_utc_now_naive(),
+            clon_total=clon_total,
+            clon_used=0,
+            idcif_total=idcif_total,
+            idcif_used=0,
         )
         db.add(row)
         db.flush()
