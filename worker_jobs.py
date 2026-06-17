@@ -2557,12 +2557,18 @@ def _rfc_final_ensure_wallet_and_bot(conn, owner: str, instance_name: str):
         "owner_name": owner.upper(),
     })
 
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_limit INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_used INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_recharges INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_limit INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_used INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_recharges INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_limit INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_used INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_recharges INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_limit INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_used INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_recharges INTEGER NOT NULL DEFAULT 0'))
 
     conn.execute(text("""
         INSERT INTO bot_control (

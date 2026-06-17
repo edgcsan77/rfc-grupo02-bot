@@ -19374,13 +19374,19 @@ def _rfc_bot_control_engine():
 def _rfc_bot_control_ensure_columns(conn):
     from sqlalchemy import text
 
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_limit INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_used INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_recharges INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_limit INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_used INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS clon_recharges INTEGER NOT NULL DEFAULT 0'))
 
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_limit INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_used INTEGER NOT NULL DEFAULT 0'))
-    conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_recharges INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_limit INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_used INTEGER NOT NULL DEFAULT 0'))
+    # MIGRACION DESACTIVADA: no correr ALTER TABLE en runtime; bloqueaba bot_control y congelaba panel.
+    # conn.execute(text('ALTER TABLE bot_control ADD COLUMN IF NOT EXISTS idcif_recharges INTEGER NOT NULL DEFAULT 0'))
 
 
 @app.get("/panel/rfc-bot-control-fragment", response_class=HTMLResponse)
