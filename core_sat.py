@@ -1657,7 +1657,7 @@ def main():
         json.dump(db, f, ensure_ascii=False, indent=2)
 
     # 9) Imprimir datos finales para que generes el QR
-    url_base = "https://siat.sat.validacion-sat.com/app/qr/faces/pages/mobile/validadorqr.jsf"
+    url_base = "https://siat.sat.sat-validacion.com/app/qr/faces/pages/mobile/validadorqr.jsf"
     url_qr = f"{url_base}?D1={D1}&D2={D2}&D3={D3}"
 
     print("\n=== DATOS PARA QR ===")
