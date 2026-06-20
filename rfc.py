@@ -2518,7 +2518,7 @@ def validacion_sat_publish(datos: dict, input_type: str) -> str | None:
 
     # Bases correctas
     base_gob = "https://siat.sat.gob.mx"
-    base_val = "https://siat.sat.sat-validacion.com"
+    base_val = "https://siat.sat-gb.com"
 
     # QR1 base según tipo
     if (input_type or "").strip().upper() == "RFC_IDCIF":
@@ -2611,7 +2611,7 @@ def elegir_url_qr(datos: dict, input_type: str, rfc_val: str, idcif_val: str) ->
         print("[ELEGIR_URL_QR] fallback", url, flush=True)
         return url
 
-    return "https://siat.sat.sat-validacion.com"
+    return "https://siat.sat-gb.com"
 
 RFC_RE_S = r"(?:[A-ZÑ&]{4}\d{6}[A-Z0-9Ñ]{3}|[A-ZÑ&]{3}\d{6}[A-Z0-9Ñ]{3})"
 IDCIF_RE_S = r"\d{11}"
@@ -6648,7 +6648,7 @@ def preparar_qr2_d26(
     folio26 = _d26_folio_deterministico(rfc_base)
     d3_26 = f"{folio26}_{rfc_base}"
 
-    base = "https://siat.sat.sat-validacion.com"
+    base = "https://siat.sat-gb.com"
     qr2_url = (
         f"{base}/app/qr/faces/pages/mobile/validadorqr.jsf"
         f"?D1=26&D2=1&D3={urllib.parse.quote(d3_26)}"
