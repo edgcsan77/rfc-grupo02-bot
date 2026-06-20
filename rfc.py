@@ -2466,6 +2466,34 @@ def datos_to_persona_sat(datos: dict, d3: str, idcif: str, rfc: str, curp: str) 
         "IDCIF_ETIQUETA": S(idcif),
     }
 
+def usar_mismo_qr_idcif_rfc(input_type: str, datos: dict | None = None) -> bool:
+    """
+    RFC+IDCIF y QR leído desde imagen:
+    QR1 y QR2 deben ser exactamente el mismo QR D1=10 / IDCIF_RFC.
+    """
+    tipo = (input_type or "").strip().upper()
+
+    if tipo not in ("RFC_IDCIF", "QR"):
+        return False
+
+    datos = datos or {}
+
+    rfc = (
+        datos.get("RFC_ETIQUETA")
+        or datos.get("RFC")
+        or datos.get("rfc")
+        or ""
+    ).strip().upper()
+
+    idcif = (
+        datos.get("IDCIF_ETIQUETA")
+        or datos.get("IDCIF")
+        or datos.get("idcif")
+        or ""
+    ).strip()
+
+    return bool(rfc and idcif)
+
 def validacion_sat_publish(datos: dict, input_type: str) -> str | None:
     if not validacion_sat_enabled():
         return None
@@ -2498,34 +2526,40 @@ def validacion_sat_publish(datos: dict, input_type: str) -> str | None:
     else:
         base_d10 = base_val
 
-    # QR2 siempre sat-validacion.com
-    base_d26 = base_val
-
-    # Si ya viene folio correcto desde arriba, úsalo.
-    # Si no, usa el determinístico que ya manejas.
-    folio26 = (
-        (datos.get("FOLIO") or datos.get("folio") or "").strip().upper()
-        or _d26_folio_deterministico(rfc)
-    )
-
-    d3_d26 = f"{folio26}_{rfc}"
-
     qd3_d10 = urllib.parse.quote(d3_d10)
-    qd3_d26 = urllib.parse.quote(d3_d26)
 
     url_d10 = (
         f"{base_d10}/app/qr/faces/pages/mobile/validadorqr.jsf"
         f"?D1=10&D2=1&D3={qd3_d10}"
     )
-
-    url_d26 = (
-        f"{base_d26}/app/qr/faces/pages/mobile/validadorqr.jsf"
-        f"?D1=26&D2=1&D3={qd3_d26}"
-    )
-
+    
+    # RFC+IDCIF y QR leído:
+    # QR2 debe ser exactamente el mismo QR IDCIF_RFC que QR1.
+    if usar_mismo_qr_idcif_rfc(input_type, datos):
+        url_d26 = url_d10
+        datos["_QR2_SAME_AS_QR1"] = True
+    
+    else:
+        base_d26 = base_val
+    
+        folio26 = (
+            (datos.get("FOLIO") or datos.get("folio") or "").strip().upper()
+            or _d26_folio_deterministico(rfc)
+        )
+    
+        d3_d26 = f"{folio26}_{rfc}"
+        qd3_d26 = urllib.parse.quote(d3_d26)
+    
+        url_d26 = (
+            f"{base_d26}/app/qr/faces/pages/mobile/validadorqr.jsf"
+            f"?D1=26&D2=1&D3={qd3_d26}"
+        )
+    
+        datos.pop("_QR2_SAME_AS_QR1", None)
+    
     datos["QR_URL_D10"] = url_d10
     datos["QR_URL_D26"] = url_d26
-    datos["QR_URL"] = datos.get("QR_URL") or url_d10
+    datos["QR_URL"] = url_d10
 
     return url_d10
 
@@ -2663,17 +2697,27 @@ def reemplazar_en_documento(ruta_entrada, ruta_salida, datos, input_type, qr2_by
     qr_bytes, barcode_bytes = generar_qr_y_barcode(url_qr, rfc_val)
 
     # QR2
-    qr2_url = (datos.get("QR_URL_D26") or "").strip()
-    qr2_gen_bytes = None
-    if qr2_url:
-        try:
-            qr2_gen_bytes, _ = generar_qr_y_barcode(qr2_url, rfc_val, include_barcode=False)
-        except Exception as e:
-            print("QR2 generation fail:", repr(e), flush=True)
-
-    # si te pasaron qr2_bytes explícito, ese manda; si no, usa el generado desde QR_URL_D26
-    if not qr2_bytes and qr2_gen_bytes:
-        qr2_bytes = qr2_gen_bytes
+    # Para RFC+IDCIF y QR leído, QR2 debe ser la misma imagen exacta de QR1.
+    if usar_mismo_qr_idcif_rfc(input_type, datos) or datos.get("_QR2_SAME_AS_QR1"):
+        qr2_bytes = qr_bytes
+    
+    else:
+        qr2_url = (datos.get("QR_URL_D26") or "").strip()
+        qr2_gen_bytes = None
+    
+        if qr2_url:
+            try:
+                qr2_gen_bytes, _ = generar_qr_y_barcode(
+                    qr2_url,
+                    rfc_val,
+                    include_barcode=False
+                )
+            except Exception as e:
+                print("QR2 generation fail:", repr(e), flush=True)
+    
+        # Si se recibió QR2 explícito, tiene prioridad.
+        if not qr2_bytes and qr2_gen_bytes:
+            qr2_bytes = qr2_gen_bytes
 
     if datos.get("COLONIA"):
         datos["COLONIA"] = str(datos["COLONIA"]).upper()
@@ -6564,23 +6608,70 @@ def rewrite_public_url(url: str) -> str:
     base = urlsplit(PUBLIC_BASE_URL)
     return urlunsplit((base.scheme, base.netloc, parts.path, parts.query, parts.fragment))
 
-def preparar_qr2_d26(datos: dict, rfc_base: str) -> tuple[dict, bytes]:
+def preparar_qr2_d26(
+    datos: dict,
+    rfc_base: str,
+    input_type: str = ""
+) -> tuple[dict, bytes]:
+    """
+    Genera QR2 D26 solo para CURP/RFC_ONLY/etc.
+
+    Para RFC_IDCIF y QR leído, QR2 usa exactamente el mismo
+    QR D1=10 IDCIF_RFC de QR1.
+    """
+    datos = datos or {}
+
+    if usar_mismo_qr_idcif_rfc(input_type, datos):
+        qr1_url = (
+            datos.get("QR_URL_D10")
+            or datos.get("QR_URL")
+            or ""
+        ).strip()
+
+        if not qr1_url:
+            qr1_url = elegir_url_qr(
+                datos,
+                input_type,
+                (datos.get("RFC_ETIQUETA") or rfc_base or "").strip().upper(),
+                (datos.get("IDCIF_ETIQUETA") or datos.get("IDCIF") or "").strip(),
+            )
+
+        if not qr1_url:
+            raise RuntimeError("No se pudo construir QR IDCIF_RFC para QR2")
+
+        datos["QR_URL_D26"] = qr1_url
+        datos["_QR2_SAME_AS_QR1"] = True
+
+        qr2_bytes = generar_solo_qr_png(qr1_url)
+        return datos, qr2_bytes
+
     folio26 = _d26_folio_deterministico(rfc_base)
     d3_26 = f"{folio26}_{rfc_base}"
 
     base = "https://siat.sat.sat-validacion.com"
-    qr2_url = f"{base}/app/qr/faces/pages/mobile/validadorqr.jsf?D1=26&D2=1&D3={urllib.parse.quote(d3_26)}"
+    qr2_url = (
+        f"{base}/app/qr/faces/pages/mobile/validadorqr.jsf"
+        f"?D1=26&D2=1&D3={urllib.parse.quote(d3_26)}"
+    )
 
     persona26 = _persona_d26_min(datos, d3_key=d3_26, rfc=rfc_base)
 
     github_upsert_persona_file(d3_26, persona26)
+
     try:
         github_update_personas(d3_26, persona26)
     except Exception as e:
-        print("⚠ github_update_personas D26 warn:", repr(e), "d3_26=", d3_26, flush=True)
+        print(
+            "⚠ github_update_personas D26 warn:",
+            repr(e),
+            "d3_26=",
+            d3_26,
+            flush=True
+        )
 
     datos["FOLIO"] = str(folio26)
     datos["QR_URL_D26"] = qr2_url
+    datos.pop("_QR2_SAME_AS_QR1", None)
 
     qr2_bytes = generar_solo_qr_png(qr2_url)
     return datos, qr2_bytes
@@ -7099,7 +7190,11 @@ def procesar_solicitud_interna_para_pdf(
                             try:
                                 rfc_base = (datos.get("RFC") or datos.get("rfc") or "").strip().upper()
                                 if rfc_base:
-                                    datos, _ = preparar_qr2_d26(datos, rfc_base)
+                                    datos, _ = preparar_qr2_d26(
+                                        datos,
+                                        rfc_base,
+                                        input_type="RFC_IDCIF"
+                                    )
                             except Exception as e:
                                 print("preparar_qr2_d26 internal batch zip fail:", repr(e), flush=True)
 
@@ -7186,7 +7281,11 @@ def procesar_solicitud_interna_para_pdf(
                     try:
                         rfc_base = (datos.get("RFC") or datos.get("rfc") or "").strip().upper()
                         if rfc_base:
-                            datos, _ = preparar_qr2_d26(datos, rfc_base)
+                            datos, _ = preparar_qr2_d26(
+                                datos,
+                                rfc_base,
+                                input_type="RFC_IDCIF"
+                            )
                     except Exception as e:
                         print("preparar_qr2_d26 internal batch multi fail:", repr(e), flush=True)
 
@@ -7805,7 +7904,11 @@ def procesar_solicitud_interna_para_pdf(
     try:
         rfc_base = (datos.get("RFC") or datos.get("rfc") or "").strip().upper()
         if rfc_base:
-            datos, _ = preparar_qr2_d26(datos, rfc_base)
+            datos, _ = preparar_qr2_d26(
+                datos,
+                rfc_base,
+                input_type="RFC_IDCIF"
+            )
     except Exception as e:
         print("preparar_qr2_d26 single fail:", repr(e), flush=True)
 
@@ -10633,33 +10736,48 @@ def _generar_y_enviar_archivos(from_wa_id: str, text_body: str, datos: dict, inp
         ruta_docx = os.path.join(tmpdir, nombre_docx)
 
         # ==========================
-        # ✅ QR2 (D26): folio + JSON + PNG para image9.png
+        # QR2
+        # RFC_IDCIF y QR usan el mismo IDCIF_RFC de QR1.
+        # Los demás flujos conservan D26/FOLIO_RFC.
         # ==========================
-        # asegura FECHA_CORTA para la cadena original
-        seed_key = (datos.get("RFC") or datos.get("rfc") or datos.get("CURP") or datos.get("curp") or "").strip().upper() or "SEED"
+        seed_key = (
+            datos.get("RFC")
+            or datos.get("rfc")
+            or datos.get("CURP")
+            or datos.get("curp")
+            or ""
+        ).strip().upper() or "SEED"
+        
         datos = ensure_default_status_and_dates(datos, seed_key=seed_key)
-
+        
         rfc_base = (datos.get("RFC") or datos.get("rfc") or "").strip().upper()
+        
         if not rfc_base:
-            raise RuntimeError("❌ Falta RFC para generar QR2 (D26)")
-
-        folio26 = _d26_folio_deterministico(rfc_base)
-        d3_26 = f"{folio26}_{rfc_base}"
-
-        base = "https://siat.sat.sat-validacion.com"
-        qr2_url = f"{base}/app/qr/faces/pages/mobile/validadorqr.jsf?D1=26&D2=1&D3={d3_26}"
-
-        persona26 = _persona_d26_min(datos, d3_key=d3_26, rfc=rfc_base)
-
-        try:
-            github_upsert_persona_file(d3_26, persona26)
-        except Exception as e:
-            print("⚠ Error publicando persona D26:", repr(e), "d3_26=", d3_26, flush=True)
-
-        if same_qr_both_pages_enabled(from_wa_id):
-            qr2_bytes = None
+            raise RuntimeError("❌ Falta RFC para generar QR")
+        
+        if usar_mismo_qr_idcif_rfc(input_type, datos):
+            qr1_url = elegir_url_qr(
+                datos,
+                input_type,
+                (datos.get("RFC_ETIQUETA") or rfc_base).strip().upper(),
+                (datos.get("IDCIF_ETIQUETA") or datos.get("IDCIF") or "").strip(),
+            )
+        
+            if not qr1_url:
+                raise RuntimeError("❌ Falta URL QR IDCIF_RFC")
+        
+            datos["QR_URL_D10"] = qr1_url
+            datos["QR_URL_D26"] = qr1_url
+            datos["_QR2_SAME_AS_QR1"] = True
+        
+            qr2_bytes = generar_solo_qr_png(qr1_url)
+        
         else:
-            qr2_bytes = generar_solo_qr_png(qr2_url)
+            datos, qr2_bytes = preparar_qr2_d26(
+                datos,
+                rfc_base,
+                input_type=input_type
+            )
 
         reemplazar_en_documento(ruta_plantilla, ruta_docx, datos, input_type, qr2_bytes=qr2_bytes)
 
