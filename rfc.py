@@ -7907,7 +7907,7 @@ def procesar_solicitud_interna_para_pdf(
             datos, _ = preparar_qr2_d26(
                 datos,
                 rfc_base,
-                input_type="RFC_IDCIF"
+                input_type=input_type
             )
     except Exception as e:
         print("preparar_qr2_d26 single fail:", repr(e), flush=True)
@@ -10791,7 +10791,10 @@ def _generar_y_enviar_archivos(from_wa_id: str, text_body: str, datos: dict, inp
         curp_c = (datos.get("CURP") or datos.get("curp") or "").strip().upper()
         ok_key = make_ok_key(input_type, rfc=rfc_c or None, curp=curp_c or None)
 
-        cached_name, cached_bytes, cached_mime = filecache_get_bytes(ok_key, "PDF")
+        cached_name, cached_bytes, cached_mime = filecache_get_bytes(
+            ok_key,
+            "PDF_QR_IDCIF_V2"
+        )
         if cached_bytes and cached_mime == "application/pdf":
             pdf_filename = cached_name or (os.path.splitext(nombre_docx)[0] + ".pdf")
 
@@ -10821,7 +10824,13 @@ def _generar_y_enviar_archivos(from_wa_id: str, text_body: str, datos: dict, inp
             pdf_filename = os.path.splitext(nombre_docx)[0] + ".pdf"
 
             # ✅ guarda PDF en cache (si es tamaño permitido)
-            filecache_set_bytes(ok_key, "PDF", pdf_filename, pdf_bytes, "application/pdf")
+            filecache_set_bytes(
+                ok_key,
+                "PDF_QR_IDCIF_V2",
+                pdf_filename,
+                pdf_bytes,
+                "application/pdf"
+            )
 
             media_pdf = wa_upload_document(pdf_bytes, pdf_filename, "application/pdf")
             wa_send_document(from_wa_id, media_pdf, pdf_filename)
