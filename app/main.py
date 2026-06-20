@@ -19416,6 +19416,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                     COALESCE(is_blocked, FALSE) AS is_blocked,
                     COALESCE(is_active, TRUE) AS is_active
                 FROM bot_control
+                WHERE COALESCE(is_active, TRUE) = TRUE
                 ORDER BY instance_name
             """)).mappings().all()
 
