@@ -11307,41 +11307,11 @@ def generar_constancia():
         if not rfc_base:
             raise RuntimeError("❌ Falta RFC para generar QR2 (D26)")
 
-        folio26 = _d26_folio_deterministico(rfc_base)
-        d3_26 = f"{folio26}_{rfc_base}"
-
-        base = "https://siat.sat.sat-validacion.com"
-        qr2_url = f"{base}/app/qr/faces/pages/mobile/validadorqr.jsf?D1=26&D2=1&D3={d3_26}"
-
-        persona26 = _persona_d26_min(datos, d3_key=d3_26, rfc=rfc_base)
-
-        print(
-            "D26 publish target:",
-            {
-                "owner": GITHUB_OWNER,
-                "repo": GITHUB_REPO,
-                "branch": GITHUB_BRANCH,
-                "path": f"public/data/personas/{d3_26}.json",
-                "d3_26": d3_26
-            },
-            flush=True
+        datos, qr2_bytes = preparar_qr2_d26(
+            datos,
+            rfc_base,
+            input_type=input_type
         )
-
-        try:
-            ok = github_upsert_persona_file(d3_26, persona26)
-            print("✅ GH upsert D26 OK:", ok, "d3_26=", d3_26, flush=True)
-        except Exception as e:
-            print(
-                "❌ GH upsert D26 FAIL:",
-                type(e).__name__,
-                str(e),
-                "d3_26=",
-                d3_26,
-                flush=True
-            )
-            raise
-
-        qr2_bytes = generar_solo_qr_png(qr2_url)
 
         reemplazar_en_documento(ruta_plantilla, ruta_docx, datos, input_type, qr2_bytes=qr2_bytes)
 
