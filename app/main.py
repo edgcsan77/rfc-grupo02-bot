@@ -11140,6 +11140,25 @@ def panel_RFC(
           });
         };
 
+        window.rfcBotSetPrice = function(inst) {
+          const clonEl = document.getElementById("price_clon_" + inst);
+          const idcifEl = document.getElementById("price_idcif_" + inst);
+          const noteEl = document.getElementById("price_note_" + inst);
+        
+          const clonPrice = clonEl ? clonEl.value.trim() : "";
+          const idcifPrice = idcifEl ? idcifEl.value.trim() : "";
+          const note = noteEl ? noteEl.value.trim() : "";
+        
+          window.rfcBotUpdate({
+            instance: inst,
+            action: "set_price",
+            family: "all",
+            clon_price: clonPrice,
+            idcif_price: idcifPrice,
+            note: note
+          });
+        };
+
         window.rfcBotRecharge = function(inst, family) {
           const el = document.getElementById(family + "_add_" + inst);
           const value = el ? el.value : "0";
@@ -15868,13 +15887,27 @@ def _resolve_requester_wa_id(data: dict, key: dict, is_group: bool) -> str:
     return _normalize_wa_actor(remote_jid)
 
 
-def webhook_msg_seen(msg_id: str, instance_name: str | None = None) -> bool:
+def webhook_msg_seen(
+    msg_id: str,
+    source_chat_id: str | None = None,
+) -> bool:
     if not msg_id:
         return False
 
-    inst = (instance_name or "default").strip()
-    key = f"wa:webhook:msg:{inst}:{msg_id}"
-    created = redis_conn.set(key, "1", ex=300, nx=True)
+    chat_id = (source_chat_id or "unknown_chat").strip()
+
+    # La deduplicación es global por chat + mensaje.
+    # No depende de la instancia, para que grupo02/grupo08
+    # no puedan procesar el mismo mensaje dos veces.
+    key = f"wa:webhook:msg:{chat_id}:{msg_id}"
+
+    created = redis_conn.set(
+        key,
+        "1",
+        ex=900,
+        nx=True,
+    )
+
     return not bool(created)
 
 
@@ -16529,6 +16562,22 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
 
         instance_name = (instance_name or "").strip()
 
+        bot_row = (
+            db.query(BotControl)
+            .filter(BotControl.instance_name == instance_name)
+            .first()
+        )
+        
+        if bot_row and bot_row.is_active is False:
+            print("IGNORED_REASON = inactive_instance", flush=True)
+            print("INACTIVE_INSTANCE =", instance_name, flush=True)
+        
+            return {
+                "ok": True,
+                "ignored": "inactive_instance",
+                "instance_name": instance_name,
+            }
+        
         if is_instance_blocked(instance_name):
             print("IGNORED_REASON = instance_blocked_early", flush=True)
             print("BLOCKED_INSTANCE =", instance_name, flush=True)
@@ -16547,14 +16596,22 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
         participant = key.get("participant", "")
         msg_id = key.get("id", "")
         
-        if webhook_msg_seen(msg_id, instance_name):
-            print("IGNORED_REASON = duplicate_msg_id", flush=True)
-            print("IGNORED_MSG_ID =", msg_id, flush=True)
-            return {"ok": True, "ignored": "duplicate_msg_id"}
-        
         is_group = remote_jid.endswith("@g.us")
         source_chat_id = remote_jid
         source_group_id = remote_jid if is_group else None
+        
+        if webhook_msg_seen(msg_id, source_chat_id):
+            print("IGNORED_REASON = duplicate_msg_id_global", flush=True)
+            print("IGNORED_MSG_ID =", msg_id, flush=True)
+            print("IGNORED_SOURCE_CHAT_ID =", source_chat_id, flush=True)
+        
+            return {
+                "ok": True,
+                "ignored": "duplicate_msg_id_global",
+                "msg_id": msg_id,
+                "source_chat_id": source_chat_id,
+            }
+        
         requester_wa_id = _resolve_requester_wa_id(data, key, is_group)
 
         print("ADMIN_DEBUG_REMOTE_JID =", remote_jid, flush=True)
