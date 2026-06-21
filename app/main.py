@@ -19656,7 +19656,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                   <td>
                     <button
                       class="btn btn-success"
-                      onclick="rfcBotSetPrice('{inst_e}')"
+                      onclick="window.rfcBotSetPrice('{inst_e}')"
                       style="white-space:nowrap;"
                     >
                       Guardar precio
@@ -19697,68 +19697,6 @@ def panel_rfc_bot_control_fragment(request: Request):
             </table>
           </div>
         </div>
-
-        <script>
-        function rfcBotUpdate(params) {{
-          const token = {token!r};
-          const qs = new URLSearchParams(params);
-          qs.set("token", token);
-
-          fetch("/panel/rfc-bot-control-update?" + qs.toString(), {{
-            method: "POST"
-          }})
-          .then(function(r) {{
-            if (!r.ok) throw new Error("HTTP " + r.status);
-            return r.text();
-          }})
-          .then(function() {{
-            location.href = "/panel?token=" + encodeURIComponent(token) + "&v=" + Date.now();
-          }})
-          .catch(function(e) {{
-            alert("Error actualizando bot: " + e);
-          }});
-        }}
-
-        function rfcBotSetLimit(inst, family) {{
-          const el = document.getElementById(family + "_limit_" + inst);
-          const value = el ? el.value : "0";
-          rfcBotUpdate({{instance: inst, action: "set_limit", family: family, value: value}});
-        }}
-
-        function rfcBotSetPrice(inst) {{
-          const clonEl = document.getElementById("price_clon_" + inst);
-          const idcifEl = document.getElementById("price_idcif_" + inst);
-          const noteEl = document.getElementById("price_note_" + inst);
-        
-          const clonPrice = clonEl ? clonEl.value.trim() : "";
-          const idcifPrice = idcifEl ? idcifEl.value.trim() : "";
-          const note = noteEl ? noteEl.value.trim() : "";
-        
-          rfcBotUpdate({{
-            instance: inst,
-            action: "set_price",
-            family: "all",
-            clon_price: clonPrice,
-            idcif_price: idcifPrice,
-            note: note
-          }});
-        }}
-
-        function rfcBotRecharge(inst, family) {{
-          const el = document.getElementById(family + "_add_" + inst);
-          const value = el ? el.value : "0";
-          rfcBotUpdate({{instance: inst, action: "recharge", family: family, value: value}});
-        }}
-
-        function rfcBotReset(inst, family) {{
-          if (!confirm("¿Resetear usados de " + family.toUpperCase() + " para " + inst + "?")) return;
-          rfcBotUpdate({{instance: inst, action: "reset", family: family, value: "0"}});
-        }}
-
-        function rfcBotBlock(inst, action) {{
-          rfcBotUpdate({{instance: inst, action: action, family: "all", value: "0"}});
-        }}
-        </script>
         """
 
         return HTMLResponse(html)
