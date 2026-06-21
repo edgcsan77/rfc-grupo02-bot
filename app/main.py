@@ -19407,16 +19407,23 @@ def panel_rfc_bot_control_fragment(request: Request):
                 SELECT
                     instance_name,
                     COALESCE(label, instance_name) AS label,
+            
+                    COALESCE(sale_price_clon, 0) AS sale_price_clon,
+                    COALESCE(sale_price_idcif, 0) AS sale_price_idcif,
+                    COALESCE(sale_price_note, '') AS sale_price_note,
+                    sale_price_updated_at,
+            
                     COALESCE(clon_limit, 0) AS clon_limit,
                     COALESCE(clon_used, 0) AS clon_used,
                     COALESCE(clon_recharges, 0) AS clon_recharges,
+            
                     COALESCE(idcif_limit, 0) AS idcif_limit,
                     COALESCE(idcif_used, 0) AS idcif_used,
                     COALESCE(idcif_recharges, 0) AS idcif_recharges,
+            
                     COALESCE(is_blocked, FALSE) AS is_blocked,
                     COALESCE(is_active, TRUE) AS is_active
                 FROM bot_control
-                WHERE COALESCE(is_active, TRUE) = TRUE
                 ORDER BY instance_name
             """)).mappings().all()
 
@@ -19431,6 +19438,7 @@ def panel_rfc_bot_control_fragment(request: Request):
               <thead>
                 <tr>
                   <th>Bot</th>
+                  <th>Precio acordado</th>
                   <th>Estado</th>
 
                   <th class="right">CLON usados</th>
@@ -19478,13 +19486,61 @@ def panel_rfc_bot_control_fragment(request: Request):
             inst_e = _esc(inst)
             label_e = _esc(label)
 
+            price_clon = Decimal(str(r.get("sale_price_clon") or 0))
+            price_idcif = Decimal(str(r.get("sale_price_idcif") or 0))
+            price_note = str(r.get("sale_price_note") or "").strip()
+            
+            price_clon_txt = f"{price_clon:.2f}" if price_clon > 0 else ""
+            price_idcif_txt = f"{price_idcif:.2f}" if price_idcif > 0 else ""
+            
+            price_note_e = _esc(price_note)
+
             html += f"""
                 <tr>
                   <td>
                     <strong>{label_e}</strong><br>
                     <span class="small">{inst_e}</span>
                   </td>
-
+                
+                  <td>
+                    <div style="display:grid;gap:6px;min-width:190px;">
+                      <input
+                        id="price_clon_{inst_e}"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="{price_clon_txt}"
+                        placeholder="$ CLON"
+                        style="width:100%;"
+                      >
+                
+                      <input
+                        id="price_idcif_{inst_e}"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="{price_idcif_txt}"
+                        placeholder="$ IDCIF / QR"
+                        style="width:100%;"
+                      >
+                
+                      <input
+                        id="price_note_{inst_e}"
+                        type="text"
+                        value="{price_note_e}"
+                        placeholder="Nota: contado, semanal, especial..."
+                        style="width:100%;"
+                      >
+                
+                      <button
+                        class="btn btn-success"
+                        onclick="rfcBotSetPrice('{inst_e}')"
+                      >
+                        Guardar precio
+                      </button>
+                    </div>
+                  </td>
+                
                   <td>{badge}</td>
 
                   <td class="right">{clon_used}</td>
@@ -19563,6 +19619,25 @@ def panel_rfc_bot_control_fragment(request: Request):
           rfcBotUpdate({{instance: inst, action: "set_limit", family: family, value: value}});
         }}
 
+        function rfcBotSetPrice(inst) {{
+          const clonEl = document.getElementById("price_clon_" + inst);
+          const idcifEl = document.getElementById("price_idcif_" + inst);
+          const noteEl = document.getElementById("price_note_" + inst);
+        
+          const clonPrice = clonEl ? clonEl.value.trim() : "";
+          const idcifPrice = idcifEl ? idcifEl.value.trim() : "";
+          const note = noteEl ? noteEl.value.trim() : "";
+        
+          rfcBotUpdate({{
+            instance: inst,
+            action: "set_price",
+            family: "all",
+            clon_price: clonPrice,
+            idcif_price: idcifPrice,
+            note: note
+          }});
+        }}
+
         function rfcBotRecharge(inst, family) {{
           const el = document.getElementById(family + "_add_" + inst);
           const value = el ? el.value : "0";
@@ -19596,10 +19671,21 @@ def panel_rfc_bot_control_update(request: Request):
         from sqlalchemy import text
 
         q = request.query_params
+
         instance = (q.get("instance") or "").strip()
         action = (q.get("action") or "").strip().lower()
         family = (q.get("family") or "").strip().lower()
-        value = int(q.get("value") or 0)
+        
+        value_raw = (q.get("value") or "0").strip()
+        
+        try:
+            value = int(value_raw or 0)
+        except ValueError:
+            value = 0
+        
+        clon_price_raw = (q.get("clon_price") or "").strip()
+        idcif_price_raw = (q.get("idcif_price") or "").strip()
+        price_note = (q.get("note") or "").strip()
 
         if not instance:
             return HTMLResponse("Falta instance", status_code=400)
@@ -19607,7 +19693,14 @@ def panel_rfc_bot_control_update(request: Request):
         if family not in ("clon", "idcif", "all"):
             return HTMLResponse("family inválida", status_code=400)
 
-        if action not in ("set_limit", "recharge", "reset", "block", "unblock"):
+        if action not in (
+            "set_limit",
+            "recharge",
+            "reset",
+            "block",
+            "unblock",
+            "set_price",
+        ):
             return HTMLResponse("action inválida", status_code=400)
 
         engine = _rfc_bot_control_engine()
@@ -19656,7 +19749,63 @@ def panel_rfc_bot_control_update(request: Request):
                 DO NOTHING
             """), {"instance": instance})
 
-            if action == "set_limit":
+            if action == "set_price":
+                try:
+                    clon_price = Decimal(clon_price_raw) if clon_price_raw else Decimal("0")
+                    idcif_price = Decimal(idcif_price_raw) if idcif_price_raw else Decimal("0")
+                except Exception:
+                    return HTMLResponse(
+                        "Los precios deben ser números válidos. Ejemplo: 3 o 3.50",
+                        status_code=400,
+                    )
+            
+                if clon_price < 0 or idcif_price < 0:
+                    return HTMLResponse(
+                        "Los precios no pueden ser negativos.",
+                        status_code=400,
+                    )
+            
+                conn.execute(text("""
+                    UPDATE bot_control
+                    SET
+                        sale_price_clon = :clon_price,
+                        sale_price_idcif = :idcif_price,
+                        sale_price_note = :note,
+                        sale_price_updated_at = now(),
+                        updated_at = now()
+                    WHERE instance_name = :instance
+                """), {
+                    "instance": instance,
+                    "clon_price": clon_price,
+                    "idcif_price": idcif_price,
+                    "note": price_note or None,
+                })
+            
+                conn.execute(text("""
+                    INSERT INTO bot_price_history (
+                        instance_name,
+                        sale_price_clon,
+                        sale_price_idcif,
+                        note,
+                        source,
+                        created_at
+                    )
+                    VALUES (
+                        :instance,
+                        :clon_price,
+                        :idcif_price,
+                        :note,
+                        'panel principal',
+                        now()
+                    )
+                """), {
+                    "instance": instance,
+                    "clon_price": clon_price,
+                    "idcif_price": idcif_price,
+                    "note": price_note or None,
+                })
+            
+            elif action == "set_limit":
                 if family == "clon":
                     wallet = conn.execute(text("""
                         SELECT COALESCE(clon_balance, 0) AS clon_balance
