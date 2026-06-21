@@ -19628,7 +19628,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                 <tr>
                   <th>Gestor / bot</th>
                   <th>Precio CLON</th>
-                  <th>Precio IDCIF / QR</th>
+                  <th>Precio IDCIF</th>
                   <th>Nota del acuerdo</th>
                   <th>Acción</th>
                 </tr>
