@@ -19439,7 +19439,6 @@ def panel_rfc_bot_control_fragment(request: Request):
               <thead>
                 <tr>
                   <th>Bot</th>
-                  <th>Precio acordado</th>
                   <th>Estado</th>
 
                   <th class="right">CLON usados</th>
@@ -19459,6 +19458,8 @@ def panel_rfc_bot_control_fragment(request: Request):
               </thead>
               <tbody>
         """
+
+        price_rows_html = ""
 
         for r in rows:
             inst = r["instance_name"] or ""
@@ -19501,45 +19502,6 @@ def panel_rfc_bot_control_fragment(request: Request):
                   <td>
                     <strong>{label_e}</strong><br>
                     <span class="small">{inst_e}</span>
-                  </td>
-                
-                  <td>
-                    <div style="display:grid;gap:6px;min-width:190px;">
-                      <input
-                        id="price_clon_{inst_e}"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value="{price_clon_txt}"
-                        placeholder="$ CLON"
-                        style="width:100%;"
-                      >
-                
-                      <input
-                        id="price_idcif_{inst_e}"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value="{price_idcif_txt}"
-                        placeholder="$ IDCIF / QR"
-                        style="width:100%;"
-                      >
-                
-                      <input
-                        id="price_note_{inst_e}"
-                        type="text"
-                        value="{price_note_e}"
-                        placeholder="Nota: contado, semanal, especial..."
-                        style="width:100%;"
-                      >
-                
-                      <button
-                        class="btn btn-success"
-                        onclick="rfcBotSetPrice('{inst_e}')"
-                      >
-                        Guardar precio
-                      </button>
-                    </div>
                   </td>
                 
                   <td>{badge}</td>
@@ -19587,7 +19549,93 @@ def panel_rfc_bot_control_fragment(request: Request):
                 </tr>
             """
 
+            price_rows_html += f"""
+                <tr>
+                  <td>
+                    <strong>{label_e}</strong><br>
+                    <span class="small">{inst_e}</span>
+                  </td>
+
+                  <td>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <span style="font-weight:800;">$</span>
+                      <input
+                        id="price_clon_{inst_e}"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="{price_clon_txt}"
+                        placeholder="Ej. 4.00"
+                        style="width:110px;"
+                      >
+                    </div>
+                  </td>
+
+                  <td>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <span style="font-weight:800;">$</span>
+                      <input
+                        id="price_idcif_{inst_e}"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="{price_idcif_txt}"
+                        placeholder="Ej. 3.00"
+                        style="width:110px;"
+                      >
+                    </div>
+                  </td>
+
+                  <td>
+                    <input
+                      id="price_note_{inst_e}"
+                      type="text"
+                      value="{price_note_e}"
+                      placeholder="Contado, semanal, especial, por volumen..."
+                      style="width:100%;min-width:250px;"
+                    >
+                  </td>
+
+                  <td>
+                    <button
+                      class="btn btn-success"
+                      onclick="rfcBotSetPrice('{inst_e}')"
+                      style="white-space:nowrap;"
+                    >
+                      Guardar precio
+                    </button>
+                  </td>
+                </tr>
+            """
+
         html += f"""
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="box" style="margin-top:18px;">
+          <div class="head">
+            <strong>💲 Precios acordados por gestor</strong>
+            <span class="small">
+              Control interno. No modifica bolsas, límites, promociones ni cobros automáticos.
+            </span>
+          </div>
+
+          <div class="table-wrap">
+            <table style="min-width:850px;">
+              <thead>
+                <tr>
+                  <th>Gestor / bot</th>
+                  <th>Precio CLON</th>
+                  <th>Precio IDCIF / QR</th>
+                  <th>Nota del acuerdo</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {price_rows_html}
               </tbody>
             </table>
           </div>
