@@ -10854,7 +10854,7 @@ def _generar_y_enviar_archivos(from_wa_id: str, text_body: str, datos: dict, inp
             convertir_docx_a_pdf_aspose_con_reintentos(
                 ruta_docx=ruta_docx,
                 pdf_path=pdf_path,
-                intentos=3,
+                intentos=2,
                 use_web=False
             )
 
@@ -10942,7 +10942,7 @@ def generar_pdf_en_tmp(tmpdir: str, text_body: str, datos: dict, input_type: str
     convertir_docx_a_pdf_aspose_con_reintentos(
         ruta_docx=ruta_docx,
         pdf_path=pdf_path,
-        intentos=3,
+        intentos=2,
         use_web=True
     )
 
@@ -11436,7 +11436,7 @@ def generar_constancia():
                 convertir_docx_a_pdf_aspose_con_reintentos(
                     ruta_docx=ruta_docx,
                     pdf_path=pdf_path,
-                    intentos=3,
+                    intentos=2,
                     use_web=True
                 )
 
