@@ -10686,6 +10686,32 @@ def same_qr_both_pages_enabled(wa_id: str) -> bool:
     wa_digits = re.sub(r"\D+", "", wa_id or "")
     return any(wa_digits.endswith(n) for n in SAME_QR_NUMBERS)
 
+def convertir_docx_a_pdf_aspose_con_reintentos(ruta_docx: str, pdf_path: str, intentos: int = 3, use_web: bool = False):
+    last = None
+
+    for intento in range(1, intentos + 1):
+        try:
+            print("[ASPOSE PDF TRY]", intento, "use_web=", use_web, ruta_docx, "->", pdf_path, flush=True)
+
+            if use_web:
+                docx_to_pdf_aspose_web(docx_path=ruta_docx, pdf_path=pdf_path)
+            else:
+                docx_to_pdf_aspose(docx_path=ruta_docx, pdf_path=pdf_path)
+
+            if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) <= 0:
+                raise RuntimeError("ASPOSE_PDF_EMPTY_OUTPUT")
+
+            return True
+
+        except Exception as e:
+            last = e
+            print("[ASPOSE PDF FAIL]", intento, "use_web=", use_web, repr(e), flush=True)
+
+            if intento < intentos:
+                time.sleep(2 * intento)
+
+    raise RuntimeError(f"ASPOSE_PDF_CONVERT_FAIL:{type(last).__name__}:{str(last)[:300]}")
+
 def _generar_y_enviar_archivos(from_wa_id: str, text_body: str, datos: dict, input_type: str, test_mode: bool):
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -10816,7 +10842,12 @@ def _generar_y_enviar_archivos(from_wa_id: str, text_body: str, datos: dict, inp
         # PDF default
         try:
             pdf_path = os.path.join(tmpdir, os.path.splitext(nombre_docx)[0] + ".pdf")
-            docx_to_pdf_aspose(docx_path=ruta_docx, pdf_path=pdf_path)
+            convertir_docx_a_pdf_aspose_con_reintentos(
+                ruta_docx=ruta_docx,
+                pdf_path=pdf_path,
+                intentos=3,
+                use_web=False
+            )
 
             with open(pdf_path, "rb") as f:
                 pdf_bytes = f.read()
@@ -10893,7 +10924,12 @@ def generar_pdf_en_tmp(tmpdir: str, text_body: str, datos: dict, input_type: str
     pdf_path = os.path.join(tmpdir, pdf_filename)
 
     # Convierte a PDF (si falla, lanza excepción para que se cuente como fail)
-    docx_to_pdf_aspose_web(docx_path=ruta_docx, pdf_path=pdf_path)
+    convertir_docx_a_pdf_aspose_con_reintentos(
+        ruta_docx=ruta_docx,
+        pdf_path=pdf_path,
+        intentos=3,
+        use_web=True
+    )
 
     return pdf_filename
 
@@ -11376,7 +11412,12 @@ def generar_constancia():
                 pdf_filename = os.path.splitext(nombre_docx)[0] + ".pdf"
                 pdf_path = os.path.join(tmpdir, pdf_filename)
 
-                docx_to_pdf_aspose_web(docx_path=ruta_docx, pdf_path=pdf_path)
+                convertir_docx_a_pdf_aspose_con_reintentos(
+                    ruta_docx=ruta_docx,
+                    pdf_path=pdf_path,
+                    intentos=3,
+                    use_web=True
+                )
 
                 response = send_file(
                     pdf_path,
