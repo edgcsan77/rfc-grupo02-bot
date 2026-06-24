@@ -10698,8 +10698,11 @@ def convertir_docx_a_pdf_aspose_con_reintentos(ruta_docx: str, pdf_path: str, in
             else:
                 docx_to_pdf_aspose(docx_path=ruta_docx, pdf_path=pdf_path)
 
-            if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) <= 0:
-                raise RuntimeError("ASPOSE_PDF_EMPTY_OUTPUT")
+            pdf_size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
+            print("[ASPOSE PDF SIZE]", pdf_size, flush=True)
+            
+            if pdf_size < 10_000:
+                raise RuntimeError(f"ASPOSE_PDF_TOO_SMALL:{pdf_size}")
 
             return True
 
@@ -10807,6 +10810,12 @@ def _generar_y_enviar_archivos(from_wa_id: str, text_body: str, datos: dict, inp
 
         reemplazar_en_documento(ruta_plantilla, ruta_docx, datos, input_type, qr2_bytes=qr2_bytes)
 
+        docx_size = os.path.getsize(ruta_docx) if os.path.exists(ruta_docx) else 0
+        print("[DOCX GENERATED SIZE]", ruta_docx, docx_size, flush=True)
+        
+        if docx_size < 50_000:
+            raise RuntimeError(f"DOCX_GENERATED_TOO_SMALL:{docx_size}")
+        
         with open(ruta_docx, "rb") as f:
             docx_bytes = f.read()
 
@@ -10919,6 +10928,12 @@ def generar_pdf_en_tmp(tmpdir: str, text_body: str, datos: dict, input_type: str
     ruta_docx = os.path.join(tmpdir, nombre_docx)
 
     reemplazar_en_documento(ruta_plantilla, ruta_docx, datos, input_type)
+
+    docx_size = os.path.getsize(ruta_docx) if os.path.exists(ruta_docx) else 0
+    print("[DOCX GENERATED SIZE]", ruta_docx, docx_size, flush=True)
+    
+    if docx_size < 50_000:
+        raise RuntimeError(f"DOCX_GENERATED_TOO_SMALL:{docx_size}")
 
     pdf_filename = os.path.splitext(nombre_docx)[0] + ".pdf"
     pdf_path = os.path.join(tmpdir, pdf_filename)
@@ -11360,6 +11375,12 @@ def generar_constancia():
 
         reemplazar_en_documento(ruta_plantilla, ruta_docx, datos, input_type, qr2_bytes=qr2_bytes)
 
+        docx_size = os.path.getsize(ruta_docx) if os.path.exists(ruta_docx) else 0
+        print("[DOCX GENERATED SIZE]", ruta_docx, docx_size, flush=True)
+        
+        if docx_size < 50_000:
+            raise RuntimeError(f"DOCX_GENERATED_TOO_SMALL:{docx_size}")
+        
         # ====== STATS: success (bill + log) ======
         def _inc_ok(s):
             from stats_store import bill_success_if_new, log_attempt, resolve_price, inc_success
