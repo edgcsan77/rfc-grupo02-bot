@@ -31,6 +31,10 @@ def _upper(s: str) -> str:
     return _norm_text(s).upper()
 
 
+def _is_group(jid: str) -> bool:
+    return (jid or "").endswith("@g.us")
+
+
 def _is_group_blocked(group_jid: str) -> bool:
     """
     Consulta el mismo set Redis que modifica el mini panel:
