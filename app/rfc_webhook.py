@@ -15,6 +15,8 @@ router = APIRouter()
 MAIN_PANEL_INSTANCE = os.getenv("MAIN_PANEL_INSTANCE", "grupo02").strip()
 GROUP_COMMAND = os.getenv("GROUP_COMMAND", "/csf").strip() or "/csf"
 
+BLOCKED_GROUPS_KEY = "blocked_groups_no_response"
+
 CURP_RE = re.compile(r"\b[A-Z][AEIOUX][A-Z]{2}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b", re.I)
 RFC_RE = re.compile(r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b", re.I)
 IDCIF_RE = re.compile(r"\b\d{11}\b")
@@ -29,8 +31,37 @@ def _upper(s: str) -> str:
     return _norm_text(s).upper()
 
 
-def _is_group(jid: str) -> bool:
-    return (jid or "").endswith("@g.us")
+def _is_group_blocked(group_jid: str) -> bool:
+    """
+    Consulta el mismo set Redis que modifica el mini panel:
+    blocked_groups_no_response
+
+    No usa import desde app.main para evitar imports circulares.
+    request_queue.connection usa el Redis configurado por esta misma app.
+    """
+    group_jid = (group_jid or "").strip()
+
+    if not group_jid:
+        return False
+
+    redis_conn = request_queue.connection
+
+    try:
+        return bool(redis_conn.sismember(BLOCKED_GROUPS_KEY, group_jid))
+
+    except Exception as e:
+        # No permitir solicitudes si no es posible confirmar el bloqueo.
+        # Es más seguro ignorar que cobrar/procesar un grupo posiblemente bloqueado.
+        print(
+            "RFC_GROUP_BLOCK_CHECK_ERROR =",
+            {
+                "group_jid": group_jid,
+                "redis_key": BLOCKED_GROUPS_KEY,
+                "error": repr(e),
+            },
+            flush=True,
+        )
+        raise
 
 
 def _extract_text(message: dict, data: dict) -> str:
@@ -265,12 +296,60 @@ async def evolution_rfc_webhook(request: Request):
             }, flush=True)
             return {"ok": True, "ignored": "private_chat"}
 
+        # ======================================================
+        # BLOQUEO DEL MINI PANEL
+        # Debe ir ANTES de validar, responder ACK o encolar.
+        # ======================================================
+        try:
+            group_is_blocked = _is_group_blocked(remote_jid)
+        except Exception:
+            # Fail closed: ante duda de Redis, no procesar solicitudes.
+            return {
+                "ok": True,
+                "ignored": "group_block_check_unavailable",
+                "group_jid": remote_jid,
+                "instance": instance_name,
+            }
+
+        if group_is_blocked:
+            print(
+                "RFC_GROUP_BLOCKED_IGNORED =",
+                {
+                    "group_jid": remote_jid,
+                    "instance": instance_name,
+                    "requester_wa_id": requester_wa_id,
+                    "msg_id": msg_id,
+                    "redis_key": BLOCKED_GROUPS_KEY,
+                },
+                flush=True,
+            )
+
+            return {
+                "ok": True,
+                "ignored": "group_blocked",
+                "group_jid": remote_jid,
+                "instance": instance_name,
+            }
+
         cmd = (text or "").strip().lower()
 
         # ======================================================
         # /groupid
         # ======================================================
         if cmd in {"/groupid", "groupid", "/idgrupo", "idgrupo", "/id"}:
+            if not from_me:
+                print(
+                    "RFC_ADMIN_COMMAND_DENIED =",
+                    {
+                        "command": cmd,
+                        "group_jid": remote_jid,
+                        "instance": instance_name,
+                        "requester_wa_id": requester_wa_id,
+                    },
+                    flush=True,
+                )
+                return {"ok": True, "ignored": "admin_command_denied"}
+
             try:
                 send_text(
                     remote_jid,
@@ -287,6 +366,19 @@ async def evolution_rfc_webhook(request: Request):
         # /addgroup
         # ======================================================
         if cmd in {"/addgroup", "addgroup", "/addgroupo", "addgroupo", "/autorizar", "autorizar"}:
+            if not from_me:
+                print(
+                    "RFC_ADMIN_COMMAND_DENIED =",
+                    {
+                        "command": cmd,
+                        "group_jid": remote_jid,
+                        "instance": instance_name,
+                        "requester_wa_id": requester_wa_id,
+                    },
+                    flush=True,
+                )
+                return {"ok": True, "ignored": "admin_command_denied"}
+
             try:
                 _upsert_authorized_group(db, remote_jid, instance_name)
 
