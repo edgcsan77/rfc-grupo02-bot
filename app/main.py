@@ -11141,10 +11141,12 @@ def panel_RFC(
         };
 
         window.rfcBotSetPrice = function(inst) {
+          const managerEl = document.getElementById("manager_name_" + inst);
           const clonEl = document.getElementById("price_clon_" + inst);
           const idcifEl = document.getElementById("price_idcif_" + inst);
           const noteEl = document.getElementById("price_note_" + inst);
         
+          const managerName = managerEl ? managerEl.value.trim() : "";
           const clonPrice = clonEl ? clonEl.value.trim() : "";
           const idcifPrice = idcifEl ? idcifEl.value.trim() : "";
           const note = noteEl ? noteEl.value.trim() : "";
@@ -11153,6 +11155,7 @@ def panel_RFC(
             instance: inst,
             action: "set_price",
             family: "all",
+            manager_name: managerName,
             clon_price: clonPrice,
             idcif_price: idcifPrice,
             note: note
@@ -19464,6 +19467,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                 SELECT
                     instance_name,
                     COALESCE(label, instance_name) AS label,
+                    COALESCE(manager_name, '') AS manager_name,
             
                     COALESCE(sale_price_clon, 0) AS sale_price_clon,
                     COALESCE(sale_price_idcif, 0) AS sale_price_idcif,
@@ -19545,6 +19549,9 @@ def panel_rfc_bot_control_fragment(request: Request):
             inst_e = _esc(inst)
             label_e = _esc(label)
 
+            manager_name = str(r.get("manager_name") or "").strip()
+            manager_name_e = _esc(manager_name)
+
             price_clon = Decimal(str(r.get("sale_price_clon") or 0))
             price_idcif = Decimal(str(r.get("sale_price_idcif") or 0))
             price_note = str(r.get("sale_price_note") or "").strip()
@@ -19612,7 +19619,17 @@ def panel_rfc_bot_control_fragment(request: Request):
                     <strong>{label_e}</strong><br>
                     <span class="small">{inst_e}</span>
                   </td>
-
+            
+                  <td>
+                    <input
+                      id="manager_name_{inst_e}"
+                      type="text"
+                      value="{manager_name_e}"
+                      placeholder="Nombre del gestor"
+                      style="width:100%;min-width:180px;"
+                    >
+                  </td>
+            
                   <td>
                     <div style="display:flex;align-items:center;gap:6px;">
                       <span style="font-weight:800;">$</span>
@@ -19680,10 +19697,11 @@ def panel_rfc_bot_control_fragment(request: Request):
           </div>
 
           <div class="table-wrap">
-            <table style="min-width:850px;">
+            <table style="min-width:1050px;">
               <thead>
                 <tr>
                   <th>Gestor / bot</th>
+                  <th>Nombre gestor</th>
                   <th>Precio CLON</th>
                   <th>Precio IDCIF</th>
                   <th>Nota del acuerdo</th>
@@ -19727,6 +19745,7 @@ def panel_rfc_bot_control_update(request: Request):
         except ValueError:
             value = 0
         
+        manager_name = (q.get("manager_name") or "").strip()
         clon_price_raw = (q.get("clon_price") or "").strip()
         idcif_price_raw = (q.get("idcif_price") or "").strip()
         price_note = (q.get("note") or "").strip()
@@ -19812,6 +19831,7 @@ def panel_rfc_bot_control_update(request: Request):
                 conn.execute(text("""
                     UPDATE bot_control
                     SET
+                        manager_name = :manager_name,
                         sale_price_clon = :clon_price,
                         sale_price_idcif = :idcif_price,
                         sale_price_note = :note,
@@ -19820,6 +19840,7 @@ def panel_rfc_bot_control_update(request: Request):
                     WHERE instance_name = :instance
                 """), {
                     "instance": instance,
+                    "manager_name": manager_name or None,
                     "clon_price": clon_price,
                     "idcif_price": idcif_price,
                     "note": price_note or None,
