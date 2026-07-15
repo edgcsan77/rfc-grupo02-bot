@@ -1202,7 +1202,7 @@ def ensure_default_status_and_dates(datos: dict, seed_key: str, tz: str = "Ameri
     if need_any:
         fn = (datos.get("FECHA_NACIMIENTO") or "").strip()
         birth_year = _parse_birth_year(fn)
-        y0 = (birth_year + 18) if birth_year else (ahora.year - 5)
+        y0 = (birth_year + 16) if birth_year else (ahora.year - 5)
 
         d, m, y = _fake_date_components(y0, seed_key)
 
@@ -4765,7 +4765,7 @@ def build_datos_final_from_ci(ci: dict, seed_key: str = "") -> dict:
     fecha_emision = _fecha_lugar_mun_ent(municipio, entidad)
 
     birth_year = _parse_birth_year(ci.get("FECHA_NACIMIENTO", ""))
-    y0 = (birth_year + 18) if birth_year else (ahora.year - 5)
+    y0 = (birth_year + 16) if birth_year else (ahora.year - 5)
 
     d, m, y = _fake_date_components(y0, seed_key)
 
@@ -5008,7 +5008,7 @@ def construir_datos_desde_apis(term: str) -> dict:
     # ---------- 4) Fechas (RAW primero) ----------
     birth_year = _parse_birth_year(ci.get("FECHA_NACIMIENTO", ""))
     if birth_year:
-        y0 = birth_year + 18
+        y0 = birth_year + 16
     else:
         # fallback razonable: hoy - 5 años
         y0 = ahora.year - 5
