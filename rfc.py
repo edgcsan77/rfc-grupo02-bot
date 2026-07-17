@@ -27,6 +27,7 @@ from io import BytesIO
 from barcode import Code128
 from barcode.writer import ImageWriter
 from zipfile import ZipFile, ZIP_DEFLATED
+from lxml import etree
 
 import qrcode
 import requests
@@ -2680,6 +2681,156 @@ def extraer_lista_rfc_idcif(text_body: str) -> List[Tuple[str, str]]:
 def parece_lista_rfc_idcif(text_body: str) -> bool:
     return len(extraer_lista_rfc_idcif(text_body)) >= 2
 
+def reemplazar_placeholders_xml_por_spans(
+    xml_bytes: bytes,
+    replacements: dict
+) -> bytes:
+    """
+    Reemplaza placeholders divididos entre varios <w:t> sin:
+    - borrar otros textos del párrafo;
+    - mezclar cuadros de texto;
+    - eliminar etiquetas estructurales;
+    - duplicar contenido.
+    """
+
+    parser = etree.XMLParser(
+        remove_blank_text=False,
+        recover=False
+    )
+
+    root = etree.fromstring(xml_bytes, parser)
+
+    ns = {
+        "w": (
+            "http://schemas.openxmlformats.org/"
+            "wordprocessingml/2006/main"
+        )
+    }
+
+    paragraphs = root.xpath(".//w:p", namespaces=ns)
+
+    for paragraph in paragraphs:
+        candidatos = paragraph.xpath(".//w:t", namespaces=ns)
+
+        # Solo incluye nodos cuyo párrafo ancestro más cercano
+        # sea exactamente este párrafo. Evita mezclar cuadros anidados.
+        text_nodes = []
+
+        for node in candidatos:
+            ancestor = node.xpath(
+                "ancestor::w:p[1]",
+                namespaces=ns
+            )
+
+            if ancestor and ancestor[0] is paragraph:
+                text_nodes.append(node)
+
+        if not text_nodes:
+            continue
+
+        for placeholder, value in replacements.items():
+            key = (
+                placeholder
+                .strip()
+                .lstrip("{")
+                .rstrip("}")
+                .strip()
+            )
+
+            words = re.split(r"\s+", key)
+
+            marker_pattern = (
+                r"\{\{"
+                r"[\s\u00A0]*"
+                + r"[\s\u00A0]*".join(
+                    re.escape(word)
+                    for word in words
+                )
+                + r"[\s\u00A0]*"
+                r"\}\}"
+            )
+
+            while True:
+                full_text = "".join(
+                    node.text or ""
+                    for node in text_nodes
+                )
+
+                match = re.search(
+                    marker_pattern,
+                    full_text,
+                    flags=re.IGNORECASE
+                )
+
+                if not match:
+                    break
+
+                start_pos, end_pos = match.span()
+                replacement = str(value or "")
+
+                # Relaciona cada posición del texto completo
+                # con su nodo <w:t> y su posición local.
+                ranges = []
+                cursor = 0
+
+                for node in text_nodes:
+                    text = node.text or ""
+                    ranges.append(
+                        (
+                            cursor,
+                            cursor + len(text),
+                            node
+                        )
+                    )
+                    cursor += len(text)
+
+                start_index = None
+                end_index = None
+                start_local = None
+                end_local = None
+
+                for index, (ini, fin, node) in enumerate(ranges):
+                    if start_index is None and ini <= start_pos < fin:
+                        start_index = index
+                        start_local = start_pos - ini
+
+                    if ini < end_pos <= fin:
+                        end_index = index
+                        end_local = end_pos - ini
+                        break
+
+                if start_index is None or end_index is None:
+                    break
+
+                start_node = text_nodes[start_index]
+                end_node = text_nodes[end_index]
+
+                start_text = start_node.text or ""
+                end_text = end_node.text or ""
+
+                prefix = start_text[:start_local]
+                suffix = end_text[end_local:]
+
+                if start_index == end_index:
+                    start_node.text = prefix + replacement + suffix
+                else:
+                    start_node.text = prefix + replacement
+
+                    for index in range(
+                        start_index + 1,
+                        end_index
+                    ):
+                        text_nodes[index].text = ""
+
+                    end_node.text = suffix
+
+    return etree.tostring(
+        root,
+        xml_declaration=True,
+        encoding="UTF-8",
+        standalone=True
+    )
+
 def reemplazar_en_documento(ruta_entrada, ruta_salida, datos, input_type, qr2_bytes=None):
     datos = datos or {}
     if not datos.get("FECHA_INICIO_DOC"):
@@ -2759,47 +2910,30 @@ def reemplazar_en_documento(ruta_entrada, ruta_salida, datos, input_type, qr2_by
     with ZipFile(ruta_entrada, "r") as zin, ZipFile(ruta_salida, "w") as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
-
+    
             if (
                 item.filename == "word/document.xml"
                 or item.filename.startswith("word/header")
                 or item.filename.startswith("word/footer")
             ):
-                try:
-                    xml_text = data.decode("utf-8")
-                except UnicodeDecodeError:
-                    pass
-                else:
-                    if idcif_val:
-                        patron_idcif = r"<w:t>{{</w:t>.*?<w:t>idCIF</w:t>.*?<w:t>}}</w:t>"
-                        idcif_safe = html.escape(str(idcif_val or ""), quote=False)
-                        xml_text, _ = re.subn(
-                            patron_idcif,
-                            f"<w:t>{idcif_safe}</w:t>",
-                            xml_text,
-                            flags=re.DOTALL
-                        )
-                    for k, v in placeholders.items():
-                        safe_v = html.escape(str(v or ""), quote=False)
-                        key = k.strip().lstrip("{").rstrip("}").strip()
-                        patron = r"\{\{[^}]*" + re.escape(key) + r"[^}]*\}\}"
-                        xml_text = re.sub(
-                            patron,
-                            lambda m, v=safe_v: v,
-                            xml_text,
-                            flags=re.IGNORECASE
-                        )
-
-                    data = xml_text.encode("utf-8")
-
+                data = reemplazar_placeholders_xml_por_spans(
+                    data,
+                    placeholders
+                )
+    
             if item.filename == "word/media/image2.png":
+                # QR1 de la primera página
                 data = qr_bytes
-            elif item.filename in ("word/media/image9.png", "word/media/image11.png"):
+    
+            elif item.filename == "word/media/image10.png":
+                # QR2 de la segunda página
                 data = qr2_bytes if qr2_bytes else qr_bytes
+    
             elif item.filename == "word/media/image6.png":
+                # Código de barras
                 if barcode_bytes:
                     data = barcode_bytes
-
+    
             zout.writestr(item, data)
 
     doc = Document(ruta_salida)
@@ -2835,6 +2969,7 @@ def reemplazar_en_documento(ruta_entrada, ruta_salida, datos, input_type, qr2_by
 
     par_placeholders.update({
         "{{NOMBRE ETIQUETA}}": datos.get("NOMBRE_ETIQUETA", ""),
+        "{{RFC ETIQUETA}}": rfc_val,
         "{{idCIF}}": datos.get("IDCIF_ETIQUETA", ""),
         "{{FECHA}}": datos.get("FECHA", ""),
         "{{CORTA}}": datos.get("FECHA_CORTA", ""),
