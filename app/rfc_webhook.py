@@ -17,6 +17,20 @@ GROUP_COMMAND = os.getenv("GROUP_COMMAND", "/csf").strip() or "/csf"
 
 BLOCKED_GROUPS_KEY = "blocked_groups_no_response"
 
+REQUEST_INFLIGHT_TTL_SEC = int(
+    os.getenv(
+        "REQUEST_INFLIGHT_TTL_SEC",
+        "1200",
+    ) or "1200"
+)
+
+DUPLICATE_NOTICE_TTL_SEC = int(
+    os.getenv(
+        "DUPLICATE_NOTICE_TTL_SEC",
+        "60",
+    ) or "60"
+)
+
 CURP_RE = re.compile(r"\b[A-Z][AEIOUX][A-Z]{2}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b", re.I)
 RFC_RE = re.compile(r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b", re.I)
 IDCIF_RE = re.compile(r"\b\d{11}\b")
@@ -447,9 +461,59 @@ async def evolution_rfc_webhook(request: Request):
         redis_conn = request_queue.connection
         inflight_key = f"rfc:inflight:{command_key}"
 
-        if not redis_conn.set(inflight_key, "1", nx=True, ex=30):
-            print("RFC_DUPLICATE_IGNORED =", inflight_key, flush=True)
-            return {"ok": True, "ignored": "already_processing"}
+        if not redis_conn.set(
+            inflight_key,
+            "1",
+            nx=True,
+            ex=REQUEST_INFLIGHT_TTL_SEC,
+        ):
+            print(
+                "RFC_DUPLICATE_IGNORED =",
+                {
+                    "inflight_key": inflight_key,
+                    "instance": instance_name,
+                    "group_jid": remote_jid,
+                    "requester": requester_wa_id,
+                    "query": normalized_query,
+                },
+                flush=True,
+            )
+        
+            duplicate_notice_key = (
+                f"rfc:duplicate_notice:{command_key}"
+            )
+        
+            if redis_conn.set(
+                duplicate_notice_key,
+                "1",
+                nx=True,
+                ex=DUPLICATE_NOTICE_TTL_SEC,
+            ):
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⏳ {requester_label}, esta solicitud "
+                            "ya está siendo procesada.\n"
+                            "No es necesario volver a enviarla."
+                        ),
+                        instance_name=instance_name,
+                    )
+        
+                except Exception as duplicate_notice_exc:
+                    print(
+                        "RFC_DUPLICATE_NOTICE_SEND_ERROR =",
+                        repr(duplicate_notice_exc),
+                        flush=True,
+                    )
+        
+            return {
+                "ok": True,
+                "ignored": "already_processing",
+                "message": (
+                    "La misma solicitud ya está siendo procesada."
+                ),
+            }
 
         ack_key = f"rfc:ack:{instance_name}:{msg_id}"
 
@@ -477,17 +541,71 @@ async def evolution_rfc_webhook(request: Request):
             "msg_id": msg_id,
             "mime_type": mime_type,
             "evolution_instance": instance_name,
+            "request_key": command_key,
+            "inflight_key": inflight_key,
         }
 
-        request_queue.enqueue(
-            "worker_jobs.process_group_request_job",
-            job_data,
-            job_timeout=900,
-            result_ttl=3600,
-            failure_ttl=86400,
-        )
+        rq_job_id = f"rfc-group-request:{command_key}"
 
-        print("RFC_JOB_QUEUED =", job_data, flush=True)
+        try:
+            job = request_queue.enqueue(
+                "worker_jobs.process_group_request_job",
+                job_data,
+                job_id=rq_job_id,
+                job_timeout=900,
+                result_ttl=0,
+                failure_ttl=1200,
+            )
+        
+        except Exception as enqueue_exc:
+            error_text = str(enqueue_exc).lower()
+        
+            if (
+                "already exists" in error_text
+                or "already exists in" in error_text
+                or "duplicate" in error_text
+            ):
+                print(
+                    "RFC_RQ_DUPLICATE_JOB_BLOCKED =",
+                    {
+                        "job_id": rq_job_id,
+                        "error": repr(enqueue_exc),
+                    },
+                    flush=True,
+                )
+        
+                return {
+                    "ok": True,
+                    "ignored": "already_processing",
+                    "job_id": rq_job_id,
+                }
+        
+            # Si realmente no se creó el job,
+            # no debemos dejar la solicitud bloqueada.
+            redis_conn.delete(inflight_key)
+        
+            print(
+                "RFC_JOB_ENQUEUE_ERROR =",
+                {
+                    "job_id": rq_job_id,
+                    "error": repr(enqueue_exc),
+                    "inflight_released": inflight_key,
+                },
+                flush=True,
+            )
+        
+            raise
+        
+        print(
+            "RFC_JOB_QUEUED =",
+            {
+                "job_id": job.id,
+                "request_key": command_key,
+                "inflight_key": inflight_key,
+                "job_data": job_data,
+            },
+            flush=True,
+        )
 
         return {
             "ok": True,
