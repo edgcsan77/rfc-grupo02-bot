@@ -2,6 +2,7 @@ import os
 import re
 import json
 import hashlib
+import time
 
 from fastapi import APIRouter, Request
 
@@ -498,6 +499,7 @@ async def evolution_rfc_webhook(request: Request):
                             "No es necesario volver a enviarla."
                         ),
                         instance_name=instance_name,
+                        fast=True,
                     )
         
                 except Exception as duplicate_notice_exc:
@@ -521,8 +523,13 @@ async def evolution_rfc_webhook(request: Request):
             try:
                 send_text(
                     remote_jid,
-                    f"{_bot_label_from_db(instance_name)}\nSolicitud recibida de {requester_label}.\nEsto puede tardar unos segundos...",
+                    (
+                        f"{_bot_label_from_db(instance_name)}\n"
+                        f"Solicitud recibida de {requester_label}.\n"
+                        "Esto puede tardar unos segundos..."
+                    ),
                     instance_name=instance_name,
+                    fast=True,
                 )
             except Exception as ack_exc:
                 print("RFC_ACK_SEND_ERROR =", repr(ack_exc), flush=True)
@@ -543,6 +550,10 @@ async def evolution_rfc_webhook(request: Request):
             "evolution_instance": instance_name,
             "request_key": command_key,
             "inflight_key": inflight_key,
+            "execution_key": (
+                msg_id
+                or f"{command_key}:{int(time.time())}"
+            ),
         }
 
         rq_job_id = f"rfc-group-request:{command_key}"
