@@ -517,23 +517,6 @@ async def evolution_rfc_webhook(request: Request):
                 ),
             }
 
-        ack_key = f"rfc:ack:{instance_name}:{msg_id}"
-
-        if redis_conn.set(ack_key, "1", nx=True, ex=300):
-            try:
-                send_text(
-                    remote_jid,
-                    (
-                        f"{_bot_label_from_db(instance_name)}\n"
-                        f"Solicitud recibida de {requester_label}.\n"
-                        "Esto puede tardar unos segundos..."
-                    ),
-                    instance_name=instance_name,
-                    fast=True,
-                )
-            except Exception as ack_exc:
-                print("RFC_ACK_SEND_ERROR =", repr(ack_exc), flush=True)
-
         job_data = {
             "requester_number": requester_wa_id,
             "requester_name": push_name,
@@ -617,6 +600,33 @@ async def evolution_rfc_webhook(request: Request):
             },
             flush=True,
         )
+
+        ack_key = f"rfc:ack:{instance_name}:{msg_id}"
+
+        if redis_conn.set(
+            ack_key,
+            "1",
+            nx=True,
+            ex=300,
+        ):
+            try:
+                send_text(
+                    remote_jid,
+                    (
+                        f"{_bot_label_from_db(instance_name)}\n"
+                        f"Solicitud recibida de {requester_label}.\n"
+                        "Esto puede tardar unos segundos..."
+                    ),
+                    instance_name=instance_name,
+                    fast=True,
+                )
+        
+            except Exception as ack_exc:
+                print(
+                    "RFC_ACK_SEND_ERROR =",
+                    repr(ack_exc),
+                    flush=True,
+                )
 
         return {
             "ok": True,
