@@ -208,8 +208,10 @@ def _stats_counted_key(
         or ""
     ).strip()
 
-    request_key = (
-        job_data.get("request_key")
+    execution_key = (
+        job_data.get("execution_key")
+        or job_data.get("msg_id")
+        or job_data.get("request_key")
         or ""
     ).strip()
 
@@ -229,10 +231,10 @@ def _stats_counted_key(
         str(item_key or "").strip().upper(),
     )
 
-    if request_key:
+    if execution_key:
         base = (
             f"{day}|{instance}|{group}|{requester}|"
-            f"{request_key}|{kind}|{normalized_item}"
+            f"{execution_key}|{kind}|{normalized_item}"
         )
     else:
         base = (
@@ -745,6 +747,16 @@ def process_group_request_job(job_data: dict):
                     delivery_lock_key,
                     delivery_done_key,
                 )
+
+                if ok_count > 0:
+                    record_success_once(
+                        job_data=job_data,
+                        group_jid=group_jid,
+                        group_name=group_name,
+                        kind=kind,
+                        count=ok_count,
+                        item_key=delivery_item_key,
+                    )
             
             except requests.Timeout as media_err:
                 # No liberar: Evolution pudo recibir el ZIP
