@@ -179,9 +179,18 @@ def _post_send_text_with_retries(url: str, payload: dict, *, label: str, max_att
     raise last_error
 
 
-def send_text(number: str, text: str, instance_name: str = None):
+def send_text(
+    number: str,
+    text: str,
+    instance_name: str = None,
+    *,
+    fast: bool = False,
+):
     instance = instance_name or settings.EVOLUTION_INSTANCE
-    url = f"{settings.EVOLUTION_BASE_URL}/message/sendText/{instance}"
+    url = (
+        f"{settings.EVOLUTION_BASE_URL}"
+        f"/message/sendText/{instance}"
+    )
 
     clean_number = _normalize_number(number)
     clean_text = (text or "").strip()
@@ -193,6 +202,36 @@ def send_text(number: str, text: str, instance_name: str = None):
 
     print("SEND_TEXT_URL =", url, flush=True)
     print("SEND_TEXT_PAYLOAD =", payload, flush=True)
+
+    if fast:
+        response = requests.post(
+            url,
+            headers=_headers(),
+            json=payload,
+            timeout=(2.5, 8),
+        )
+
+        print(
+            "SEND_TEXT_FAST_STATUS =",
+            response.status_code,
+            flush=True,
+        )
+
+        print(
+            "SEND_TEXT_FAST_BODY =",
+            (response.text or "")[:1000],
+            flush=True,
+        )
+
+        response.raise_for_status()
+
+        try:
+            return response.json()
+        except Exception:
+            return {
+                "ok": True,
+                "raw": (response.text or "")[:1000],
+            }
 
     return _post_send_text_with_retries(
         url,
