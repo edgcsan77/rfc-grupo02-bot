@@ -175,6 +175,24 @@ class BotControl(Base):
     used = Column(Integer, nullable=False, default=0)
     recharges = Column(Integer, nullable=False, default=0)
 
+    verifiable_enabled = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    
+    verifiable_used = Column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+    
+    sale_price_verifiable = Column(
+        Numeric(10, 2),
+        nullable=False,
+        default=0,
+    )
+
     is_blocked = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
 
