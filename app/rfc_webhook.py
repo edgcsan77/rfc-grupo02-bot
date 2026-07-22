@@ -540,7 +540,9 @@ def _queue_one_verifiable_provider_pair(
     if not verifiable_key:
         fallback_match = (
             find_pending_request_by_provider_rfc(
-                provider_rfc
+                provider_rfc,
+                provider_group_jid=remote_jid,
+                provider_instance=instance_name,
             )
         )
 
@@ -1169,6 +1171,80 @@ async def evolution_rfc_webhook(request: Request):
                         "ignored": (
                             "verifiable_no_id_"
                             "pending_missing"
+                        ),
+                    }
+
+                no_record_expected_group = (
+                    no_record_pending.get(
+                        "provider_group_jid"
+                    )
+                    or ""
+                ).strip()
+
+                no_record_expected_instance = (
+                    no_record_pending.get(
+                        "provider_instance"
+                    )
+                    or ""
+                ).strip()
+
+                if (
+                    no_record_expected_group
+                    and no_record_expected_group
+                    != remote_jid
+                ):
+                    print(
+                        "RFC_VERIFIABLE_NO_ID_"
+                        "PROVIDER_GROUP_MISMATCH =",
+                        {
+                            "request_key": (
+                                no_record_request_key
+                            ),
+                            "expected_group": (
+                                no_record_expected_group
+                            ),
+                            "received_group": (
+                                remote_jid
+                            ),
+                        },
+                        flush=True,
+                    )
+
+                    return {
+                        "ok": True,
+                        "ignored": (
+                            "verifiable_no_id_"
+                            "provider_group_mismatch"
+                        ),
+                    }
+
+                if (
+                    no_record_expected_instance
+                    and no_record_expected_instance
+                    != instance_name
+                ):
+                    print(
+                        "RFC_VERIFIABLE_NO_ID_"
+                        "PROVIDER_INSTANCE_MISMATCH =",
+                        {
+                            "request_key": (
+                                no_record_request_key
+                            ),
+                            "expected_instance": (
+                                no_record_expected_instance
+                            ),
+                            "received_instance": (
+                                instance_name
+                            ),
+                        },
+                        flush=True,
+                    )
+
+                    return {
+                        "ok": True,
+                        "ignored": (
+                            "verifiable_no_id_"
+                            "provider_instance_mismatch"
                         ),
                     }
 
