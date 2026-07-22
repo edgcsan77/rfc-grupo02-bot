@@ -304,10 +304,15 @@ def _verifiable_bot_config(
             "exists": False,
             "enabled": False,
             "price": 0.0,
+            "limit": 0,
+            "used": 0,
+            "is_active": False,
+            "is_blocked": False,
         }
 
     return {
         "exists": True,
+
         "enabled": bool(
             getattr(
                 row,
@@ -315,6 +320,7 @@ def _verifiable_bot_config(
                 False,
             )
         ),
+
         "price": float(
             getattr(
                 row,
@@ -322,6 +328,40 @@ def _verifiable_bot_config(
                 0,
             )
             or 0
+        ),
+
+        "limit": int(
+            getattr(
+                row,
+                "verifiable_limit",
+                0,
+            )
+            or 0
+        ),
+
+        "used": int(
+            getattr(
+                row,
+                "verifiable_used",
+                0,
+            )
+            or 0
+        ),
+
+        "is_active": bool(
+            getattr(
+                row,
+                "is_active",
+                True,
+            )
+        ),
+
+        "is_blocked": bool(
+            getattr(
+                row,
+                "is_blocked",
+                False,
+            )
         ),
     }
 
@@ -1519,6 +1559,132 @@ async def evolution_rfc_webhook(request: Request):
                     "ok": True,
                     "ignored": (
                         "verifiable_disabled"
+                    ),
+                }
+
+            if not verifiable_config.get(
+                "is_active",
+                True,
+            ):
+                print(
+                    "RFC_VERIFICABLE_BOT_INACTIVE =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                        "identifier": (
+                            original_identifier
+                        ),
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "este bot no está activo."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_bot_inactive"
+                    ),
+                }
+
+            if verifiable_config.get(
+                "is_blocked",
+                False,
+            ):
+                print(
+                    "RFC_VERIFICABLE_BOT_BLOCKED =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                        "identifier": (
+                            original_identifier
+                        ),
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "este bot está bloqueado."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_bot_blocked"
+                    ),
+                }
+
+            verifiable_limit = int(
+                verifiable_config.get("limit")
+                or 0
+            )
+
+            verifiable_used = int(
+                verifiable_config.get("used")
+                or 0
+            )
+
+            if (
+                verifiable_limit > 0
+                and verifiable_used
+                >= verifiable_limit
+            ):
+                print(
+                    "RFC_VERIFICABLE_NO_BALANCE =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                        "identifier": (
+                            original_identifier
+                        ),
+                        "limit": (
+                            verifiable_limit
+                        ),
+                        "used": (
+                            verifiable_used
+                        ),
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "este bot ya no tiene RFC "
+                            "verificables disponibles."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_limit_reached"
                     ),
                 }
 
