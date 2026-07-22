@@ -10721,6 +10721,12 @@ def panel_RFC(
                 border: none;
               }}
             
+              @media (max-width: 1350px) {{
+                .broadcast-buttons-grid {{
+                  grid-template-columns: 1fr;
+                }}
+              }}
+            
               @media (max-width: 1050px) {{
                 .grid-hero {{
                   grid-template-columns: 1fr;
@@ -10735,7 +10741,7 @@ def panel_RFC(
                 }}
               }}
             
-              @media (max-width: 1350px) {{
+              @media (max-width: 900px) {{
                 .wrap {{
                   padding: 12px;
                 }}
@@ -10767,10 +10773,6 @@ def panel_RFC(
             
                 .value {{
                   font-size: 1.6rem;
-                }}
-
-                .broadcast-buttons-grid {{
-                  grid-template-columns: 1fr;
                 }}
             
                 .broadcast-actions {{
