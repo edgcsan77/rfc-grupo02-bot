@@ -213,9 +213,38 @@ def _upsert_authorized_group(db, group_jid: str, instance_name: str):
     return row
 
 
-def _dedupe_key(instance: str, remote_jid: str, requester: str, query: str, msg_id: str) -> str:
-    base = f"{instance}|{remote_jid}|{requester}|{query or msg_id}"
-    return hashlib.sha1(base.encode("utf-8")).hexdigest()
+def _dedupe_key(
+    instance: str,
+    remote_jid: str,
+    requester: str,
+    query: str,
+    msg_id: str,
+) -> str:
+    """
+    El mismo webhook conserva el mismo msg_id y se bloquea.
+
+    Cuando el usuario vuelve a enviar la misma solicitud,
+    WhatsApp genera otro msg_id y se permite procesarla.
+    """
+    normalized_query = re.sub(
+        r"\s+",
+        " ",
+        (query or "").strip().upper(),
+    )
+
+    base = "|".join(
+        [
+            (instance or "").strip(),
+            (remote_jid or "").strip(),
+            (requester or "").strip(),
+            normalized_query,
+            (msg_id or "").strip(),
+        ]
+    )
+
+    return hashlib.sha1(
+        base.encode("utf-8")
+    ).hexdigest()
 
 
 def _bot_label_from_db(instance_name: str | None) -> str:
