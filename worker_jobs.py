@@ -1188,17 +1188,16 @@ def process_group_request_job(job_data: dict):
     
         if is_verifiable and verifiable_request_key:
             try:
-                redis_stats.delete(
-                    "rfc:verifiable:result_claim:"
-                    f"{verifiable_request_key}"
+                release_provider_result_claim(
+                    verifiable_request_key
                 )
-    
+        
                 print(
                     "[RFC VERIFIABLE RESULT CLAIM RELEASED]",
                     verifiable_request_key,
                     flush=True,
                 )
-    
+        
             except Exception as claim_release_exc:
                 print(
                     "[RFC VERIFIABLE RESULT CLAIM RELEASE ERROR]",
