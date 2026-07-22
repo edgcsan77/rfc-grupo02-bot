@@ -643,6 +643,8 @@ def request_key_from_provider_message(
 
 def find_pending_request_by_provider_rfc(
     provider_rfc: str,
+    provider_group_jid: str = "",
+    provider_instance: str = "",
 ) -> dict:
     """
     Resuelve una respuesta del proveedor sin cita.
@@ -662,6 +664,14 @@ def find_pending_request_by_provider_rfc(
     provider_rfc = normalize_token(
         provider_rfc
     )
+
+    provider_group_jid = (
+        provider_group_jid or ""
+    ).strip()
+
+    provider_instance = (
+        provider_instance or ""
+    ).strip()
 
     if not RFC_FULL_RE.fullmatch(
         provider_rfc
@@ -717,6 +727,34 @@ def find_pending_request_by_provider_rfc(
             )
 
             if not pending:
+                continue
+
+            pending_provider_group = (
+                pending.get(
+                    "provider_group_jid"
+                )
+                or ""
+            ).strip()
+
+            pending_provider_instance = (
+                pending.get(
+                    "provider_instance"
+                )
+                or ""
+            ).strip()
+
+            if (
+                provider_group_jid
+                and pending_provider_group
+                != provider_group_jid
+            ):
+                continue
+
+            if (
+                provider_instance
+                and pending_provider_instance
+                != provider_instance
+            ):
                 continue
 
             original_type = str(
