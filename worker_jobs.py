@@ -3478,6 +3478,9 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
             
                     COALESCE(verifiable_enabled, FALSE)
                         AS verifiable_enabled,
+
+                    COALESCE(verifiable_limit, 0)
+                        AS verifiable_limit,
             
                     COALESCE(verifiable_used, 0)
                         AS verifiable_used,
@@ -3679,15 +3682,53 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                     )
                     return False
 
+                verifiable_limit = int(
+                    bot.get("verifiable_limit")
+                    or 0
+                )
+                
+                verifiable_used = int(
+                    bot.get("verifiable_used")
+                    or 0
+                )
+                
+                if (
+                    verifiable_limit > 0
+                    and verifiable_used
+                    >= verifiable_limit
+                ):
+                    evolution_send_text_to_group(
+                        group_jid,
+                        (
+                            f"⚠️ {requester_label} "
+                            "este bot ya no tiene RFC "
+                            "verificables disponibles."
+                        ),
+                        instance_name=instance_name,
+                    )
+                
+                    return False
+
                 print(
                     "[RFC_VERIFICABLE_BOT_CHECK_OK]",
                     {
                         "instance_name": instance_name,
                         "group_jid": group_jid,
                         "kind": kind,
-                        "verifiable_used": int(
-                            bot.get("verifiable_used")
-                            or 0
+                        "verifiable_limit": (
+                            verifiable_limit
+                        ),
+                        "verifiable_used": (
+                            verifiable_used
+                        ),
+                        "verifiable_available": (
+                            max(
+                                verifiable_limit
+                                - verifiable_used,
+                                0,
+                            )
+                            if verifiable_limit > 0
+                            else None
                         ),
                         "sale_price_verifiable": str(
                             bot.get(
