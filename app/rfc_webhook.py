@@ -11,7 +11,11 @@ from fastapi import APIRouter, Request
 from app.queue import request_queue
 from app.services.evolution import send_text
 from app.db import SessionLocal
-from app.models import AuthorizedGroup, BotControl
+from app.models import (
+    AuthorizedGroup,
+    BotControl,
+    ProviderSetting,
+)
 
 from app.verifiable_flow import (
     VERIFIABLE_PROVIDER_GROUP,
@@ -29,6 +33,8 @@ from app.verifiable_flow import (
     release_provider_result_claim,
     finish_pending,
     find_pending_request_by_provider_rfc,
+    load_verifiable_providers,
+    verifiable_provider_by_group,
 )
 
 router = APIRouter()
@@ -366,6 +372,119 @@ def _verifiable_bot_config(
     }
 
 
+def _get_or_create_verifiable_provider_setting(
+    db,
+    provider: dict,
+):
+    db_name = (
+        provider.get("db_name")
+        or ""
+    ).strip().upper()
+
+    row = (
+        db.query(ProviderSetting)
+        .filter(
+            ProviderSetting.provider_name
+            == db_name
+        )
+        .first()
+    )
+
+    if row:
+        return row
+
+    row = ProviderSetting(
+        provider_name=db_name,
+        is_enabled=bool(
+            provider.get(
+                "default_enabled",
+                True,
+            )
+        ),
+        weight=float(
+            provider.get(
+                "default_weight",
+                1,
+            )
+            or 0
+        ),
+    )
+
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return row
+
+
+def _verifiable_providers_runtime(
+    db,
+) -> list[dict]:
+    result: list[dict] = []
+
+    for provider in (
+        load_verifiable_providers()
+    ):
+        setting = (
+            _get_or_create_verifiable_provider_setting(
+                db,
+                provider,
+            )
+        )
+
+        item = dict(provider)
+
+        item["enabled"] = bool(
+            setting.is_enabled
+        )
+
+        item["weight"] = float(
+            setting.weight
+            or 0
+        )
+
+        result.append(item)
+
+    return result
+
+
+def _choose_verifiable_provider(
+    db,
+) -> dict:
+    import random
+
+    providers = [
+        provider
+        for provider in (
+            _verifiable_providers_runtime(
+                db
+            )
+        )
+        if provider.get("enabled")
+        and float(
+            provider.get("weight")
+            or 0
+        ) > 0
+    ]
+
+    if not providers:
+        return {}
+
+    weights = [
+        float(
+            provider.get("weight")
+            or 0
+        )
+        for provider in providers
+    ]
+
+    return random.choices(
+        providers,
+        weights=weights,
+        k=1,
+    )[0]
+
+
 @router.post("/webhook/evolution-rfc")
 async def evolution_rfc_webhook(request: Request):
     try:
@@ -425,12 +544,15 @@ async def evolution_rfc_webhook(request: Request):
         # RFC VERIFICABLE:
         # RESPUESTA DEL GRUPO PROVEEDOR
         # ======================================================
-        is_verifiable_provider_group = (
-            bool(VERIFIABLE_PROVIDER_GROUP)
-            and remote_jid
-            == VERIFIABLE_PROVIDER_GROUP
-            and instance_name
-            == VERIFIABLE_PROVIDER_INSTANCE
+        current_verifiable_provider = (
+            verifiable_provider_by_group(
+                remote_jid,
+                instance_name,
+            )
+        )
+        
+        is_verifiable_provider_group = bool(
+            current_verifiable_provider
         )
 
         if (
@@ -992,6 +1114,63 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                 }
 
+            expected_provider_group = (
+                pending.get(
+                    "provider_group_jid"
+                )
+                or ""
+            ).strip()
+            
+            expected_provider_instance = (
+                pending.get(
+                    "provider_instance"
+                )
+                or ""
+            ).strip()
+            
+            if (
+                expected_provider_group
+                and expected_provider_group
+                != remote_jid
+            ):
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_"
+                    "GROUP_MISMATCH =",
+                    {
+                        "request_key": (
+                            verifiable_key
+                        ),
+                        "expected_group": (
+                            expected_provider_group
+                        ),
+                        "received_group": (
+                            remote_jid
+                        ),
+                    },
+                    flush=True,
+                )
+            
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_provider_"
+                        "group_mismatch"
+                    ),
+                }
+            
+            if (
+                expected_provider_instance
+                and expected_provider_instance
+                != instance_name
+            ):
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_provider_"
+                        "instance_mismatch"
+                    ),
+                }
+
             original_type = (
                 pending.get("original_query_type")
                 or ""
@@ -1185,6 +1364,30 @@ async def evolution_rfc_webhook(request: Request):
                         if quoted_message_id
                         else ""
                     )
+                ),
+                "verifiable_provider_code": (
+                    pending.get("provider_code")
+                    or ""
+                ),
+                "verifiable_provider_db_name": (
+                    pending.get("provider_db_name")
+                    or ""
+                ),
+                "verifiable_provider_name": (
+                    pending.get("provider_name")
+                    or ""
+                ),
+                "verifiable_provider_group": (
+                    pending.get(
+                        "provider_group_jid"
+                    )
+                    or remote_jid
+                ),
+                "verifiable_provider_instance": (
+                    pending.get(
+                        "provider_instance"
+                    )
+                    or instance_name
                 ),
             }
 
@@ -1450,13 +1653,17 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                 }
 
-            if not VERIFIABLE_PROVIDER_GROUP:
+            configured_verifiable_providers = (
+                load_verifiable_providers()
+            )
+            
+            if not configured_verifiable_providers:
                 print(
                     "RFC_VERIFIABLE_CONFIG_ERROR =",
-                    "provider_group_empty",
+                    "providers_empty",
                     flush=True,
                 )
-
+            
                 try:
                     send_text(
                         remote_jid,
@@ -1469,11 +1676,11 @@ async def evolution_rfc_webhook(request: Request):
                     )
                 except Exception:
                     pass
-
+            
                 return {
                     "ok": False,
                     "error": (
-                        "verifiable_provider_"
+                        "verifiable_providers_"
                         "not_configured"
                     ),
                 }
@@ -1756,6 +1963,61 @@ async def evolution_rfc_webhook(request: Request):
                 f"{original_identifier}"
             )
 
+            selected_provider = (
+                _choose_verifiable_provider(
+                    db
+                )
+            )
+            
+            if not selected_provider:
+                redis_conn.delete(
+                    inflight_key
+                )
+            
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "no hay proveedores de RFC "
+                            "verificable activos."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+            
+                return {
+                    "ok": False,
+                    "error": (
+                        "verifiable_provider_"
+                        "not_available"
+                    ),
+                }
+            
+            provider_code = (
+                selected_provider["code"]
+            )
+            
+            provider_db_name = (
+                selected_provider["db_name"]
+            )
+            
+            provider_name = (
+                selected_provider["name"]
+            )
+            
+            provider_group_jid = (
+                selected_provider["group_jid"]
+            )
+            
+            provider_instance_name = (
+                selected_provider[
+                    "instance_name"
+                ]
+            )
+
             pending_payload = {
                 "normal_request_key": (
                     command_key
@@ -1790,6 +2052,21 @@ async def evolution_rfc_webhook(request: Request):
                 "verifiable_price": float(
                     verifiable_config["price"]
                 ),
+                "provider_code": (
+                    provider_code
+                ),
+                "provider_db_name": (
+                    provider_db_name
+                ),
+                "provider_name": (
+                    provider_name
+                ),
+                "provider_group_jid": (
+                    provider_group_jid
+                ),
+                "provider_instance": (
+                    provider_instance_name
+                ),
             }
 
             save_pending(
@@ -1799,10 +2076,10 @@ async def evolution_rfc_webhook(request: Request):
 
             try:
                 provider_response = send_text(
-                    VERIFIABLE_PROVIDER_GROUP,
+                    provider_group_jid,
                     provider_text,
                     instance_name=(
-                        VERIFIABLE_PROVIDER_INSTANCE
+                        provider_instance_name
                     ),
                 )
 
@@ -1884,11 +2161,20 @@ async def evolution_rfc_webhook(request: Request):
                         "request_key": (
                             command_key
                         ),
+                        "provider_code": (
+                            provider_code
+                        ),
+                        "provider_db_name": (
+                            provider_db_name
+                        ),
+                        "provider_name": (
+                            provider_name
+                        ),
                         "provider_group": (
-                            VERIFIABLE_PROVIDER_GROUP
+                            provider_group_jid
                         ),
                         "provider_instance": (
-                            VERIFIABLE_PROVIDER_INSTANCE
+                            provider_instance_name
                         ),
                         "error": repr(
                             provider_exc
@@ -1950,11 +2236,20 @@ async def evolution_rfc_webhook(request: Request):
                     "query_type": (
                         original_query_type
                     ),
+                    "provider_code": (
+                        provider_code
+                    ),
+                    "provider_db_name": (
+                        provider_db_name
+                    ),
+                    "provider_name": (
+                        provider_name
+                    ),
                     "provider_group": (
-                        VERIFIABLE_PROVIDER_GROUP
+                        provider_group_jid
                     ),
                     "provider_instance": (
-                        VERIFIABLE_PROVIDER_INSTANCE
+                        provider_instance_name
                     ),
                     "provider_message_id": (
                         provider_message_id
