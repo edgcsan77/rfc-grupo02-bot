@@ -78,6 +78,11 @@ from sqlalchemy import func, case, or_, and_
 from app.broadcast_jobs import botpanel_broadcast_job, panel_private_bots_broadcast_job
 from app.pdf_storage import save_request_pdf_to_r2, generate_r2_presigned_download_url
 
+from app.verifiable_flow import (
+    load_verifiable_providers,
+    verifiable_provider_by_db_name,
+)
+
 app = FastAPI(title=settings.APP_NAME)
 
 # Comprime HTML/JS/CSS grandes del panel y mini panel.
@@ -9329,6 +9334,174 @@ def panel_provider_weight(payload: dict, db: Session = Depends(get_db)):
         "weight": row.weight,
     }
 
+
+@app.post(
+    "/panel/verifiable-provider/weight"
+)
+def panel_verifiable_provider_weight(
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    db_name = (
+        str(
+            payload.get("provider_name")
+            or ""
+        )
+        .strip()
+        .upper()
+    )
+
+    provider = (
+        verifiable_provider_by_db_name(
+            db_name
+        )
+    )
+
+    if not provider:
+        return {
+            "ok": False,
+            "error": (
+                "Proveedor verificable inválido"
+            ),
+        }
+
+    try:
+        weight = float(
+            payload.get("weight")
+            or 0
+        )
+    except Exception:
+        weight = 0.0
+
+    row = (
+        db.query(ProviderSetting)
+        .filter(
+            ProviderSetting.provider_name
+            == db_name
+        )
+        .first()
+    )
+
+    if not row:
+        row = ProviderSetting(
+            provider_name=db_name,
+            is_enabled=bool(
+                provider.get(
+                    "default_enabled",
+                    True,
+                )
+            ),
+            weight=0,
+            created_at=_utc_now_naive(),
+            updated_at=_utc_now_naive(),
+        )
+        db.add(row)
+
+    row.weight = max(
+        weight,
+        0.0,
+    )
+    row.updated_at = (
+        _utc_now_naive()
+    )
+
+    db.commit()
+    _clear_panel_cache()
+
+    return {
+        "ok": True,
+        "provider_name": db_name,
+        "weight": float(
+            row.weight or 0
+        ),
+    }
+
+
+@app.post(
+    "/panel/verifiable-provider/"
+    "{provider_name}/{action}"
+)
+def panel_verifiable_provider_toggle(
+    provider_name: str,
+    action: str,
+    db: Session = Depends(get_db),
+):
+    db_name = (
+        provider_name
+        or ""
+    ).strip().upper()
+
+    provider = (
+        verifiable_provider_by_db_name(
+            db_name
+        )
+    )
+
+    if not provider:
+        return {
+            "ok": False,
+            "error": (
+                "Proveedor verificable inválido"
+            ),
+        }
+
+    action = (
+        action or ""
+    ).strip().lower()
+
+    if action not in {
+        "on",
+        "off",
+    }:
+        return {
+            "ok": False,
+            "error": "Acción inválida",
+        }
+
+    row = (
+        db.query(ProviderSetting)
+        .filter(
+            ProviderSetting.provider_name
+            == db_name
+        )
+        .first()
+    )
+
+    if not row:
+        row = ProviderSetting(
+            provider_name=db_name,
+            is_enabled=False,
+            weight=float(
+                provider.get(
+                    "default_weight",
+                    1,
+                )
+                or 0
+            ),
+            created_at=_utc_now_naive(),
+            updated_at=_utc_now_naive(),
+        )
+
+        db.add(row)
+
+    row.is_enabled = (
+        action == "on"
+    )
+    row.updated_at = (
+        _utc_now_naive()
+    )
+
+    db.commit()
+    _clear_panel_cache()
+
+    return {
+        "ok": True,
+        "provider_name": db_name,
+        "enabled": bool(
+            row.is_enabled
+        ),
+    }
+
                     
 @app.get("/panel", response_class=HTMLResponse)
 def panel_RFC(
@@ -9697,6 +9870,12 @@ def panel_RFC(
         subtitle = f"{period_label} ({PANEL_TZ})"
         
         provider_states = _esc(_providers_status_text(db)).replace("\n", "<br>")
+
+        verifiable_provider_cards = (
+            _verifiable_provider_cards_html(
+                db
+            )
+        )
 
         metrics_html = ""
         if delivery_metrics:
@@ -10666,174 +10845,14 @@ def panel_RFC(
                 </button>
               </form>
         
-              <div class="grid-hero" style="grid-template-columns:1fr;">
-                <div class="glass" style="display:none;">
-                  <div><h3 class="section-title">Orígenes</h3>
-            
+              <div class="grid-hero">
+                <div class="glass">
+                  <h3 class="section-title">
+                    Proveedores RFC verificable
+                  </h3>
+                
                   <div class="provider-grid">
-
-                    <div class="provider-card">
-                      <div class="provider-name">ESCALANTE</div>
-                      <div style="margin:6px 0;">
-                        <div style="font-size:12px;font-weight:700;margin-bottom:5px;opacity:.85;">Prioridad de uso</div>
-                        <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-                          <div style="display:flex;align-items:center;gap:6px;">
-                            <input id="weight_PROVIDER6" type="number" min="0" step="0.1" value="{provider_weight_map.get('PROVIDER6', 0)}" style="width:65px;padding:4px 6px;border-radius:6px;border:1px solid #ccc;text-align:center;">
-                            <span style="font-size:12px;opacity:.7;">nivel</span>
-                          </div>
-                          <button class="btn btn-primary" onclick="saveProviderWeight('PROVIDER6')">Aplicar</button>
-                        </div>
-                        <div style="font-size:11px;opacity:.6;margin-top:4px;">Más alto = este origen se usa más seguido</div>
-                      </div>
-                      <div class="provider-actions">
-                        <button class="btn btn-success" onclick="toggleProvider('PROVIDER6','on')">Activar</button>
-                        <button class="btn btn-danger" onclick="toggleProvider('PROVIDER6','off')">Desactivar</button>
-                      </div>
-                    </div>
-
-                    <div class="provider-card">
-                      <div class="provider-name">ADMIN</div>
-                      <div style="margin:6px 0;">
-                        <div style="font-size:12px;font-weight:700;margin-bottom:5px;opacity:.85;">Prioridad de uso</div>
-                        <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-                          <div style="display:flex;align-items:center;gap:6px;">
-                            <input id="weight_PROVIDER1" type="number" min="0" step="0.1" value="{provider_weight_map.get('PROVIDER1', 0)}" style="width:65px;padding:4px 6px;border-radius:6px;border:1px solid #ccc;text-align:center;">
-                            <span style="font-size:12px;opacity:.7;">nivel</span>
-                          </div>
-                          <button class="btn btn-primary" onclick="saveProviderWeight('PROVIDER1')">Aplicar</button>
-                        </div>
-                        <div style="font-size:11px;opacity:.6;margin-top:4px;">Más alto = este origen se usa más seguido</div>
-                      </div>
-                      <div class="provider-actions">
-                        <button class="btn btn-success" onclick="toggleProvider('PROVIDER1','on')">Activar</button>
-                        <button class="btn btn-danger" onclick="toggleProvider('PROVIDER1','off')">Desactivar</button>
-                      </div>
-                    </div>
-
-                    <div class="provider-card">
-                      <div class="provider-name">LUIS</div>
-                      <div style="margin:6px 0;">
-                        <div style="font-size:12px;font-weight:700;margin-bottom:5px;opacity:.85;">Prioridad de uso</div>
-                        <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-                          <div style="display:flex;align-items:center;gap:6px;">
-                            <input id="weight_PROVIDER5" type="number" min="0" step="0.1" value="{provider_weight_map.get('PROVIDER5', 0)}" style="width:65px;padding:4px 6px;border-radius:6px;border:1px solid #ccc;text-align:center;">
-                            <span style="font-size:12px;opacity:.7;">nivel</span>
-                          </div>
-                          <button class="btn btn-primary" onclick="saveProviderWeight('PROVIDER5')">Aplicar</button>
-                        </div>
-                        <div style="font-size:11px;opacity:.6;margin-top:4px;">Más alto = este origen se usa más seguido</div>
-                      </div>
-                      <div class="provider-actions">
-                        <button class="btn btn-success" onclick="toggleProvider('PROVIDER5','on')">Activar</button>
-                        <button class="btn btn-danger" onclick="toggleProvider('PROVIDER5','off')">Desactivar</button>
-                      </div>
-                    </div>
-
-                    <div class="provider-card">
-                      <div class="provider-name">VILLAFUERTE</div>
-                      <div style="margin:6px 0;">
-                        <div style="font-size:12px;font-weight:700;margin-bottom:5px;opacity:.85;">Prioridad de uso</div>
-                        <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-                          <div style="display:flex;align-items:center;gap:6px;">
-                            <input id="weight_PROVIDER12" type="number" min="0" step="0.1" value="{provider_weight_map.get('PROVIDER12', 0)}" style="width:65px;padding:4px 6px;border-radius:6px;border:1px solid #ccc;text-align:center;">
-                            <span style="font-size:12px;opacity:.7;">nivel</span>
-                          </div>
-                          <button class="btn btn-primary" onclick="saveProviderWeight('PROVIDER12')">Aplicar</button>
-                        </div>
-                        <div style="font-size:11px;opacity:.6;margin-top:4px;">Más alto = este origen se usa más seguido</div>
-                      </div>
-                      <div class="provider-actions">
-                        <button class="btn btn-success" onclick="toggleProvider('PROVIDER12','on')">Activar</button>
-                        <button class="btn btn-danger" onclick="toggleProvider('PROVIDER12','off')">Desactivar</button>
-                      </div>
-                    </div>
-
-                    <div class="provider-card">
-                      <div class="provider-name">EMILIANO</div>
-                      <div style="margin:6px 0;">
-                        <div style="font-size:12px;font-weight:700;margin-bottom:5px;opacity:.85;">Prioridad de uso</div>
-                        <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-                          <div style="display:flex;align-items:center;gap:6px;">
-                            <input id="weight_PROVIDER9" type="number" min="0" step="0.1" value="{provider_weight_map.get('PROVIDER9', 0)}" style="width:65px;padding:4px 6px;border-radius:6px;border:1px solid #ccc;text-align:center;">
-                            <span style="font-size:12px;opacity:.7;">nivel</span>
-                          </div>
-                          <button class="btn btn-primary" onclick="saveProviderWeight('PROVIDER9')">Aplicar</button>
-                        </div>
-                        <div style="font-size:11px;opacity:.6;margin-top:4px;">Más alto = este origen se usa más seguido</div>
-                      </div>
-                      <div class="provider-actions">
-                        <button class="btn btn-success" onclick="toggleProvider('PROVIDER9','on')">Activar</button>
-                        <button class="btn btn-danger" onclick="toggleProvider('PROVIDER9','off')">Desactivar</button>
-                      </div>
-                    </div>
-
-                    <div class="provider-card provider-placeholder"></div>
-
-                    <div class="provider-card">
-                      <div class="provider-name">LAZARO 1</div>
-                      <div style="margin:6px 0;">
-                        <div style="font-size:12px;font-weight:700;margin-bottom:5px;opacity:.85;">Prioridad de uso</div>
-                        <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-                          <div style="display:flex;align-items:center;gap:6px;">
-                            <input id="weight_PROVIDER4" type="number" min="0" step="0.1" value="{provider_weight_map.get('PROVIDER4', 0)}" style="width:65px;padding:4px 6px;border-radius:6px;border:1px solid #ccc;text-align:center;">
-                            <span style="font-size:12px;opacity:.7;">nivel</span>
-                          </div>
-                          <button class="btn btn-primary" onclick="saveProviderWeight('PROVIDER4')">Aplicar</button>
-                        </div>
-                        <div style="font-size:11px;opacity:.6;margin-top:4px;">Más alto = este origen se usa más seguido</div>
-                      </div>
-                      <div class="provider-actions">
-                        <button class="btn btn-success" onclick="toggleProvider('PROVIDER4','on')">Activar</button>
-                        <button class="btn btn-danger" onclick="toggleProvider('PROVIDER4','off')">Desactivar</button>
-                        <button class="btn btn-warning" onclick="refreshHID()">Actualizar HID</button>
-                      </div>
-                    </div>
-
-                    <div class="provider-card">
-                      <div class="provider-name">LAZARO 2</div>
-                      <div style="margin:6px 0;">
-                        <div style="font-size:12px;font-weight:700;margin-bottom:5px;opacity:.85;">Prioridad de uso</div>
-                        <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-                          <div style="display:flex;align-items:center;gap:6px;">
-                            <input id="weight_PROVIDER10" type="number" min="0" step="0.1" value="{provider_weight_map.get('PROVIDER10', 0)}" style="width:65px;padding:4px 6px;border-radius:6px;border:1px solid #ccc;text-align:center;">
-                            <span style="font-size:12px;opacity:.7;">nivel</span>
-                          </div>
-                          <button class="btn btn-primary" onclick="saveProviderWeight('PROVIDER10')">Aplicar</button>
-                        </div>
-                        <div style="font-size:11px;opacity:.6;margin-top:4px;">Más alto = este origen se usa más seguido</div>
-                      </div>
-                      <div class="provider-actions">
-                        <button class="btn btn-success" onclick="toggleProvider('PROVIDER10','on')">Activar</button>
-                        <button class="btn btn-danger" onclick="toggleProvider('PROVIDER10','off')">Desactivar</button>
-                        <button class="btn btn-warning" onclick="refreshHID10()">Actualizar HID</button>
-                      </div>
-                    </div>
-
-                    <div class="provider-card">
-                      <div class="provider-name">LAZARO 3</div>
-                      <div style="margin:6px 0;">
-                        <div style="font-size:12px;font-weight:700;margin-bottom:5px;opacity:.85;">Prioridad de uso</div>
-                        <div style="display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
-                          <div style="display:flex;align-items:center;gap:6px;">
-                            <input id="weight_PROVIDER11" type="number" min="0" step="0.1" value="{provider_weight_map.get('PROVIDER11', 0)}" style="width:65px;padding:4px 6px;border-radius:6px;border:1px solid #ccc;text-align:center;">
-                            <span style="font-size:12px;opacity:.7;">nivel</span>
-                          </div>
-                          <button class="btn btn-primary" onclick="saveProviderWeight('PROVIDER11')">Aplicar</button>
-                        </div>
-                        <div style="font-size:11px;opacity:.6;margin-top:4px;">Más alto = este origen se usa más seguido</div>
-                      </div>
-                      <div class="provider-actions">
-                        <button class="btn btn-success" onclick="toggleProvider('PROVIDER11','on')">Activar</button>
-                        <button class="btn btn-danger" onclick="toggleProvider('PROVIDER11','off')">Desactivar</button>
-                        <button class="btn btn-warning" onclick="refreshHID11()">Actualizar HID</button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div class="status-panel">
-                    <strong>Estado actual</strong><br><br>
-                    {provider_states}
-                  </div>
+                    {verifiable_provider_cards}
                   </div>
                 </div>
         
@@ -12083,6 +12102,99 @@ def panel_RFC(
           panelAudioBase64[target] = "";
           setPanelAudioPreview(target, null);
           setPanelAudioStatus(target, "Sin audio");
+        }}
+
+        async function toggleVerifiableProvider(
+          provider,
+          action
+        ) {{
+          try {{
+            const res = await fetch(
+              `/panel/verifiable-provider/${{provider}}/${{action}}`,
+              {{
+                method: "POST"
+              }}
+            );
+        
+            const data = await res.json();
+        
+            if (!data.ok) {{
+              alert(
+                data.error
+                || "No se pudo cambiar el proveedor"
+              );
+              return;
+            }}
+        
+            location.reload();
+        
+          }} catch (e) {{
+            alert(
+              "No se pudo conectar con el servidor"
+            );
+          }}
+        }}
+        
+        
+        async function saveVerifiableProviderWeight(
+          providerName
+        ) {{
+          const input = document.getElementById(
+            "weight_" + providerName
+          );
+        
+          const weight = Number(
+            input?.value || 0
+          );
+        
+          if (
+            Number.isNaN(weight)
+            || weight < 0
+          ) {{
+            alert(
+              "Ingresa una prioridad válida"
+            );
+            return;
+          }}
+        
+          try {{
+            const res = await fetch(
+              "/panel/verifiable-provider/weight",
+              {{
+                method: "POST",
+                headers: {{
+                  "Content-Type":
+                    "application/json"
+                }},
+                body: JSON.stringify({{
+                  provider_name:
+                    providerName,
+                  weight: weight
+                }})
+              }}
+            );
+        
+            const data = await res.json();
+        
+            if (!data.ok) {{
+              alert(
+                data.error
+                || "No se pudo guardar"
+              );
+              return;
+            }}
+        
+            alert(
+              "Prioridad actualizada"
+            );
+        
+            location.reload();
+        
+          }} catch (e) {{
+            alert(
+              "No se pudo conectar con el servidor"
+            );
+          }}
         }}
     
         async function toggleProvider(provider, action) {{
@@ -15775,6 +15887,221 @@ def _get_or_create_provider(db: Session, provider_name: str, default_enabled: bo
     db.commit()
     db.refresh(row)
     return row
+
+
+def _verifiable_provider_settings_rows(
+    db: Session,
+) -> list[dict]:
+    rows: list[dict] = []
+
+    for provider in (
+        load_verifiable_providers()
+    ):
+        db_name = (
+            provider["db_name"]
+        )
+
+        setting = (
+            db.query(ProviderSetting)
+            .filter(
+                ProviderSetting.provider_name
+                == db_name
+            )
+            .first()
+        )
+
+        if not setting:
+            setting = ProviderSetting(
+                provider_name=db_name,
+                is_enabled=bool(
+                    provider.get(
+                        "default_enabled",
+                        True,
+                    )
+                ),
+                weight=float(
+                    provider.get(
+                        "default_weight",
+                        1,
+                    )
+                    or 0
+                ),
+                created_at=(
+                    _utc_now_naive()
+                ),
+                updated_at=(
+                    _utc_now_naive()
+                ),
+            )
+
+            db.add(setting)
+            db.commit()
+            db.refresh(setting)
+
+        rows.append(
+            {
+                **provider,
+                "enabled": bool(
+                    setting.is_enabled
+                ),
+                "weight": float(
+                    setting.weight
+                    or 0
+                ),
+            }
+        )
+
+    return rows
+
+
+def _verifiable_provider_cards_html(
+    db: Session,
+) -> str:
+    cards = ""
+
+    for provider in (
+        _verifiable_provider_settings_rows(
+            db
+        )
+    ):
+        db_name = provider["db_name"]
+        name = provider["name"]
+        group_jid = provider["group_jid"]
+        instance_name = (
+            provider["instance_name"]
+        )
+        weight = float(
+            provider.get("weight")
+            or 0
+        )
+        enabled = bool(
+            provider.get("enabled")
+        )
+
+        status_text = (
+            "ACTIVO"
+            if enabled
+            else "INACTIVO"
+        )
+
+        status_color = (
+            "#86efac"
+            if enabled
+            else "#fca5a5"
+        )
+
+        cards += f"""
+        <div class="provider-card">
+          <div class="provider-name">
+            {_esc(name)}
+          </div>
+
+          <div class="small"
+               style="color:#d1d5db;">
+            Código: {_esc(provider["code"])}
+          </div>
+
+          <div class="small"
+               style="color:#d1d5db;
+                      word-break:break-all;
+                      margin-top:4px;">
+            Grupo: {_esc(group_jid)}
+          </div>
+
+          <div class="small"
+               style="color:#d1d5db;
+                      margin-top:4px;">
+            Instancia: {_esc(instance_name)}
+          </div>
+
+          <div style="
+            margin-top:8px;
+            font-weight:900;
+            color:{status_color};
+          ">
+            {status_text}
+          </div>
+
+          <div style="margin:10px 0;">
+            <div style="
+              font-size:12px;
+              font-weight:700;
+              margin-bottom:5px;
+            ">
+              Prioridad de uso
+            </div>
+
+            <div style="
+              display:flex;
+              gap:8px;
+              align-items:center;
+              flex-wrap:wrap;
+            ">
+              <input
+                id="weight_{_esc(db_name)}"
+                type="number"
+                min="0"
+                step="0.1"
+                value="{weight:g}"
+                style="
+                  width:75px;
+                  padding:6px;
+                  border-radius:7px;
+                  border:1px solid #ccc;
+                  text-align:center;
+                "
+              >
+
+              <button
+                class="btn btn-primary"
+                onclick="
+                  saveVerifiableProviderWeight(
+                    '{_esc(db_name)}'
+                  )
+                "
+              >
+                Aplicar
+              </button>
+            </div>
+          </div>
+
+          <div class="provider-actions">
+            <button
+              class="btn btn-success"
+              onclick="
+                toggleVerifiableProvider(
+                  '{_esc(db_name)}',
+                  'on'
+                )
+              "
+            >
+              Activar
+            </button>
+
+            <button
+              class="btn btn-danger"
+              onclick="
+                toggleVerifiableProvider(
+                  '{_esc(db_name)}',
+                  'off'
+                )
+              "
+            >
+              Desactivar
+            </button>
+          </div>
+        </div>
+        """
+
+    if not cards:
+        cards = """
+        <div class="provider-card">
+          No hay proveedores verificables configurados
+          en RFC_VERIFIABLE_PROVIDERS.
+        </div>
+        """
+
+    return cards
 
 
 def _get_group_promotion(db: Session, group_jid: str) -> GroupPromotion | None:
