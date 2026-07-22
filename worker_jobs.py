@@ -9,6 +9,9 @@ import hashlib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from redis import Redis
+from app.verifiable_flow import (
+    release_provider_result_claim,
+)
 
 EVOLUTION_BASE_URL = os.getenv("EVOLUTION_BASE_URL", "").rstrip("/")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY", "").strip()
@@ -1185,6 +1188,26 @@ def process_group_request_job(job_data: dict):
         release_request_inflight(
             inflight_key
         )
+    
+        if is_verifiable and verifiable_request_key:
+            try:
+                redis_stats.delete(
+                    "rfc:verifiable:result_claim:"
+                    f"{verifiable_request_key}"
+                )
+    
+                print(
+                    "[RFC VERIFIABLE RESULT CLAIM RELEASED]",
+                    verifiable_request_key,
+                    flush=True,
+                )
+    
+            except Exception as claim_release_exc:
+                print(
+                    "[RFC VERIFIABLE RESULT CLAIM RELEASE ERROR]",
+                    repr(claim_release_exc),
+                    flush=True,
+                )
 
 def evolution_get_media_base64(message_id: str, instance_name=None):
     instance_name = (instance_name or EVOLUTION_INSTANCE).strip()
