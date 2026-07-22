@@ -90,6 +90,8 @@ def _family_from_kind(kind: str) -> str:
         return "RFC_IDCIF_QR"
     if kind in ("CURP", "RFC_ONLY"):
         return "RFC_CLON"
+    if kind == "RFC_VERIFICABLE":
+        return "RFC_VERIFICABLE"
     return "UNKNOWN"
 
 def panel_record_success(group_jid: str, group_name: str, kind: str, count: int = 1):
@@ -123,6 +125,12 @@ def panel_record_success(group_jid: str, group_name: str, kind: str, count: int 
         pipe.hincrby(key, "ok_curp", count)
     elif kind == "RFC_ONLY":
         pipe.hincrby(key, "ok_rfc_only", count)
+    elif kind == "RFC_VERIFICABLE":
+        pipe.hincrby(
+            key,
+            "ok_rfc_verificable",
+            count,
+        )
     else:
         pipe.hincrby(key, "ok_unknown", count)
 
@@ -130,6 +138,12 @@ def panel_record_success(group_jid: str, group_name: str, kind: str, count: int 
         pipe.hincrby(key, "ok_rfc_idcif_qr", count)
     elif family == "RFC_CLON":
         pipe.hincrby(key, "ok_rfc_clon", count)
+    elif family == "RFC_VERIFICABLE":
+        pipe.hincrby(
+            key,
+            "ok_rfc_verificable",
+            count,
+        )
 
     # historial permanente para panel mensual / auditorías
     pipe.persist(key)
@@ -625,10 +639,54 @@ def process_group_request_job(job_data: dict):
         or ""
     ).strip()
 
+    is_verifiable = bool(
+        job_data.get("is_verifiable")
+    )
+
+    verifiable_request_key = (
+        job_data.get(
+            "verifiable_request_key"
+        )
+        or ""
+    ).strip()
+
     instance_name = (job_data.get("evolution_instance") or EVOLUTION_INSTANCE).strip()
     print("[WORKER EVOLUTION INSTANCE]", repr(instance_name), flush=True)
 
     print("[WORKER GROUP NAME]", repr(group_name), flush=True)
+
+    if is_verifiable:
+        print(
+            "[RFC VERIFIABLE WORKER START]",
+            {
+                "request_key": (
+                    verifiable_request_key
+                ),
+                "original_type": (
+                    job_data.get(
+                        "verifiable_original_type"
+                    )
+                ),
+                "original_identifier": (
+                    job_data.get(
+                        "verifiable_original_identifier"
+                    )
+                ),
+                "provider_rfc": (
+                    job_data.get("provider_rfc")
+                ),
+                "provider_idcif": (
+                    job_data.get(
+                        "provider_idcif"
+                    )
+                ),
+                "client_instance": (
+                    instance_name
+                ),
+                "client_group": group_jid,
+            },
+            flush=True,
+        )
 
     try:
         requested_kind = _classify_success_kind(
@@ -636,6 +694,14 @@ def process_group_request_job(job_data: dict):
             original_text=original_text or "",
             msg_type=msg_type or ""
         )
+
+        forced_success_kind = (
+            job_data.get("forced_success_kind")
+            or ""
+        ).strip().upper()
+        
+        if forced_success_kind:
+            requested_kind = forced_success_kind
 
         if not _rfc_commercial_check_or_notify(
             job_data=job_data,
@@ -698,6 +764,8 @@ def process_group_request_job(job_data: dict):
             return
 
         kind = _classify_success_kind(query=query or "", original_text=original_text or "", msg_type=msg_type)
+        if forced_success_kind:
+            kind = forced_success_kind
         mode = (result.get("mode") or "single").strip().lower()
 
         if mode == "batch_zip":
@@ -1202,6 +1270,8 @@ def _save_rfc_panel_request_log(job_data: dict, result: dict | None = None, stat
             act_type = "RFC"
         elif query_type == "RFC_IDCIF":
             act_type = "RFC_IDCIF"
+        elif query_type == "RFC_VERIFICABLE":
+            act_type = "RFC_VERIFICABLE"
         elif query_type == "CURP":
             act_type = "CURP"
         elif query_type == "QR_TEXT":
@@ -1318,7 +1388,11 @@ def _save_rfc_panel_request_log(job_data: dict, result: dict | None = None, stat
                 "source_group_id": group_jid,
                 "instance_name": str(instance_name or "")[:50],
                 "evolution_message_id": str(msg_id or "")[:120],
-                "provider_name": "RFC",
+                "provider_name": (
+                    "RFC_VERIFICABLE"
+                    if act_type == "RFC_VERIFICABLE"
+                    else "RFC"
+                ),
                 "provider_group_id": "RFC",
                 "provider_message": original_text,
                 "pdf_url": pdf_url,
@@ -2889,10 +2963,24 @@ def _rfc_clear_panel_cache_v2():
 
 def _rfc_final_family(kind: str) -> str:
     k = (kind or "").strip().upper()
-    if k in ("CURP", "RFC", "RFC_ONLY"):
+
+    if k in (
+        "CURP",
+        "RFC",
+        "RFC_ONLY",
+    ):
         return "CLON"
-    if k in ("QR", "IDCIF", "RFC_IDCIF"):
+
+    if k in (
+        "QR",
+        "IDCIF",
+        "RFC_IDCIF",
+    ):
         return "IDCIF"
+
+    if k == "RFC_VERIFICABLE":
+        return "VERIFICABLE"
+
     return "UNKNOWN"
 
 
@@ -3191,6 +3279,43 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
 
                 return True
 
+            if family == "VERIFICABLE":
+                if not bool(
+                    bot.get("verifiable_enabled")
+                ):
+                    evolution_send_text_to_group(
+                        group_jid,
+                        (
+                            f"⚠️ {requester_label} "
+                            "RFC verificable fue desactivado "
+                            "para este bot."
+                        ),
+                        instance_name=instance_name,
+                    )
+                    return False
+            
+                print(
+                    "[RFC_VERIFICABLE_BOT_CHECK_OK]",
+                    {
+                        "instance_name": instance_name,
+                        "group_jid": group_jid,
+                        "kind": kind,
+                        "verifiable_used": int(
+                            bot.get("verifiable_used")
+                            or 0
+                        ),
+                        "sale_price_verifiable": str(
+                            bot.get(
+                                "sale_price_verifiable"
+                            )
+                            or 0
+                        ),
+                    },
+                    flush=True,
+                )
+
+    return True
+
         return True
 
     except Exception as e:
@@ -3311,6 +3436,43 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                     "kind": kind,
                     "count": count,
                 }, flush=True)
+
+            elif family == "VERIFICABLE":
+                conn.execute(text("""
+                    UPDATE bot_control
+                    SET
+                        verifiable_used =
+                            COALESCE(verifiable_used, 0)
+                            + :count,
+            
+                        used =
+                            COALESCE(used, 0)
+                            + :count,
+            
+                        updated_at = now()
+            
+                    WHERE instance_name = :instance_name
+                """), {
+                    "count": count,
+                    "instance_name": instance_name,
+                })
+            
+                print(
+                    "[RFC_VERIFICABLE_USED_INC]",
+                    {
+                        "instance_name": instance_name,
+                        "group_jid": group_jid,
+                        "kind": kind,
+                        "count": count,
+                        "price": float(
+                            job_data.get(
+                                "verifiable_price"
+                            )
+                            or 0
+                        ),
+                    },
+                    flush=True,
+                )
 
             try:
                 _rfc_clear_panel_cache_v2()
