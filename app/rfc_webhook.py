@@ -11,6 +11,23 @@ from app.services.evolution import send_text
 from app.db import SessionLocal
 from app.models import AuthorizedGroup, BotControl
 
+from app.verifiable_flow import (
+    VERIFIABLE_PROVIDER_GROUP,
+    VERIFIABLE_PROVIDER_INSTANCE,
+    VERIFIABLE_TIMEOUT_SEC,
+    parse_verifiable_request,
+    extract_rfc_idcif,
+    extract_quoted_message_id,
+    verifiable_request_key,
+    save_pending,
+    load_pending,
+    associate_provider_message,
+    request_key_from_provider_message,
+    claim_provider_result,
+    release_provider_result_claim,
+    finish_pending,
+)
+
 router = APIRouter()
 
 MAIN_PANEL_INSTANCE = os.getenv("MAIN_PANEL_INSTANCE", "grupo02").strip()
@@ -227,6 +244,61 @@ def _bot_label_from_db(instance_name: str | None) -> str:
         db.close()
 
 
+def _extract_sent_message_id(
+    response: dict | None,
+) -> str:
+    response = response or {}
+
+    key = response.get("key") or {}
+
+    return str(
+        key.get("id")
+        or response.get("messageId")
+        or response.get("id")
+        or ""
+    ).strip()
+
+
+def _verifiable_bot_config(
+    db,
+    instance_name: str,
+) -> dict:
+    row = (
+        db.query(BotControl)
+        .filter(
+            BotControl.instance_name
+            == (instance_name or "").strip()
+        )
+        .first()
+    )
+
+    if not row:
+        return {
+            "exists": False,
+            "enabled": False,
+            "price": 0.0,
+        }
+
+    return {
+        "exists": True,
+        "enabled": bool(
+            getattr(
+                row,
+                "verifiable_enabled",
+                False,
+            )
+        ),
+        "price": float(
+            getattr(
+                row,
+                "sale_price_verifiable",
+                0,
+            )
+            or 0
+        ),
+    }
+
+
 @router.post("/webhook/evolution-rfc")
 async def evolution_rfc_webhook(request: Request):
     try:
@@ -275,13 +347,390 @@ async def evolution_rfc_webhook(request: Request):
         # NO usar la URL mmg.whatsapp.net como media_id.
         media_id = msg_id if msg_type else ""
 
-
         cmd_preview = (text or "").strip().lower()
         admin_group_commands = {
             "/groupid", "groupid", "/idgrupo", "idgrupo", "/id",
             "/addgroup", "addgroup", "/addgroupo", "addgroupo",
             "/autorizar", "autorizar",
         }
+
+        # ======================================================
+        # RFC VERIFICABLE:
+        # RESPUESTA DEL GRUPO PROVEEDOR
+        # ======================================================
+        is_verifiable_provider_group = (
+            bool(VERIFIABLE_PROVIDER_GROUP)
+            and remote_jid
+            == VERIFIABLE_PROVIDER_GROUP
+            and instance_name
+            == VERIFIABLE_PROVIDER_INSTANCE
+        )
+
+        if (
+            is_verifiable_provider_group
+            and not from_me
+        ):
+            quoted_message_id = (
+                extract_quoted_message_id(
+                    message,
+                    data,
+                )
+            )
+
+            print(
+                "RFC_VERIFIABLE_PROVIDER_IN =",
+                {
+                    "instance": instance_name,
+                    "group_jid": remote_jid,
+                    "msg_id": msg_id,
+                    "quoted_message_id": (
+                        quoted_message_id
+                    ),
+                    "text": text,
+                },
+                flush=True,
+            )
+
+            if not quoted_message_id:
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_IGNORED =",
+                    "missing_quoted_message_id",
+                    flush=True,
+                )
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_provider_"
+                        "missing_quote"
+                    ),
+                }
+
+            verifiable_key = (
+                request_key_from_provider_message(
+                    quoted_message_id
+                )
+            )
+
+            if not verifiable_key:
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_IGNORED =",
+                    {
+                        "reason": (
+                            "provider_message_not_found"
+                        ),
+                        "quoted_message_id": (
+                            quoted_message_id
+                        ),
+                    },
+                    flush=True,
+                )
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_provider_"
+                        "message_not_found"
+                    ),
+                }
+
+            pending = load_pending(
+                verifiable_key
+            )
+
+            if not pending:
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_IGNORED =",
+                    {
+                        "reason": (
+                            "pending_expired_or_missing"
+                        ),
+                        "request_key": (
+                            verifiable_key
+                        ),
+                    },
+                    flush=True,
+                )
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_pending_missing"
+                    ),
+                }
+
+            provider_rfc, provider_idcif = (
+                extract_rfc_idcif(text)
+            )
+
+            if (
+                not provider_rfc
+                or not provider_idcif
+            ):
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_INVALID =",
+                    {
+                        "request_key": (
+                            verifiable_key
+                        ),
+                        "text": text,
+                        "rfc": provider_rfc,
+                        "idcif": provider_idcif,
+                    },
+                    flush=True,
+                )
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_invalid_"
+                        "provider_response"
+                    ),
+                }
+
+            original_type = (
+                pending.get("original_query_type")
+                or ""
+            ).strip().upper()
+
+            original_identifier = (
+                pending.get("original_identifier")
+                or ""
+            ).strip().upper()
+
+            # Cuando el cliente originalmente envió RFC,
+            # la respuesta debe conservar ese mismo RFC.
+            if (
+                original_type == "RFC_ONLY"
+                and provider_rfc
+                != original_identifier
+            ):
+                print(
+                    "RFC_VERIFIABLE_RFC_MISMATCH =",
+                    {
+                        "expected": (
+                            original_identifier
+                        ),
+                        "received": provider_rfc,
+                        "request_key": (
+                            verifiable_key
+                        ),
+                    },
+                    flush=True,
+                )
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_rfc_mismatch"
+                    ),
+                }
+
+            if not claim_provider_result(
+                verifiable_key
+            ):
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_"
+                    "DUPLICATE_RESULT =",
+                    verifiable_key,
+                    flush=True,
+                )
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_result_already_"
+                        "claimed"
+                    ),
+                }
+
+            client_instance = (
+                pending.get(
+                    "client_instance"
+                )
+                or MAIN_PANEL_INSTANCE
+            ).strip()
+
+            client_group_jid = (
+                pending.get(
+                    "client_group_jid"
+                )
+                or ""
+            ).strip()
+
+            requester_number = (
+                pending.get(
+                    "requester_number"
+                )
+                or ""
+            ).strip()
+
+            requester_name = (
+                pending.get(
+                    "requester_name"
+                )
+                or ""
+            ).strip()
+
+            requester_label = (
+                pending.get(
+                    "requester_label"
+                )
+                or requester_name
+                or "Usuario"
+            ).strip()
+
+            original_msg_id = (
+                pending.get("client_msg_id")
+                or ""
+            ).strip()
+
+            normal_request_key = (
+                pending.get("normal_request_key")
+                or verifiable_key
+            ).strip()
+
+            inflight_key = (
+                pending.get("inflight_key")
+                or ""
+            ).strip()
+
+            generated_query = (
+                f"RFC: {provider_rfc}\n"
+                f"IDCIF: {provider_idcif}"
+            )
+
+            job_data = {
+                "requester_number": (
+                    requester_number
+                ),
+                "requester_name": (
+                    requester_name
+                ),
+                "requester_label": (
+                    requester_label
+                ),
+                "group_jid": (
+                    client_group_jid
+                ),
+                "group_name": (
+                    client_group_jid
+                ),
+                "original_text": (
+                    generated_query
+                ),
+                "query": generated_query,
+                "query_type": (
+                    "RFC_IDCIF"
+                ),
+                "msg_type": "",
+                "media_id": "",
+                "msg_id": original_msg_id,
+                "mime_type": "",
+                "evolution_instance": (
+                    client_instance
+                ),
+                "request_key": (
+                    normal_request_key
+                ),
+                "inflight_key": (
+                    inflight_key
+                ),
+                "execution_key": (
+                    original_msg_id
+                    or verifiable_key
+                ),
+
+                # Trazabilidad.
+                "is_verifiable": True,
+                "verifiable_request_key": (
+                    verifiable_key
+                ),
+                "verifiable_original_type": (
+                    original_type
+                ),
+                "verifiable_original_identifier": (
+                    original_identifier
+                ),
+                "provider_rfc": provider_rfc,
+                "provider_idcif": provider_idcif,
+                "provider_response_msg_id": (
+                    msg_id
+                ),
+                "provider_quoted_msg_id": (
+                    quoted_message_id
+                ),
+            }
+
+            final_rq_job_id = (
+                "rfc-verifiable-result:"
+                f"{verifiable_key}"
+            )
+
+            try:
+                job = request_queue.enqueue(
+                    "worker_jobs."
+                    "process_group_request_job",
+                    job_data,
+                    job_id=final_rq_job_id,
+                    job_timeout=900,
+                    result_ttl=0,
+                    failure_ttl=1200,
+                )
+
+            except Exception as enqueue_exc:
+                release_provider_result_claim(
+                    verifiable_key
+                )
+
+                print(
+                    "RFC_VERIFIABLE_RESULT_"
+                    "ENQUEUE_ERROR =",
+                    {
+                        "request_key": (
+                            verifiable_key
+                        ),
+                        "error": repr(
+                            enqueue_exc
+                        ),
+                    },
+                    flush=True,
+                )
+
+                raise
+
+            finish_pending(
+                verifiable_key,
+                provider_message_id=(
+                    quoted_message_id
+                ),
+            )
+
+            print(
+                "RFC_VERIFIABLE_RESULT_QUEUED =",
+                {
+                    "job_id": job.id,
+                    "request_key": (
+                        verifiable_key
+                    ),
+                    "client_group": (
+                        client_group_jid
+                    ),
+                    "client_instance": (
+                        client_instance
+                    ),
+                    "rfc": provider_rfc,
+                    "idcif": provider_idcif,
+                },
+                flush=True,
+            )
+
+            return {
+                "ok": True,
+                "queued": True,
+                "flow": "RFC_VERIFICABLE",
+                "job_id": job.id,
+            }
 
         # Ignorar mensajes propios, EXCEPTO comandos administrativos en grupos.
         # Esto permite que tú, desde el WhatsApp conectado al bot, puedas mandar /groupid y /addgroup.
@@ -437,6 +886,319 @@ async def evolution_rfc_webhook(request: Request):
                 "ignored": "group_not_authorized",
                 "group_jid": remote_jid,
                 "instance": instance_name,
+            }
+
+        verifiable = parse_verifiable_request(
+            text
+        )
+
+        if verifiable.get("is_verifiable"):
+            if not verifiable.get("ok"):
+                try:
+                    send_text(
+                        remote_jid,
+                        verifiable.get("error"),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception as send_exc:
+                    print(
+                        "RFC_VERIFIABLE_INVALID_"
+                        "SEND_ERROR =",
+                        repr(send_exc),
+                        flush=True,
+                    )
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "invalid_verifiable_request"
+                    ),
+                }
+
+            if not VERIFIABLE_PROVIDER_GROUP:
+                print(
+                    "RFC_VERIFIABLE_CONFIG_ERROR =",
+                    "provider_group_empty",
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            "⚠️ El servicio de RFC "
+                            "verificable no está configurado."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": False,
+                    "error": (
+                        "verifiable_provider_"
+                        "not_configured"
+                    ),
+                }
+
+            original_identifier = (
+                verifiable["identifier"]
+            )
+
+            original_query_type = (
+                verifiable["query_type"]
+            )
+
+            requester_label = (
+                push_name or "Usuario"
+            )
+
+            normalized_query = (
+                "VERIFICABLE:"
+                f"{original_query_type}:"
+                f"{original_identifier}"
+            )
+
+            command_key = _dedupe_key(
+                instance_name,
+                remote_jid,
+                requester_wa_id,
+                normalized_query,
+                msg_id,
+            )
+
+            redis_conn = (
+                request_queue.connection
+            )
+
+            inflight_key = (
+                f"rfc:inflight:{command_key}"
+            )
+
+            if not redis_conn.set(
+                inflight_key,
+                "1",
+                nx=True,
+                ex=VERIFIABLE_TIMEOUT_SEC,
+            ):
+                duplicate_notice_key = (
+                    "rfc:verifiable:"
+                    "duplicate_notice:"
+                    f"{command_key}"
+                )
+
+                if redis_conn.set(
+                    duplicate_notice_key,
+                    "1",
+                    nx=True,
+                    ex=DUPLICATE_NOTICE_TTL_SEC,
+                ):
+                    try:
+                        send_text(
+                            remote_jid,
+                            (
+                                f"⏳ {requester_label}, "
+                                "este RFC verificable "
+                                "ya está siendo procesado."
+                            ),
+                            instance_name=(
+                                instance_name
+                            ),
+                            fast=True,
+                        )
+                    except Exception:
+                        pass
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_already_"
+                        "processing"
+                    ),
+                }
+
+            provider_text = (
+                "RFC VERIFICABLE\n"
+                f"TIPO: {original_query_type}\n"
+                f"DATO: {original_identifier}\n\n"
+                "Responder citando este mensaje con:\n"
+                "RFC: XXXXXXXXXXXXX\n"
+                "IDCIF: 00000000000"
+            )
+
+            pending_payload = {
+                "normal_request_key": (
+                    command_key
+                ),
+                "inflight_key": (
+                    inflight_key
+                ),
+                "client_instance": (
+                    instance_name
+                ),
+                "client_group_jid": (
+                    remote_jid
+                ),
+                "requester_number": (
+                    requester_wa_id
+                ),
+                "requester_name": push_name,
+                "requester_label": (
+                    requester_label
+                ),
+                "client_msg_id": msg_id,
+                "original_text": text,
+                "original_query_type": (
+                    original_query_type
+                ),
+                "original_identifier": (
+                    original_identifier
+                ),
+                "verifiable_price": float(
+                    verifiable_config["price"]
+                ),
+            }
+
+            save_pending(
+                command_key,
+                pending_payload,
+            )
+
+            try:
+                provider_response = send_text(
+                    VERIFIABLE_PROVIDER_GROUP,
+                    provider_text,
+                    instance_name=(
+                        VERIFIABLE_PROVIDER_INSTANCE
+                    ),
+                )
+
+                provider_message_id = (
+                    _extract_sent_message_id(
+                        provider_response
+                    )
+                )
+
+                if not provider_message_id:
+                    raise RuntimeError(
+                        "VERIFIABLE_PROVIDER_"
+                        "MESSAGE_ID_EMPTY"
+                    )
+
+                associate_provider_message(
+                    command_key,
+                    provider_message_id,
+                )
+
+            except Exception as provider_exc:
+                redis_conn.delete(
+                    inflight_key
+                )
+
+                finish_pending(
+                    command_key
+                )
+
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_"
+                    "SEND_ERROR =",
+                    {
+                        "request_key": (
+                            command_key
+                        ),
+                        "provider_group": (
+                            VERIFIABLE_PROVIDER_GROUP
+                        ),
+                        "provider_instance": (
+                            VERIFIABLE_PROVIDER_INSTANCE
+                        ),
+                        "error": repr(
+                            provider_exc
+                        ),
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "no fue posible enviar la "
+                            "solicitud al proveedor de "
+                            "RFC verificables."
+                        ),
+                        instance_name=(
+                            instance_name
+                        ),
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": False,
+                    "error": (
+                        "verifiable_provider_"
+                        "send_failed"
+                    ),
+                }
+
+            try:
+                send_text(
+                    remote_jid,
+                    (
+                        f"🔎 {requester_label}, "
+                        "tu RFC verificable fue enviado "
+                        "al proveedor.\n"
+                        "Se entregará automáticamente "
+                        "cuando responda."
+                    ),
+                    instance_name=instance_name,
+                    fast=True,
+                )
+            except Exception as ack_exc:
+                print(
+                    "RFC_VERIFIABLE_ACK_ERROR =",
+                    repr(ack_exc),
+                    flush=True,
+                )
+
+            print(
+                "RFC_VERIFIABLE_SENT_TO_PROVIDER =",
+                {
+                    "request_key": command_key,
+                    "identifier": (
+                        original_identifier
+                    ),
+                    "query_type": (
+                        original_query_type
+                    ),
+                    "provider_group": (
+                        VERIFIABLE_PROVIDER_GROUP
+                    ),
+                    "provider_instance": (
+                        VERIFIABLE_PROVIDER_INSTANCE
+                    ),
+                    "provider_message_id": (
+                        provider_message_id
+                    ),
+                    "client_instance": (
+                        instance_name
+                    ),
+                    "client_group": remote_jid,
+                },
+                flush=True,
+            )
+
+            return {
+                "ok": True,
+                "waiting_provider": True,
+                "flow": "RFC_VERIFICABLE",
+                "request_key": command_key,
             }
 
         parsed = _parse_rfc_query(text, msg_type=msg_type)
