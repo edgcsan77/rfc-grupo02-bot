@@ -452,6 +452,282 @@ async def evolution_rfc_webhook(request: Request):
                 flush=True,
             )
 
+            # ==================================================
+            # RESPUESTA NEGATIVA DEL PROVEEDOR:
+            # "NO ID" citando la solicitud original
+            # ==================================================
+            provider_response_normalized = re.sub(
+                r"\s+",
+                " ",
+                (text or "").strip().upper(),
+            )
+
+            provider_no_record = bool(
+                re.fullmatch(
+                    r"(?:NO\s*ID|SIN\s*ID|NO\s+HAY\s+ID)",
+                    provider_response_normalized,
+                    flags=re.I,
+                )
+            )
+
+            if provider_no_record:
+                # Para evitar asociar un "NO ID" al cliente
+                # incorrecto, obligatoriamente debe venir citado.
+                if not quoted_message_id:
+                    print(
+                        "RFC_VERIFICABLE_NO_ID_IGNORED =",
+                        {
+                            "reason": (
+                                "missing_quoted_message_id"
+                            ),
+                            "text": text,
+                            "msg_id": msg_id,
+                        },
+                        flush=True,
+                    )
+
+                    return {
+                        "ok": True,
+                        "ignored": (
+                            "verifiable_no_id_"
+                            "missing_quote"
+                        ),
+                    }
+
+                no_record_request_key = (
+                    request_key_from_provider_message(
+                        quoted_message_id
+                    )
+                )
+
+                if not no_record_request_key:
+                    print(
+                        "RFC_VERIFICABLE_NO_ID_IGNORED =",
+                        {
+                            "reason": (
+                                "quoted_message_not_found"
+                            ),
+                            "quoted_message_id": (
+                                quoted_message_id
+                            ),
+                            "text": text,
+                        },
+                        flush=True,
+                    )
+
+                    return {
+                        "ok": True,
+                        "ignored": (
+                            "verifiable_no_id_"
+                            "message_not_found"
+                        ),
+                    }
+
+                no_record_pending = load_pending(
+                    no_record_request_key
+                )
+
+                if not no_record_pending:
+                    print(
+                        "RFC_VERIFICABLE_NO_ID_IGNORED =",
+                        {
+                            "reason": (
+                                "pending_expired_or_missing"
+                            ),
+                            "request_key": (
+                                no_record_request_key
+                            ),
+                        },
+                        flush=True,
+                    )
+
+                    return {
+                        "ok": True,
+                        "ignored": (
+                            "verifiable_no_id_"
+                            "pending_missing"
+                        ),
+                    }
+
+                # Impide procesar dos veces la misma
+                # respuesta negativa del proveedor.
+                if not claim_provider_result(
+                    no_record_request_key
+                ):
+                    print(
+                        "RFC_VERIFICABLE_NO_ID_DUPLICATE =",
+                        {
+                            "request_key": (
+                                no_record_request_key
+                            ),
+                            "quoted_message_id": (
+                                quoted_message_id
+                            ),
+                        },
+                        flush=True,
+                    )
+
+                    return {
+                        "ok": True,
+                        "ignored": (
+                            "verifiable_no_id_"
+                            "already_claimed"
+                        ),
+                    }
+
+                no_record_client_group = (
+                    no_record_pending.get(
+                        "client_group_jid"
+                    )
+                    or ""
+                ).strip()
+
+                no_record_client_instance = (
+                    no_record_pending.get(
+                        "client_instance"
+                    )
+                    or MAIN_PANEL_INSTANCE
+                ).strip()
+
+                no_record_requester_label = (
+                    no_record_pending.get(
+                        "requester_label"
+                    )
+                    or no_record_pending.get(
+                        "requester_name"
+                    )
+                    or "Usuario"
+                ).strip()
+
+                no_record_inflight_key = (
+                    no_record_pending.get(
+                        "inflight_key"
+                    )
+                    or ""
+                ).strip()
+
+                stored_provider_message_id = (
+                    no_record_pending.get(
+                        "provider_message_id"
+                    )
+                    or quoted_message_id
+                    or ""
+                ).strip()
+
+                try:
+                    no_record_identifier = (
+                        no_record_pending.get(
+                            "original_identifier"
+                        )
+                        or "dato solicitado"
+                    ).strip().upper()
+                    
+                    no_record_original_type = (
+                        no_record_pending.get(
+                            "original_query_type"
+                        )
+                        or ""
+                    ).strip().upper()
+                    
+                    if no_record_original_type == "CURP":
+                        no_record_identifier_label = (
+                            f"la CURP {no_record_identifier}"
+                        )
+                    elif no_record_original_type == "RFC_ONLY":
+                        no_record_identifier_label = (
+                            f"el RFC {no_record_identifier}"
+                        )
+                    else:
+                        no_record_identifier_label = (
+                            no_record_identifier
+                        )
+                    
+                    send_text(
+                        no_record_client_group,
+                        (
+                            f"⚠️ {no_record_requester_label}, "
+                            "no hay registro disponible para "
+                            f"{no_record_identifier_label}."
+                        ),
+                        instance_name=(
+                            no_record_client_instance
+                        ),
+                        fast=True,
+                    )
+
+                    print(
+                        "RFC_VERIFICABLE_NO_ID_SENT =",
+                        {
+                            "request_key": (
+                                no_record_request_key
+                            ),
+                            "client_group": (
+                                no_record_client_group
+                            ),
+                            "client_instance": (
+                                no_record_client_instance
+                            ),
+                            "original_identifier": (
+                                no_record_pending.get(
+                                    "original_identifier"
+                                )
+                            ),
+                        },
+                        flush=True,
+                    )
+
+                except Exception as no_record_send_exc:
+                    print(
+                        "RFC_VERIFICABLE_NO_ID_"
+                        "CLIENT_SEND_ERROR =",
+                        {
+                            "request_key": (
+                                no_record_request_key
+                            ),
+                            "client_group": (
+                                no_record_client_group
+                            ),
+                            "error": repr(
+                                no_record_send_exc
+                            ),
+                        },
+                        flush=True,
+                    )
+
+                finally:
+                    # Libera el bloqueo de la solicitud para que
+                    # el cliente pueda mandarla nuevamente.
+                    if no_record_inflight_key:
+                        try:
+                            request_queue.connection.delete(
+                                no_record_inflight_key
+                            )
+                        except Exception as inflight_exc:
+                            print(
+                                "RFC_VERIFICABLE_NO_ID_"
+                                "INFLIGHT_RELEASE_ERROR =",
+                                repr(inflight_exc),
+                                flush=True,
+                            )
+
+                    # Elimina el pendiente y la asociación con
+                    # el mensaje enviado al proveedor.
+                    finish_pending(
+                        no_record_request_key,
+                        provider_message_id=(
+                            stored_provider_message_id
+                        ),
+                    )
+
+                return {
+                    "ok": True,
+                    "no_record": True,
+                    "flow": "RFC_VERIFICABLE",
+                    "request_key": (
+                        no_record_request_key
+                    ),
+                }
+
             provider_rfc, provider_idcif = (
                 extract_rfc_idcif(text)
             )
