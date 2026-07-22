@@ -26,6 +26,7 @@ from app.verifiable_flow import (
     claim_provider_result,
     release_provider_result_claim,
     finish_pending,
+    find_pending_request_by_provider_rfc,
 )
 
 router = APIRouter()
@@ -427,26 +428,155 @@ async def evolution_rfc_webhook(request: Request):
                 flush=True,
             )
 
-            if not quoted_message_id:
+            provider_rfc, provider_idcif = (
+                extract_rfc_idcif(text)
+            )
+            
+            if (
+                not provider_rfc
+                or not provider_idcif
+            ):
                 print(
-                    "RFC_VERIFIABLE_PROVIDER_IGNORED =",
-                    "missing_quoted_message_id",
+                    "RFC_VERIFIABLE_PROVIDER_INVALID =",
+                    {
+                        "reason": (
+                            "missing_rfc_or_idcif"
+                        ),
+                        "quoted_message_id": (
+                            quoted_message_id
+                        ),
+                        "text": text,
+                        "rfc": provider_rfc,
+                        "idcif": provider_idcif,
+                    },
                     flush=True,
                 )
-
+            
                 return {
                     "ok": True,
                     "ignored": (
-                        "verifiable_provider_"
-                        "missing_quote"
+                        "verifiable_invalid_"
+                        "provider_response"
                     ),
                 }
-
-            verifiable_key = (
-                request_key_from_provider_message(
-                    quoted_message_id
+            
+            
+            verifiable_key = ""
+            pending = {}
+            matched_without_quote = False
+            matched_by = ""
+            
+            
+            # Método principal: mensaje citado.
+            if quoted_message_id:
+                verifiable_key = (
+                    request_key_from_provider_message(
+                        quoted_message_id
+                    )
                 )
-            )
+            
+                if verifiable_key:
+                    pending = load_pending(
+                        verifiable_key
+                    )
+            
+            
+            # Respaldo: el proveedor no citó el mensaje.
+            if not verifiable_key:
+                fallback_match = (
+                    find_pending_request_by_provider_rfc(
+                        provider_rfc
+                    )
+                )
+            
+                if fallback_match.get("ok"):
+                    verifiable_key = (
+                        fallback_match.get(
+                            "request_key"
+                        )
+                        or ""
+                    ).strip()
+            
+                    pending = (
+                        fallback_match.get("pending")
+                        or {}
+                    )
+            
+                    matched_without_quote = True
+            
+                    matched_by = (
+                        fallback_match.get(
+                            "matched_by"
+                        )
+                        or ""
+                    )
+            
+                    print(
+                        "RFC_VERIFIABLE_PROVIDER_"
+                        "MATCHED_WITHOUT_QUOTE =",
+                        {
+                            "request_key": (
+                                verifiable_key
+                            ),
+                            "provider_rfc": (
+                                provider_rfc
+                            ),
+                            "matched_by": matched_by,
+                            "original_type": (
+                                fallback_match.get(
+                                    "original_type"
+                                )
+                            ),
+                            "original_identifier": (
+                                fallback_match.get(
+                                    "original_identifier"
+                                )
+                            ),
+                        },
+                        flush=True,
+                    )
+            
+                else:
+                    reason = (
+                        fallback_match.get("reason")
+                        or "unknown"
+                    )
+            
+                    matches = (
+                        fallback_match.get("matches")
+                        or []
+                    )
+            
+                    print(
+                        "RFC_VERIFIABLE_PROVIDER_"
+                        "UNMATCHED_WITHOUT_QUOTE =",
+                        {
+                            "reason": reason,
+                            "provider_rfc": (
+                                provider_rfc
+                            ),
+                            "quoted_message_id": (
+                                quoted_message_id
+                            ),
+                            "matches_count": len(
+                                matches
+                            ),
+                            "candidate_request_keys": [
+                                item.get("request_key")
+                                for item in matches
+                                if isinstance(item, dict)
+                            ],
+                        },
+                        flush=True,
+                    )
+            
+                    return {
+                        "ok": True,
+                        "ignored": (
+                            "verifiable_provider_"
+                            + reason
+                        ),
+                    }
 
             if not verifiable_key:
                 print(
@@ -470,10 +600,11 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                 }
 
-            pending = load_pending(
-                verifiable_key
-            )
-
+            if not pending:
+                pending = load_pending(
+                    verifiable_key
+                )
+            
             if not pending:
                 print(
                     "RFC_VERIFIABLE_PROVIDER_IGNORED =",
@@ -492,35 +623,6 @@ async def evolution_rfc_webhook(request: Request):
                     "ok": True,
                     "ignored": (
                         "verifiable_pending_missing"
-                    ),
-                }
-
-            provider_rfc, provider_idcif = (
-                extract_rfc_idcif(text)
-            )
-
-            if (
-                not provider_rfc
-                or not provider_idcif
-            ):
-                print(
-                    "RFC_VERIFIABLE_PROVIDER_INVALID =",
-                    {
-                        "request_key": (
-                            verifiable_key
-                        ),
-                        "text": text,
-                        "rfc": provider_rfc,
-                        "idcif": provider_idcif,
-                    },
-                    flush=True,
-                )
-
-                return {
-                    "ok": True,
-                    "ignored": (
-                        "verifiable_invalid_"
-                        "provider_response"
                     ),
                 }
 
@@ -699,6 +801,18 @@ async def evolution_rfc_webhook(request: Request):
                 "provider_quoted_msg_id": (
                     quoted_message_id
                 ),
+                "provider_matched_without_quote": (
+                    matched_without_quote
+                ),
+                
+                "provider_match_method": (
+                    matched_by
+                    or (
+                        "quoted_message"
+                        if quoted_message_id
+                        else ""
+                    )
+                ),
             }
 
             final_rq_job_id = (
@@ -741,7 +855,7 @@ async def evolution_rfc_webhook(request: Request):
             finish_pending(
                 verifiable_key,
                 provider_message_id=(
-                    quoted_message_id
+                    stored_provider_message_id
                 ),
             )
 
@@ -1199,11 +1313,28 @@ async def evolution_rfc_webhook(request: Request):
                     provider_message_id,
                 )
 
+                pending_payload[
+                    "provider_message_id"
+                ] = provider_message_id
+                
+                save_pending(
+                    command_key,
+                    pending_payload,
+                )
+
             except Exception as provider_exc:
                 redis_conn.delete(
                     inflight_key
                 )
 
+                stored_provider_message_id = (
+                    pending.get(
+                        "provider_message_id"
+                    )
+                    or quoted_message_id
+                    or ""
+                ).strip()
+                
                 finish_pending(
                     command_key
                 )
