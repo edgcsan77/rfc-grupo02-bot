@@ -2316,13 +2316,20 @@ def botpanel_audit_all_groups(
         if gid not in by_group:
             by_group[gid] = {
                 "group_jid": gid,
-                "group_name": _group_name_cached(gid, group_cache),
+                "group_name": _group_name_cached(
+                    gid,
+                    group_cache,
+                ),
                 "total": 0,
                 "done": 0,
+        
                 "clon": 0,
                 "idcif": 0,
+                "verificable": 0,
+        
                 "done_clon": 0,
                 "done_idcif": 0,
+                "done_verificable": 0,
             }
 
         item = by_group[gid]
@@ -2332,10 +2339,12 @@ def botpanel_audit_all_groups(
         
         if family == "CLON":
             item["clon"] += 1
+        
         elif family == "IDCIF":
             item["idcif"] += 1
+        
         elif family == "VERIFICABLE":
-            item["done_verificable"] += 1
+            item["verificable"] += 1
         
         if r.status == "DONE":
             item["done"] += 1
@@ -19970,7 +19979,7 @@ def panel_rfc_bot_control_update(request: Request):
         if not instance:
             return HTMLResponse("Falta instance", status_code=400)
 
-        if family not in ("clon", "idcif", "verificable", "all"):
+        if family not in ("clon", "idcif", "verifiable", "all"):
             return HTMLResponse("family inválida", status_code=400)
 
         if action not in (
