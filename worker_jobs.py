@@ -138,12 +138,6 @@ def panel_record_success(group_jid: str, group_name: str, kind: str, count: int 
         pipe.hincrby(key, "ok_rfc_idcif_qr", count)
     elif family == "RFC_CLON":
         pipe.hincrby(key, "ok_rfc_clon", count)
-    elif family == "RFC_VERIFICABLE":
-        pipe.hincrby(
-            key,
-            "ok_rfc_verificable",
-            count,
-        )
 
     # historial permanente para panel mensual / auditorías
     pipe.persist(key)
@@ -171,11 +165,17 @@ def cut_record_success(group_jid: str, group_name: str, kind: str, count: int = 
     kind = (kind or "").strip().upper()
     add_clon = 0
     add_idcif = 0
-
+    add_verificable = 0
+    
     if kind in ("CURP", "RFC_ONLY"):
         add_clon = count
+    
     elif kind in ("RFC_IDCIF", "QR"):
         add_idcif = count
+    
+    elif kind == "RFC_VERIFICABLE":
+        add_verificable = count
+    
     else:
         return
 
@@ -196,6 +196,13 @@ def cut_record_success(group_jid: str, group_name: str, kind: str, count: int = 
 
     if add_idcif:
         pipe.hincrby(key, "count_idcif", add_idcif)
+
+    if add_verificable:
+        pipe.hincrby(
+            key,
+            "count_verificable",
+            add_verificable,
+        )
 
     # historial permanente para cortes / cobros / auditorías
     pipe.persist(key)
@@ -3098,14 +3105,34 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                     instance_name,
                     is_blocked,
                     is_active,
-                    clon_limit,
-                    clon_used,
-                    idcif_limit,
-                    idcif_used
+            
+                    COALESCE(clon_limit, 0)
+                        AS clon_limit,
+            
+                    COALESCE(clon_used, 0)
+                        AS clon_used,
+            
+                    COALESCE(idcif_limit, 0)
+                        AS idcif_limit,
+            
+                    COALESCE(idcif_used, 0)
+                        AS idcif_used,
+            
+                    COALESCE(verifiable_enabled, FALSE)
+                        AS verifiable_enabled,
+            
+                    COALESCE(verifiable_used, 0)
+                        AS verifiable_used,
+            
+                    COALESCE(sale_price_verifiable, 0)
+                        AS sale_price_verifiable
+            
                 FROM bot_control
                 WHERE instance_name = :instance_name
                 LIMIT 1
-            """), {"instance_name": instance_name}).mappings().first()
+            """), {
+                "instance_name": instance_name,
+            }).mappings().first()
 
             if not wallet or not bot:
                 evolution_send_text_to_group(
@@ -3293,7 +3320,7 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                         instance_name=instance_name,
                     )
                     return False
-            
+
                 print(
                     "[RFC_VERIFICABLE_BOT_CHECK_OK]",
                     {
@@ -3314,7 +3341,7 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                     flush=True,
                 )
 
-    return True
+                return True
 
         return True
 
