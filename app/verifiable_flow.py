@@ -26,6 +26,198 @@ VERIFIABLE_TIMEOUT_SEC = int(
 )
 
 
+def _env_bool(
+    value: str | None,
+    default: bool = False,
+) -> bool:
+    raw = (
+        str(value).strip().lower()
+        if value is not None
+        else ""
+    )
+
+    if not raw:
+        return default
+
+    return raw in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "si",
+        "sí",
+    }
+
+
+def load_verifiable_providers() -> list[dict]:
+    """
+    Metadatos de proveedores desde .env.
+
+    Activo/inactivo y prioridad definitiva se guardan
+    posteriormente en provider_settings.
+    """
+
+    raw_codes = (
+        os.getenv(
+            "RFC_VERIFIABLE_PROVIDERS",
+            "",
+        )
+        or ""
+    ).strip()
+
+    codes = [
+        code.strip().upper()
+        for code in raw_codes.split(",")
+        if code.strip()
+    ]
+
+    providers: list[dict] = []
+
+    for code in codes:
+        name = (
+            os.getenv(
+                f"RFC_{code}_NAME",
+                code,
+            )
+            or code
+        ).strip()
+
+        group_jid = (
+            os.getenv(
+                f"RFC_{code}_GROUP",
+                "",
+            )
+            or ""
+        ).strip()
+
+        instance_name = (
+            os.getenv(
+                f"RFC_{code}_INSTANCE",
+                VERIFIABLE_PROVIDER_INSTANCE,
+            )
+            or VERIFIABLE_PROVIDER_INSTANCE
+        ).strip()
+
+        try:
+            default_weight = float(
+                os.getenv(
+                    f"RFC_{code}_DEFAULT_WEIGHT",
+                    "1",
+                )
+                or "1"
+            )
+        except Exception:
+            default_weight = 1.0
+
+        default_enabled = _env_bool(
+            os.getenv(
+                f"RFC_{code}_DEFAULT_ENABLED",
+                "1",
+            ),
+            default=True,
+        )
+
+        if not group_jid:
+            print(
+                "RFC_VERIFIABLE_PROVIDER_SKIPPED =",
+                {
+                    "code": code,
+                    "reason": "empty_group_jid",
+                },
+                flush=True,
+            )
+            continue
+
+        providers.append(
+            {
+                "code": code,
+                "db_name": (
+                    f"RFC_VERIFIABLE_{code}"
+                ),
+                "name": name,
+                "group_jid": group_jid,
+                "instance_name": instance_name,
+                "default_weight": max(
+                    default_weight,
+                    0.0,
+                ),
+                "default_enabled": (
+                    default_enabled
+                ),
+            }
+        )
+
+    # Compatibilidad temporal con el proveedor anterior.
+    if (
+        not providers
+        and VERIFIABLE_PROVIDER_GROUP
+    ):
+        providers.append(
+            {
+                "code": "LEGACY",
+                "db_name": (
+                    "RFC_VERIFIABLE_LEGACY"
+                ),
+                "name": "RFC VERIFICABLE",
+                "group_jid": (
+                    VERIFIABLE_PROVIDER_GROUP
+                ),
+                "instance_name": (
+                    VERIFIABLE_PROVIDER_INSTANCE
+                ),
+                "default_weight": 1.0,
+                "default_enabled": True,
+            }
+        )
+
+    return providers
+
+
+def verifiable_provider_by_group(
+    group_jid: str,
+    instance_name: str,
+) -> dict:
+    group_jid = (
+        group_jid or ""
+    ).strip()
+
+    instance_name = (
+        instance_name or ""
+    ).strip()
+
+    for provider in (
+        load_verifiable_providers()
+    ):
+        if (
+            provider["group_jid"]
+            == group_jid
+            and provider["instance_name"]
+            == instance_name
+        ):
+            return provider
+
+    return {}
+
+
+def verifiable_provider_by_db_name(
+    db_name: str,
+) -> dict:
+    db_name = (
+        db_name or ""
+    ).strip().upper()
+
+    for provider in (
+        load_verifiable_providers()
+    ):
+        if (
+            provider["db_name"].upper()
+            == db_name
+        ):
+            return provider
+
+    return {}
+
+
 CURP_FULL_RE = re.compile(
     r"^[A-Z][AEIOUX][A-Z]{2}"
     r"\d{6}[HM][A-Z]{5}[A-Z0-9]\d$",
