@@ -730,7 +730,7 @@ def process_verifiable_timeout_job(
     request_key: str,
 ):
     """
-    Se ejecuta 15 minutos después de enviar una
+    Se ejecuta 1 hora después de enviar una
     solicitud RFC verificable al proveedor.
 
     Si la solicitud todavía está pendiente:
@@ -859,7 +859,7 @@ def process_verifiable_timeout_job(
                 (
                     f"⚠️ {requester_label}, "
                     "solicitud sin éxito después "
-                    "de 15 minutos para "
+                    "de 15min-1h para "
                     f"{identifier_text}."
                 ),
                 instance_name=client_instance,
