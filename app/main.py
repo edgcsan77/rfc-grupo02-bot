@@ -15496,49 +15496,144 @@ def _pick_matching_processing_req_for_pdf(
     return None
 
 
-def _extract_quoted_message_id(message: dict, data: dict | None = None) -> str:
-    try:
-        if data:
-            top_ctx = (data.get("contextInfo", {}) or {})
-            top_id = top_ctx.get("stanzaId", "") or top_ctx.get("quotedStanzaID", "") or ""
-            if top_id:
-                return top_id
+def _extract_quoted_message_id(
+    message: dict,
+    data: dict | None = None,
+) -> str:
+    """
+    Extrae el ID del mensaje citado desde las variantes
+    habituales de Evolution/Baileys.
+    """
 
-        msg_unwrapped = _unwrap_message(message) or message
+    def _id_from_context(
+        context: dict | None,
+    ) -> str:
+        if not isinstance(context, dict):
+            return ""
 
-        if "extendedTextMessage" in msg_unwrapped:
-            ctx = msg_unwrapped.get("extendedTextMessage", {}).get("contextInfo", {}) or {}
-            qid = ctx.get("stanzaId", "") or ctx.get("quotedStanzaID", "") or ""
+        return str(
+            context.get("stanzaId")
+            or context.get("quotedStanzaId")
+            or context.get("quotedStanzaID")
+            or context.get("quotedMessageId")
+            or ""
+        ).strip()
+
+    def _search_node(
+        node,
+        depth: int = 0,
+    ) -> str:
+        if depth > 10:
+            return ""
+
+        if not isinstance(node, dict):
+            return ""
+
+        # Contexto directamente en este nodo.
+        qid = _id_from_context(
+            node.get("contextInfo")
+        )
+
+        if qid:
+            return qid
+
+        # Tipos de mensajes que suelen contener contextInfo.
+        message_types = (
+            "extendedTextMessage",
+            "imageMessage",
+            "documentMessage",
+            "videoMessage",
+            "audioMessage",
+            "stickerMessage",
+            "buttonsResponseMessage",
+            "listResponseMessage",
+            "templateButtonReplyMessage",
+            "interactiveResponseMessage",
+        )
+
+        for message_type in message_types:
+            child = node.get(message_type)
+
+            if not isinstance(child, dict):
+                continue
+
+            qid = _id_from_context(
+                child.get("contextInfo")
+            )
+
             if qid:
                 return qid
 
-        ctx2 = msg_unwrapped.get("contextInfo", {}) or {}
-        qid2 = ctx2.get("stanzaId", "") or ctx2.get("quotedStanzaID", "") or ""
-        if qid2:
-            return qid2
+            qid = _search_node(
+                child,
+                depth + 1,
+            )
 
-        if "documentWithCaptionMessage" in msg_unwrapped:
-            inner = msg_unwrapped.get("documentWithCaptionMessage", {}).get("message", {}) or {}
-            return _extract_quoted_message_id(inner)
+            if qid:
+                return qid
 
-        if "ephemeralMessage" in msg_unwrapped:
-            inner = msg_unwrapped.get("ephemeralMessage", {}).get("message", {}) or {}
-            return _extract_quoted_message_id(inner)
+        # Envolturas comunes.
+        wrappers = (
+            "message",
+            "ephemeralMessage",
+            "viewOnceMessage",
+            "viewOnceMessageV2",
+            "viewOnceMessageV2Extension",
+            "documentWithCaptionMessage",
+            "editedMessage",
+            "protocolMessage",
+        )
 
-        if "viewOnceMessage" in msg_unwrapped:
-            inner = msg_unwrapped.get("viewOnceMessage", {}).get("message", {}) or {}
-            return _extract_quoted_message_id(inner)
+        for wrapper_name in wrappers:
+            child = node.get(wrapper_name)
 
-        if "viewOnceMessageV2" in msg_unwrapped:
-            inner = msg_unwrapped.get("viewOnceMessageV2", {}).get("message", {}) or {}
-            return _extract_quoted_message_id(inner)
+            if not isinstance(child, dict):
+                continue
 
-        if "viewOnceMessageV2Extension" in msg_unwrapped:
-            inner = msg_unwrapped.get("viewOnceMessageV2Extension", {}).get("message", {}) or {}
-            return _extract_quoted_message_id(inner)
+            qid = _search_node(
+                child,
+                depth + 1,
+            )
+
+            if qid:
+                return qid
+
+        return ""
+
+    try:
+        # Primero buscar en data completo.
+        if isinstance(data, dict):
+            qid = _search_node(data)
+
+            if qid:
+                return qid
+
+        # Después buscar en el mensaje original.
+        qid = _search_node(message)
+
+        if qid:
+            return qid
+
+        # Último intento con el mensaje desenvuelto.
+        msg_unwrapped = (
+            _unwrap_message(message)
+            or message
+        )
+
+        if msg_unwrapped is not message:
+            qid = _search_node(
+                msg_unwrapped
+            )
+
+            if qid:
+                return qid
 
     except Exception as e:
-        print("EXTRACT_QUOTED_MESSAGE_ID_ERROR =", str(e), flush=True)
+        print(
+            "EXTRACT_QUOTED_MESSAGE_ID_ERROR =",
+            repr(e),
+            flush=True,
+        )
 
     return ""
 
@@ -16953,6 +17048,19 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
             print("PROVIDER_GROUP =", source_chat_id, flush=True)
             print("PROVIDER_TEXT =", text_body, flush=True)
             print("PROVIDER_IDENTIFIER_DETECTED =", provider_id, flush=True)
+
+            print(
+                "RFC_VERIFIABLE_QUOTE_DEBUG =",
+                {
+                    "data_keys": (
+                        list(data.keys())
+                        if isinstance(data, dict)
+                        else []
+                    ),
+                    "message": message,
+                },
+                flush=True,
+            )
 
             quoted_msg_id = _extract_quoted_message_id(message, data)
             text_norm = (text_body or "").strip().upper()
