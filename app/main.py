@@ -10653,13 +10653,21 @@ def panel_RFC(
             
               .broadcast-buttons-grid {{
                 display: grid;
-                grid-template-columns: minmax(300px, 0.9fr) minmax(380px, 1.1fr);
-                gap: 16px;
-                align-items: start;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 12px;
               }}
-
+            
               .broadcast-buttons-grid > * {{
                 min-width: 0;
+              }}
+            
+              .broadcast-buttons-grid .btn {{
+                width: 100%;
+                min-width: 0;
+                min-height: 52px;
+                white-space: normal;
+                line-height: 1.2;
+                text-align: center;
               }}
             
               .broadcast-buttons-grid .btn {{
@@ -10720,9 +10728,9 @@ def panel_RFC(
                 background: transparent;
                 border: none;
               }}
-            
+
               @media (max-width: 1350px) {{
-                .broadcast-buttons-grid {{
+                .broadcast-communication-grid {{
                   grid-template-columns: 1fr;
                 }}
               }}
