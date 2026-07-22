@@ -8631,17 +8631,6 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             <div class="label">IDCIF disponibles</div>
             <div class="value">{idcif_available_txt}</div>
           </div>
-
-          <div class="card">
-            <div class="label">RFC verificable</div>
-            <div class="value">
-              {
-                "ACTIVO"
-                if credits["verifiable_enabled"]
-                else "DESACTIVADO"
-              }
-            </div>
-          </div>
          
           <div class="card">
             <div class="label">
