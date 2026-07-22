@@ -1095,18 +1095,22 @@ def process_group_request_job(job_data: dict):
             )
             return
 
-        elapsed_seconds = max(
-            0.0,
-            time.time()
-            - request_started_at_epoch,
-        )
-        
-        time_caption = (
-            "⏱️ Tiempo total: "
-            + _format_total_time(
-                elapsed_seconds
+        time_caption = ""
+
+        if is_verifiable:
+            elapsed_seconds = max(
+                0.0,
+                time.time()
+                - request_started_at_epoch,
             )
-        )
+            
+            time_caption = (
+                "⏱️ Tiempo total: "
+                + _format_total_time(
+                    elapsed_seconds
+                )
+                + "\nRFC verificable entregado"
+            )
         
         try:
             evolution_send_media_to_group(
