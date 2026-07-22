@@ -7682,24 +7682,51 @@ def _bot_credit_stats(db: Session, instance_name: str):
 
         row = db.execute(text("""
             SELECT
-                COALESCE(clon_limit, 0) AS clon_limit,
-                COALESCE(clon_used, 0) AS clon_used,
-                COALESCE(idcif_limit, 0) AS idcif_limit,
-                COALESCE(idcif_used, 0) AS idcif_used,
-                COALESCE(recharges, 0) AS recharges
+                COALESCE(clon_limit, 0)
+                    AS clon_limit,
+        
+                COALESCE(clon_used, 0)
+                    AS clon_used,
+        
+                COALESCE(idcif_limit, 0)
+                    AS idcif_limit,
+        
+                COALESCE(idcif_used, 0)
+                    AS idcif_used,
+        
+                COALESCE(verifiable_enabled, FALSE)
+                    AS verifiable_enabled,
+        
+                COALESCE(verifiable_used, 0)
+                    AS verifiable_used,
+        
+                COALESCE(sale_price_verifiable, 0)
+                    AS sale_price_verifiable,
+        
+                COALESCE(recharges, 0)
+                    AS recharges
+        
             FROM bot_control
             WHERE instance_name = :instance_name
             LIMIT 1
-        """), {"instance_name": instance_name}).mappings().first()
+        """), {
+            "instance_name": instance_name,
+        }).mappings().first()
 
         if not row:
             return {
                 "clon_limit": 0,
                 "clon_used": 0,
                 "clon_available": 0,
+
                 "idcif_limit": 0,
                 "idcif_used": 0,
                 "idcif_available": 0,
+                
+                "verifiable_enabled": False,
+                "verifiable_used": 0,
+                "sale_price_verifiable": 0.0,
+
                 "recharges": 0,
 
                 # compatibilidad con tarjetas viejas
@@ -7713,6 +7740,20 @@ def _bot_credit_stats(db: Session, instance_name: str):
         idcif_limit = int(row["idcif_limit"] or 0)
         idcif_used = int(row["idcif_used"] or 0)
 
+        verifiable_enabled = bool(
+            row["verifiable_enabled"]
+        )
+        
+        verifiable_used = int(
+            row["verifiable_used"]
+            or 0
+        )
+        
+        sale_price_verifiable = float(
+            row["sale_price_verifiable"]
+            or 0
+        )
+
         clon_available = 0 if clon_limit == 0 else max(clon_limit - clon_used, 0)
         idcif_available = 0 if idcif_limit == 0 else max(idcif_limit - idcif_used, 0)
 
@@ -7720,9 +7761,23 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "clon_limit": clon_limit,
             "clon_used": clon_used,
             "clon_available": clon_available,
+            
             "idcif_limit": idcif_limit,
             "idcif_used": idcif_used,
             "idcif_available": idcif_available,
+
+            "verifiable_enabled": (
+                verifiable_enabled
+            ),
+            
+            "verifiable_used": (
+                verifiable_used
+            ),
+            
+            "sale_price_verifiable": (
+                sale_price_verifiable
+            ),
+
             "recharges": int(row["recharges"] or 0),
 
             # compatibilidad
@@ -7737,10 +7792,17 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "clon_limit": 0,
             "clon_used": 0,
             "clon_available": 0,
+            
             "idcif_limit": 0,
             "idcif_used": 0,
             "idcif_available": 0,
+
+            "verifiable_enabled": False,
+            "verifiable_used": 0,
+            "sale_price_verifiable": 0.0,
+
             "recharges": 0,
+            
             "limit": 0,
             "used": 0,
             "available": 0,
@@ -8568,6 +8630,26 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
           <div class="card">
             <div class="label">IDCIF disponibles</div>
             <div class="value">{idcif_available_txt}</div>
+          </div>
+
+          <div class="card">
+            <div class="label">RFC verificable</div>
+            <div class="value">
+              {
+                "ACTIVO"
+                if credits["verifiable_enabled"]
+                else "DESACTIVADO"
+              }
+            </div>
+          </div>
+         
+          <div class="card">
+            <div class="label">
+              Verificables usados
+            </div>
+            <div class="value">
+              {credits["verifiable_used"]}
+            </div>
           </div>
         </div>
 
