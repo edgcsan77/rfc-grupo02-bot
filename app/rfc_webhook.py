@@ -1132,12 +1132,7 @@ async def evolution_rfc_webhook(request: Request):
                 }
 
             provider_text = (
-                "RFC VERIFICABLE\n"
-                f"TIPO: {original_query_type}\n"
-                f"DATO: {original_identifier}\n\n"
-                "Responder citando este mensaje con:\n"
-                "RFC: XXXXXXXXXXXXX\n"
-                "IDCIF: 00000000000"
+                f"{original_identifier}"
             )
 
             pending_payload = {
