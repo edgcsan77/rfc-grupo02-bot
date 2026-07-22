@@ -330,25 +330,101 @@ def parse_verifiable_request(text: str) -> dict[str, Any]:
     }
 
 
-def extract_rfc_idcif(text: str) -> tuple[str, str]:
-    upper = (text or "").strip().upper()
+def extract_rfc_idcif_pairs(
+    text: str,
+) -> list[tuple[str, str]]:
+    """
+    Extrae todos los pares RFC + IDCIF respetando
+    el orden en que aparecen en el mensaje.
 
-    rfc_match = RFC_SEARCH_RE.search(upper)
-    idcif_match = IDCIF_SEARCH_RE.search(upper)
+    Acepta, por ejemplo:
 
-    rfc = (
-        rfc_match.group(0).upper()
-        if rfc_match
-        else ""
+        HEBG941101NX9
+        15030659247
+        MOCA761102SU1
+        16020381080
+
+    También acepta:
+
+        HEBG941101NX9 15030659247
+        MOCA761102SU1 16020381080
+    """
+
+    upper = (
+        text or ""
+    ).strip().upper()
+
+    if not upper:
+        return []
+
+    combined_re = re.compile(
+        r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b"
+        r"|"
+        r"\b\d{11}\b",
+        re.I,
     )
 
-    idcif = (
-        idcif_match.group(0)
-        if idcif_match
-        else ""
+    tokens = [
+        match.group(0).upper()
+        for match in combined_re.finditer(
+            upper
+        )
+    ]
+
+    pairs: list[tuple[str, str]] = []
+    pending_rfc = ""
+
+    for token in tokens:
+        if RFC_FULL_RE.fullmatch(token):
+            # Guardamos el RFC más reciente que todavía
+            # no tenga IDCIF asociado.
+            pending_rfc = token
+            continue
+
+        if (
+            IDCIF_SEARCH_RE.fullmatch(token)
+            and pending_rfc
+        ):
+            pairs.append(
+                (
+                    pending_rfc,
+                    token,
+                )
+            )
+
+            pending_rfc = ""
+
+    # Evitar procesar dos veces la misma pareja
+    # si viene duplicada dentro del mensaje.
+    unique_pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for pair in pairs:
+        if pair in seen:
+            continue
+
+        seen.add(pair)
+        unique_pairs.append(pair)
+
+    return unique_pairs
+
+
+def extract_rfc_idcif(
+    text: str,
+) -> tuple[str, str]:
+    """
+    Compatibilidad con código anterior:
+    devuelve únicamente la primera pareja.
+    """
+
+    pairs = extract_rfc_idcif_pairs(
+        text
     )
 
-    return rfc, idcif
+    if not pairs:
+        return "", ""
+
+    return pairs[0]
 
 
 def extract_quoted_message_id(
