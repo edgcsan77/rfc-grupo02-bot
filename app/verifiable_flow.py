@@ -20,9 +20,9 @@ VERIFIABLE_PROVIDER_INSTANCE = (
 VERIFIABLE_TIMEOUT_SEC = int(
     os.getenv(
         "RFC_VERIFIABLE_TIMEOUT_SEC",
-        "3600",
+        "7200",
     )
-    or "3600"
+    or "7200"
 )
 
 
