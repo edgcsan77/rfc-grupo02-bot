@@ -797,6 +797,13 @@ async def evolution_rfc_webhook(request: Request):
                     or verifiable_key
                 ),
 
+                "request_started_at_epoch": float(
+                    pending.get(
+                        "request_started_at_epoch"
+                    )
+                    or time.time()
+                ),
+
                 # Trazabilidad.
                 "is_verifiable": True,
                 "verifiable_price": float(
@@ -1297,6 +1304,9 @@ async def evolution_rfc_webhook(request: Request):
                     requester_label
                 ),
                 "client_msg_id": msg_id,
+                "request_started_at_epoch": (
+                    time.time()
+                ),
                 "original_text": text,
                 "original_query_type": (
                     original_query_type
@@ -1549,6 +1559,7 @@ async def evolution_rfc_webhook(request: Request):
             "msg_id": msg_id,
             "mime_type": mime_type,
             "evolution_instance": instance_name,
+            "request_started_at_epoch": time.time(),
             "request_key": command_key,
             "inflight_key": inflight_key,
             "execution_key": (
