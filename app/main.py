@@ -9959,6 +9959,33 @@ def panel_RFC(
             )
         )
 
+        loca_pos = verifiable_provider_cards.find(
+            "ID LOCA-EXPRES"
+        )
+        
+        loca_block = (
+            verifiable_provider_cards[
+                loca_pos:loca_pos + 5000
+            ]
+            if loca_pos >= 0
+            else ""
+        )
+        
+        loca_match = re.search(
+            r'verifiable-provider-count-value'
+            r'[^>]*>\s*(\d+)',
+            loca_block,
+            flags=re.I,
+        )
+        
+        print(
+            "VERIFIABLE_CARDS_HTML_COUNT =",
+            loca_match.group(1)
+            if loca_match
+            else "NO_ENCONTRADO",
+            flush=True,
+        )
+
         metrics_html = ""
         if delivery_metrics:
             metrics_html = f"""
@@ -13467,6 +13494,33 @@ def panel_RFC(
     </html>
     """
         try:
+            final_loca_pos = html.find(
+                "ID LOCA-EXPRES"
+            )
+            
+            final_loca_block = (
+                html[
+                    final_loca_pos:final_loca_pos + 5000
+                ]
+                if final_loca_pos >= 0
+                else ""
+            )
+            
+            final_loca_match = re.search(
+                r'verifiable-provider-count-value'
+                r'[^>]*>\s*(\d+)',
+                final_loca_block,
+                flags=re.I,
+            )
+            
+            print(
+                "VERIFIABLE_FINAL_HTML_COUNT =",
+                final_loca_match.group(1)
+                if final_loca_match
+                else "NO_ENCONTRADO",
+                flush=True,
+            )
+            
             redis_conn.setex(cache_key, PANEL_HTML_TTL, html)
         except Exception:
             pass
