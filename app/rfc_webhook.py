@@ -370,6 +370,28 @@ async def evolution_rfc_webhook(request: Request):
             is_verifiable_provider_group
             and not from_me
         ):
+            print(
+                "RFC_VERIFIABLE_QUOTE_PAYLOAD =",
+                json.dumps(
+                    {
+                        "data_keys": (
+                            list(data.keys())
+                            if isinstance(data, dict)
+                            else []
+                        ),
+                        "message": message,
+                        "context_info": (
+                            data.get("contextInfo")
+                            if isinstance(data, dict)
+                            else None
+                        ),
+                    },
+                    ensure_ascii=False,
+                    default=str,
+                ),
+                flush=True,
+            )
+            
             quoted_message_id = (
                 extract_quoted_message_id(
                     message,
