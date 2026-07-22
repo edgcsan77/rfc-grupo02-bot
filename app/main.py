@@ -9941,6 +9941,16 @@ def panel_RFC(
         
         provider_states = _esc(_providers_status_text(db)).replace("\n", "<br>")
 
+        print(
+            "VERIFICABLE_ROUTE_COUNT_MAP =",
+            _verifiable_provider_count_map(
+                db,
+                time_min,
+                time_max,
+            ),
+            flush=True,
+        )
+
         verifiable_provider_cards = (
             _verifiable_provider_cards_html(
                 db,
