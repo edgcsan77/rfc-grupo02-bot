@@ -10112,9 +10112,14 @@ def panel_RFC(
             
               .grid-hero {{
                 display: grid;
-                grid-template-columns: 1.2fr 1fr;
+                grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
                 gap: 16px;
                 margin-top: 18px;
+                align-items: stretch;
+              }}
+
+              .grid-hero > .glass {{
+                min-width: 0;
               }}
             
               .glass {{
@@ -10648,8 +10653,13 @@ def panel_RFC(
             
               .broadcast-buttons-grid {{
                 display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 12px;
+                grid-template-columns: minmax(300px, 0.9fr) minmax(380px, 1.1fr);
+                gap: 16px;
+                align-items: start;
+              }}
+
+              .broadcast-buttons-grid > * {{
+                min-width: 0;
               }}
             
               .broadcast-buttons-grid .btn {{
@@ -10711,12 +10721,8 @@ def panel_RFC(
                 border: none;
               }}
             
-              @media (max-width: 1200px) {{
+              @media (max-width: 1050px) {{
                 .grid-hero {{
-                  grid-template-columns: 1fr;
-                }}
-            
-                .provider-grid {{
                   grid-template-columns: 1fr;
                 }}
             
@@ -10729,7 +10735,7 @@ def panel_RFC(
                 }}
               }}
             
-              @media (max-width: 900px) {{
+              @media (max-width: 1350px) {{
                 .wrap {{
                   padding: 12px;
                 }}
