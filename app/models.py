@@ -181,12 +181,24 @@ class BotControl(Base):
         default=False,
     )
     
+    verifiable_limit = Column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
     verifiable_used = Column(
         Integer,
         nullable=False,
         default=0,
     )
-    
+
+    verifiable_recharges = Column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
     sale_price_verifiable = Column(
         Numeric(10, 2),
         nullable=False,
