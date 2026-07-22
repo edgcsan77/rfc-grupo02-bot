@@ -166,12 +166,7 @@ def _parse_rfc_query(text: str, msg_type: str = "") -> dict:
         "ok": False,
         "type": "INVALID_INPUT",
         "error": (
-            "⚠️ No detecté una solicitud válida.\n\n"
-            "Puedes enviar:\n"
-            "• CURP\n"
-            "• RFC\n"
-            "• RFC + IDCIF\n"
-            "• QR del SAT en imagen"
+            ""
         ),
     }
 
