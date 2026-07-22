@@ -481,8 +481,9 @@ async def evolution_rfc_webhook(request: Request):
                     )
             
             
-            # Respaldo: el proveedor no citó el mensaje.
-            if not verifiable_key:
+            # Respaldo únicamente cuando el proveedor
+            # realmente no citó ningún mensaje.
+            if not quoted_message_id:
                 fallback_match = (
                     find_pending_request_by_provider_rfc(
                         provider_rfc
@@ -577,6 +578,29 @@ async def evolution_rfc_webhook(request: Request):
                             + reason
                         ),
                     }
+
+            if quoted_message_id and not verifiable_key:
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_IGNORED =",
+                    {
+                        "reason": (
+                            "quoted_message_not_found"
+                        ),
+                        "quoted_message_id": (
+                            quoted_message_id
+                        ),
+                        "provider_rfc": provider_rfc,
+                    },
+                    flush=True,
+                )
+            
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_quoted_"
+                        "message_not_found"
+                    ),
+                }
 
             if not verifiable_key:
                 print(
@@ -851,6 +875,14 @@ async def evolution_rfc_webhook(request: Request):
                 )
 
                 raise
+
+            stored_provider_message_id = (
+                pending.get(
+                    "provider_message_id"
+                )
+                or quoted_message_id
+                or ""
+            ).strip()
 
             finish_pending(
                 verifiable_key,
@@ -1326,14 +1358,6 @@ async def evolution_rfc_webhook(request: Request):
                 redis_conn.delete(
                     inflight_key
                 )
-
-                stored_provider_message_id = (
-                    pending.get(
-                        "provider_message_id"
-                    )
-                    or quoted_message_id
-                    or ""
-                ).strip()
                 
                 finish_pending(
                     command_key
