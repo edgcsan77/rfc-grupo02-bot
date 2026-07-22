@@ -23,6 +23,7 @@ from app.verifiable_flow import (
     VERIFIABLE_TIMEOUT_SEC,
     parse_verifiable_request,
     extract_rfc_idcif,
+    extract_rfc_idcif_pairs,
     extract_quoted_message_id,
     verifiable_request_key,
     save_pending,
@@ -485,6 +486,464 @@ def _choose_verifiable_provider(
     )[0]
 
 
+def _queue_one_verifiable_provider_pair(
+    *,
+    provider_rfc: str,
+    provider_idcif: str,
+    remote_jid: str,
+    instance_name: str,
+    provider_response_msg_id: str,
+    quoted_message_id: str = "",
+) -> dict:
+    """
+    Relaciona una pareja RFC/IDCIF con su pendiente
+    y crea exactamente un job RFC verificable.
+
+    Para mensajes con varias parejas no se utiliza
+    la cita, porque una sola cita no puede representar
+    todas las solicitudes incluidas en la lista.
+    """
+
+    provider_rfc = (
+        provider_rfc or ""
+    ).strip().upper()
+
+    provider_idcif = (
+        provider_idcif or ""
+    ).strip()
+
+    quoted_message_id = (
+        quoted_message_id or ""
+    ).strip()
+
+    verifiable_key = ""
+    pending = {}
+    matched_without_quote = False
+    matched_by = ""
+
+    # Para una respuesta individual sí podemos utilizar
+    # la relación directa con el mensaje citado.
+    if quoted_message_id:
+        verifiable_key = (
+            request_key_from_provider_message(
+                quoted_message_id
+            )
+        )
+
+        if verifiable_key:
+            pending = load_pending(
+                verifiable_key
+            )
+
+    # Para listas o mensajes sin cita se relaciona
+    # cada RFC contra sus solicitudes pendientes.
+    if not verifiable_key:
+        fallback_match = (
+            find_pending_request_by_provider_rfc(
+                provider_rfc
+            )
+        )
+
+        if not fallback_match.get("ok"):
+            return {
+                "ok": False,
+                "rfc": provider_rfc,
+                "idcif": provider_idcif,
+                "reason": (
+                    fallback_match.get("reason")
+                    or "pending_not_found"
+                ),
+                "matches": (
+                    fallback_match.get("matches")
+                    or []
+                ),
+            }
+
+        verifiable_key = (
+            fallback_match.get(
+                "request_key"
+            )
+            or ""
+        ).strip()
+
+        pending = (
+            fallback_match.get("pending")
+            or {}
+        )
+
+        matched_without_quote = True
+        matched_by = (
+            fallback_match.get(
+                "matched_by"
+            )
+            or ""
+        )
+
+    if not verifiable_key:
+        return {
+            "ok": False,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "reason": "request_key_empty",
+        }
+
+    if not pending:
+        pending = load_pending(
+            verifiable_key
+        )
+
+    if not pending:
+        return {
+            "ok": False,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "request_key": verifiable_key,
+            "reason": (
+                "pending_expired_or_missing"
+            ),
+        }
+
+    expected_provider_group = (
+        pending.get(
+            "provider_group_jid"
+        )
+        or ""
+    ).strip()
+
+    expected_provider_instance = (
+        pending.get(
+            "provider_instance"
+        )
+        or ""
+    ).strip()
+
+    if (
+        expected_provider_group
+        and expected_provider_group
+        != remote_jid
+    ):
+        return {
+            "ok": False,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "request_key": verifiable_key,
+            "reason": (
+                "provider_group_mismatch"
+            ),
+            "expected_group": (
+                expected_provider_group
+            ),
+            "received_group": remote_jid,
+        }
+
+    if (
+        expected_provider_instance
+        and expected_provider_instance
+        != instance_name
+    ):
+        return {
+            "ok": False,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "request_key": verifiable_key,
+            "reason": (
+                "provider_instance_mismatch"
+            ),
+        }
+
+    original_type = (
+        pending.get(
+            "original_query_type"
+        )
+        or ""
+    ).strip().upper()
+
+    original_identifier = (
+        pending.get(
+            "original_identifier"
+        )
+        or ""
+    ).strip().upper()
+
+    if (
+        original_type == "RFC_ONLY"
+        and provider_rfc
+        != original_identifier
+    ):
+        return {
+            "ok": False,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "request_key": verifiable_key,
+            "reason": "rfc_mismatch",
+            "expected_rfc": (
+                original_identifier
+            ),
+        }
+
+    if not claim_provider_result(
+        verifiable_key
+    ):
+        return {
+            "ok": False,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "request_key": verifiable_key,
+            "reason": (
+                "result_already_claimed"
+            ),
+        }
+
+    client_instance = (
+        pending.get(
+            "client_instance"
+        )
+        or MAIN_PANEL_INSTANCE
+    ).strip()
+
+    client_group_jid = (
+        pending.get(
+            "client_group_jid"
+        )
+        or ""
+    ).strip()
+
+    requester_number = (
+        pending.get(
+            "requester_number"
+        )
+        or ""
+    ).strip()
+
+    requester_name = (
+        pending.get(
+            "requester_name"
+        )
+        or ""
+    ).strip()
+
+    requester_label = (
+        pending.get(
+            "requester_label"
+        )
+        or requester_name
+        or "Usuario"
+    ).strip()
+
+    original_msg_id = (
+        pending.get(
+            "client_msg_id"
+        )
+        or ""
+    ).strip()
+
+    normal_request_key = (
+        pending.get(
+            "normal_request_key"
+        )
+        or verifiable_key
+    ).strip()
+
+    inflight_key = (
+        pending.get(
+            "inflight_key"
+        )
+        or ""
+    ).strip()
+
+    generated_query = (
+        f"RFC: {provider_rfc}\n"
+        f"IDCIF: {provider_idcif}"
+    )
+
+    job_data = {
+        "requester_number": (
+            requester_number
+        ),
+        "requester_name": (
+            requester_name
+        ),
+        "requester_label": (
+            requester_label
+        ),
+        "group_jid": (
+            client_group_jid
+        ),
+        "group_name": (
+            client_group_jid
+        ),
+        "original_text": (
+            generated_query
+        ),
+        "query": generated_query,
+        "query_type": (
+            "RFC_VERIFICABLE"
+        ),
+        "forced_success_kind": (
+            "RFC_VERIFICABLE"
+        ),
+        "msg_type": "",
+        "media_id": "",
+        "msg_id": original_msg_id,
+        "mime_type": "",
+        "evolution_instance": (
+            client_instance
+        ),
+        "request_key": (
+            normal_request_key
+        ),
+        "inflight_key": (
+            inflight_key
+        ),
+        "execution_key": (
+            original_msg_id
+            or verifiable_key
+        ),
+        "request_started_at_epoch": float(
+            pending.get(
+                "request_started_at_epoch"
+            )
+            or time.time()
+        ),
+        "is_verifiable": True,
+        "verifiable_price": float(
+            pending.get(
+                "verifiable_price"
+            )
+            or 0
+        ),
+        "verifiable_request_key": (
+            verifiable_key
+        ),
+        "verifiable_original_type": (
+            original_type
+        ),
+        "verifiable_original_identifier": (
+            original_identifier
+        ),
+        "provider_rfc": provider_rfc,
+        "provider_idcif": (
+            provider_idcif
+        ),
+        "provider_response_msg_id": (
+            provider_response_msg_id
+        ),
+        "provider_quoted_msg_id": (
+            quoted_message_id
+        ),
+        "provider_matched_without_quote": (
+            matched_without_quote
+        ),
+        "provider_match_method": (
+            matched_by
+            or (
+                "quoted_message"
+                if quoted_message_id
+                else ""
+            )
+        ),
+        "verifiable_provider_code": (
+            pending.get(
+                "provider_code"
+            )
+            or ""
+        ),
+        "verifiable_provider_db_name": (
+            pending.get(
+                "provider_db_name"
+            )
+            or ""
+        ),
+        "verifiable_provider_name": (
+            pending.get(
+                "provider_name"
+            )
+            or ""
+        ),
+        "verifiable_provider_group": (
+            pending.get(
+                "provider_group_jid"
+            )
+            or remote_jid
+        ),
+        "verifiable_provider_instance": (
+            pending.get(
+                "provider_instance"
+            )
+            or instance_name
+        ),
+    }
+
+    final_rq_job_id = (
+        "rfc-verifiable-result:"
+        f"{verifiable_key}"
+    )
+
+    try:
+        job = request_queue.enqueue(
+            "worker_jobs."
+            "process_group_request_job",
+            job_data,
+            job_id=final_rq_job_id,
+            job_timeout=900,
+            result_ttl=0,
+            failure_ttl=1200,
+        )
+
+    except Exception:
+        release_provider_result_claim(
+            verifiable_key
+        )
+        raise
+
+    stored_provider_message_id = (
+        pending.get(
+            "provider_message_id"
+        )
+        or quoted_message_id
+        or ""
+    ).strip()
+
+    finish_pending(
+        verifiable_key,
+        provider_message_id=(
+            stored_provider_message_id
+        ),
+    )
+
+    print(
+        "RFC_VERIFIABLE_PAIR_QUEUED =",
+        {
+            "job_id": job.id,
+            "request_key": (
+                verifiable_key
+            ),
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "client_group": (
+                client_group_jid
+            ),
+            "provider_group": (
+                remote_jid
+            ),
+            "matched_by": (
+                matched_by
+                or "quoted_message"
+            ),
+        },
+        flush=True,
+    )
+
+    return {
+        "ok": True,
+        "queued": True,
+        "job_id": job.id,
+        "request_key": verifiable_key,
+        "rfc": provider_rfc,
+        "idcif": provider_idcif,
+    }
+
+
 @router.post("/webhook/evolution-rfc")
 async def evolution_rfc_webhook(request: Request):
     try:
@@ -892,30 +1351,27 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                 }
 
-            provider_rfc, provider_idcif = (
-                extract_rfc_idcif(text)
+            provider_pairs = (
+                extract_rfc_idcif_pairs(
+                    text
+                )
             )
-            
-            if (
-                not provider_rfc
-                or not provider_idcif
-            ):
+
+            if not provider_pairs:
                 print(
                     "RFC_VERIFIABLE_PROVIDER_INVALID =",
                     {
                         "reason": (
-                            "missing_rfc_or_idcif"
+                            "no_rfc_idcif_pairs"
                         ),
                         "quoted_message_id": (
                             quoted_message_id
                         ),
                         "text": text,
-                        "rfc": provider_rfc,
-                        "idcif": provider_idcif,
                     },
                     flush=True,
                 )
-            
+
                 return {
                     "ok": True,
                     "ignored": (
@@ -923,550 +1379,130 @@ async def evolution_rfc_webhook(request: Request):
                         "provider_response"
                     ),
                 }
-            
-            
-            verifiable_key = ""
-            pending = {}
-            matched_without_quote = False
-            matched_by = ""
-            
-            
-            # Método principal: mensaje citado.
-            if quoted_message_id:
-                verifiable_key = (
-                    request_key_from_provider_message(
-                        quoted_message_id
-                    )
-                )
-            
-                if verifiable_key:
-                    pending = load_pending(
-                        verifiable_key
-                    )
-            
-            
-            # Respaldo únicamente cuando el proveedor
-            # realmente no citó ningún mensaje.
-            if not quoted_message_id:
-                fallback_match = (
-                    find_pending_request_by_provider_rfc(
-                        provider_rfc
-                    )
-                )
-            
-                if fallback_match.get("ok"):
-                    verifiable_key = (
-                        fallback_match.get(
-                            "request_key"
-                        )
-                        or ""
-                    ).strip()
-            
-                    pending = (
-                        fallback_match.get("pending")
-                        or {}
-                    )
-            
-                    matched_without_quote = True
-            
-                    matched_by = (
-                        fallback_match.get(
-                            "matched_by"
-                        )
-                        or ""
-                    )
-            
-                    print(
-                        "RFC_VERIFIABLE_PROVIDER_"
-                        "MATCHED_WITHOUT_QUOTE =",
-                        {
-                            "request_key": (
-                                verifiable_key
-                            ),
-                            "provider_rfc": (
+
+            is_batch_provider_response = (
+                len(provider_pairs) > 1
+            )
+
+            results = []
+
+            for (
+                pair_index,
+                (
+                    provider_rfc,
+                    provider_idcif,
+                ),
+            ) in enumerate(
+                provider_pairs,
+                start=1,
+            ):
+                try:
+                    result = (
+                        _queue_one_verifiable_provider_pair(
+                            provider_rfc=(
                                 provider_rfc
                             ),
-                            "matched_by": matched_by,
-                            "original_type": (
-                                fallback_match.get(
-                                    "original_type"
-                                )
+                            provider_idcif=(
+                                provider_idcif
                             ),
-                            "original_identifier": (
-                                fallback_match.get(
-                                    "original_identifier"
-                                )
+                            remote_jid=(
+                                remote_jid
                             ),
-                        },
-                        flush=True,
-                    )
-            
-                else:
-                    reason = (
-                        fallback_match.get("reason")
-                        or "unknown"
-                    )
-            
-                    matches = (
-                        fallback_match.get("matches")
-                        or []
-                    )
-            
-                    print(
-                        "RFC_VERIFIABLE_PROVIDER_"
-                        "UNMATCHED_WITHOUT_QUOTE =",
-                        {
-                            "reason": reason,
-                            "provider_rfc": (
-                                provider_rfc
+                            instance_name=(
+                                instance_name
                             ),
-                            "quoted_message_id": (
+                            provider_response_msg_id=(
+                                msg_id
+                            ),
+
+                            # Una cita sirve únicamente cuando
+                            # la respuesta contiene una pareja.
+                            # En listas cada RFC se relaciona
+                            # contra su pendiente individual.
+                            quoted_message_id=(
                                 quoted_message_id
+                                if not is_batch_provider_response
+                                else ""
                             ),
-                            "matches_count": len(
-                                matches
-                            ),
-                            "candidate_request_keys": [
-                                item.get("request_key")
-                                for item in matches
-                                if isinstance(item, dict)
-                            ],
-                        },
-                        flush=True,
+                        )
                     )
-            
-                    return {
-                        "ok": True,
-                        "ignored": (
-                            "verifiable_provider_"
-                            + reason
+
+                except Exception as pair_exc:
+                    result = {
+                        "ok": False,
+                        "queued": False,
+                        "rfc": provider_rfc,
+                        "idcif": (
+                            provider_idcif
+                        ),
+                        "reason": (
+                            "pair_processing_exception"
+                        ),
+                        "error": repr(
+                            pair_exc
                         ),
                     }
 
-            if quoted_message_id and not verifiable_key:
-                print(
-                    "RFC_VERIFIABLE_PROVIDER_IGNORED =",
-                    {
-                        "reason": (
-                            "quoted_message_not_found"
-                        ),
-                        "quoted_message_id": (
-                            quoted_message_id
-                        ),
-                        "provider_rfc": provider_rfc,
-                    },
-                    flush=True,
-                )
-            
-                return {
-                    "ok": True,
-                    "ignored": (
-                        "verifiable_quoted_"
-                        "message_not_found"
-                    ),
-                }
-
-            if not verifiable_key:
-                print(
-                    "RFC_VERIFIABLE_PROVIDER_IGNORED =",
-                    {
-                        "reason": (
-                            "provider_message_not_found"
-                        ),
-                        "quoted_message_id": (
-                            quoted_message_id
-                        ),
-                    },
-                    flush=True,
+                result["pair_index"] = (
+                    pair_index
                 )
 
-                return {
-                    "ok": True,
-                    "ignored": (
-                        "verifiable_provider_"
-                        "message_not_found"
-                    ),
-                }
+                results.append(result)
 
-            if not pending:
-                pending = load_pending(
-                    verifiable_key
-                )
-            
-            if not pending:
-                print(
-                    "RFC_VERIFIABLE_PROVIDER_IGNORED =",
-                    {
-                        "reason": (
-                            "pending_expired_or_missing"
-                        ),
-                        "request_key": (
-                            verifiable_key
-                        ),
-                    },
-                    flush=True,
-                )
+            queued_results = [
+                item
+                for item in results
+                if item.get("queued")
+            ]
 
-                return {
-                    "ok": True,
-                    "ignored": (
-                        "verifiable_pending_missing"
-                    ),
-                }
-
-            expected_provider_group = (
-                pending.get(
-                    "provider_group_jid"
-                )
-                or ""
-            ).strip()
-            
-            expected_provider_instance = (
-                pending.get(
-                    "provider_instance"
-                )
-                or ""
-            ).strip()
-            
-            if (
-                expected_provider_group
-                and expected_provider_group
-                != remote_jid
-            ):
-                print(
-                    "RFC_VERIFIABLE_PROVIDER_"
-                    "GROUP_MISMATCH =",
-                    {
-                        "request_key": (
-                            verifiable_key
-                        ),
-                        "expected_group": (
-                            expected_provider_group
-                        ),
-                        "received_group": (
-                            remote_jid
-                        ),
-                    },
-                    flush=True,
-                )
-            
-                return {
-                    "ok": True,
-                    "ignored": (
-                        "verifiable_provider_"
-                        "group_mismatch"
-                    ),
-                }
-            
-            if (
-                expected_provider_instance
-                and expected_provider_instance
-                != instance_name
-            ):
-                return {
-                    "ok": True,
-                    "ignored": (
-                        "verifiable_provider_"
-                        "instance_mismatch"
-                    ),
-                }
-
-            original_type = (
-                pending.get("original_query_type")
-                or ""
-            ).strip().upper()
-
-            original_identifier = (
-                pending.get("original_identifier")
-                or ""
-            ).strip().upper()
-
-            # Cuando el cliente originalmente envió RFC,
-            # la respuesta debe conservar ese mismo RFC.
-            if (
-                original_type == "RFC_ONLY"
-                and provider_rfc
-                != original_identifier
-            ):
-                print(
-                    "RFC_VERIFIABLE_RFC_MISMATCH =",
-                    {
-                        "expected": (
-                            original_identifier
-                        ),
-                        "received": provider_rfc,
-                        "request_key": (
-                            verifiable_key
-                        ),
-                    },
-                    flush=True,
-                )
-
-                return {
-                    "ok": True,
-                    "ignored": (
-                        "verifiable_rfc_mismatch"
-                    ),
-                }
-
-            if not claim_provider_result(
-                verifiable_key
-            ):
-                print(
-                    "RFC_VERIFIABLE_PROVIDER_"
-                    "DUPLICATE_RESULT =",
-                    verifiable_key,
-                    flush=True,
-                )
-
-                return {
-                    "ok": True,
-                    "ignored": (
-                        "verifiable_result_already_"
-                        "claimed"
-                    ),
-                }
-
-            client_instance = (
-                pending.get(
-                    "client_instance"
-                )
-                or MAIN_PANEL_INSTANCE
-            ).strip()
-
-            client_group_jid = (
-                pending.get(
-                    "client_group_jid"
-                )
-                or ""
-            ).strip()
-
-            requester_number = (
-                pending.get(
-                    "requester_number"
-                )
-                or ""
-            ).strip()
-
-            requester_name = (
-                pending.get(
-                    "requester_name"
-                )
-                or ""
-            ).strip()
-
-            requester_label = (
-                pending.get(
-                    "requester_label"
-                )
-                or requester_name
-                or "Usuario"
-            ).strip()
-
-            original_msg_id = (
-                pending.get("client_msg_id")
-                or ""
-            ).strip()
-
-            normal_request_key = (
-                pending.get("normal_request_key")
-                or verifiable_key
-            ).strip()
-
-            inflight_key = (
-                pending.get("inflight_key")
-                or ""
-            ).strip()
-
-            generated_query = (
-                f"RFC: {provider_rfc}\n"
-                f"IDCIF: {provider_idcif}"
-            )
-
-            job_data = {
-                "requester_number": (
-                    requester_number
-                ),
-                "requester_name": (
-                    requester_name
-                ),
-                "requester_label": (
-                    requester_label
-                ),
-                "group_jid": (
-                    client_group_jid
-                ),
-                "group_name": (
-                    client_group_jid
-                ),
-                "original_text": (
-                    generated_query
-                ),
-                "query": generated_query,
-                "query_type": "RFC_VERIFICABLE",
-                "forced_success_kind": "RFC_VERIFICABLE",
-                "msg_type": "",
-                "media_id": "",
-                "msg_id": original_msg_id,
-                "mime_type": "",
-                "evolution_instance": (
-                    client_instance
-                ),
-                "request_key": (
-                    normal_request_key
-                ),
-                "inflight_key": (
-                    inflight_key
-                ),
-                "execution_key": (
-                    original_msg_id
-                    or verifiable_key
-                ),
-
-                "request_started_at_epoch": float(
-                    pending.get(
-                        "request_started_at_epoch"
-                    )
-                    or time.time()
-                ),
-
-                # Trazabilidad.
-                "is_verifiable": True,
-                "verifiable_price": float(
-                    pending.get("verifiable_price")
-                    or 0
-                ),
-                "verifiable_request_key": (
-                    verifiable_key
-                ),
-                "verifiable_original_type": (
-                    original_type
-                ),
-                "verifiable_original_identifier": (
-                    original_identifier
-                ),
-                "provider_rfc": provider_rfc,
-                "provider_idcif": provider_idcif,
-                "provider_response_msg_id": (
-                    msg_id
-                ),
-                "provider_quoted_msg_id": (
-                    quoted_message_id
-                ),
-                "provider_matched_without_quote": (
-                    matched_without_quote
-                ),
-                
-                "provider_match_method": (
-                    matched_by
-                    or (
-                        "quoted_message"
-                        if quoted_message_id
-                        else ""
-                    )
-                ),
-                "verifiable_provider_code": (
-                    pending.get("provider_code")
-                    or ""
-                ),
-                "verifiable_provider_db_name": (
-                    pending.get("provider_db_name")
-                    or ""
-                ),
-                "verifiable_provider_name": (
-                    pending.get("provider_name")
-                    or ""
-                ),
-                "verifiable_provider_group": (
-                    pending.get(
-                        "provider_group_jid"
-                    )
-                    or remote_jid
-                ),
-                "verifiable_provider_instance": (
-                    pending.get(
-                        "provider_instance"
-                    )
-                    or instance_name
-                ),
-            }
-
-            final_rq_job_id = (
-                "rfc-verifiable-result:"
-                f"{verifiable_key}"
-            )
-
-            try:
-                job = request_queue.enqueue(
-                    "worker_jobs."
-                    "process_group_request_job",
-                    job_data,
-                    job_id=final_rq_job_id,
-                    job_timeout=900,
-                    result_ttl=0,
-                    failure_ttl=1200,
-                )
-
-            except Exception as enqueue_exc:
-                release_provider_result_claim(
-                    verifiable_key
-                )
-
-                print(
-                    "RFC_VERIFIABLE_RESULT_"
-                    "ENQUEUE_ERROR =",
-                    {
-                        "request_key": (
-                            verifiable_key
-                        ),
-                        "error": repr(
-                            enqueue_exc
-                        ),
-                    },
-                    flush=True,
-                )
-
-                raise
-
-            stored_provider_message_id = (
-                pending.get(
-                    "provider_message_id"
-                )
-                or quoted_message_id
-                or ""
-            ).strip()
-
-            finish_pending(
-                verifiable_key,
-                provider_message_id=(
-                    stored_provider_message_id
-                ),
-            )
+            failed_results = [
+                item
+                for item in results
+                if not item.get("queued")
+            ]
 
             print(
-                "RFC_VERIFIABLE_RESULT_QUEUED =",
+                "RFC_VERIFIABLE_BATCH_RESULT =",
                 {
-                    "job_id": job.id,
-                    "request_key": (
-                        verifiable_key
+                    "provider_group": (
+                        remote_jid
                     ),
-                    "client_group": (
-                        client_group_jid
+                    "provider_instance": (
+                        instance_name
                     ),
-                    "client_instance": (
-                        client_instance
+                    "provider_message_id": (
+                        msg_id
                     ),
-                    "rfc": provider_rfc,
-                    "idcif": provider_idcif,
+                    "pairs_detected": len(
+                        provider_pairs
+                    ),
+                    "pairs_queued": len(
+                        queued_results
+                    ),
+                    "pairs_failed": len(
+                        failed_results
+                    ),
+                    "results": results,
                 },
                 flush=True,
             )
 
             return {
                 "ok": True,
-                "queued": True,
                 "flow": "RFC_VERIFICABLE",
-                "job_id": job.id,
+                "batch": (
+                    is_batch_provider_response
+                ),
+                "pairs_detected": len(
+                    provider_pairs
+                ),
+                "pairs_queued": len(
+                    queued_results
+                ),
+                "pairs_failed": len(
+                    failed_results
+                ),
+                "results": results,
             }
 
         # Ignorar mensajes propios, EXCEPTO comandos administrativos en grupos.
