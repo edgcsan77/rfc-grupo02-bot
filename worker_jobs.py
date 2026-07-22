@@ -5,6 +5,7 @@ import requests
 import base64
 import json
 import hashlib
+import time
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -55,6 +56,56 @@ def _panel_now():
 
 def _panel_day_str():
     return _panel_now().strftime("%Y-%m-%d")
+
+def _format_total_time(
+    seconds: float,
+) -> str:
+    """
+    Ejemplos:
+      6.44  -> 6.44 segundos
+      66.44 -> 1 min 6.44 segundos
+      3726  -> 1 h 2 min 6.00 segundos
+    """
+    try:
+        total = max(
+            0.0,
+            float(seconds or 0),
+        )
+    except Exception:
+        total = 0.0
+
+    hours = int(total // 3600)
+
+    remaining = (
+        total
+        - (hours * 3600)
+    )
+
+    minutes = int(
+        remaining // 60
+    )
+
+    seconds_part = (
+        remaining
+        - (minutes * 60)
+    )
+
+    if hours > 0:
+        return (
+            f"{hours} h "
+            f"{minutes} min "
+            f"{seconds_part:.2f} segundos"
+        )
+
+    if minutes > 0:
+        return (
+            f"{minutes} min "
+            f"{seconds_part:.2f} segundos"
+        )
+
+    return (
+        f"{seconds_part:.2f} segundos"
+    )
 
 def _panel_stats_key(group_jid: str) -> str:
     return f"panel_stats:{_panel_day_str()}:group:{group_jid}"
@@ -368,21 +419,60 @@ def evolution_send_text_to_group(group_jid: str, text: str, instance_name=None):
     r.raise_for_status()
     return r.json()
 
-def evolution_send_media_to_group(group_jid: str, media_url: str, file_name: str, instance_name=None):
-    instance_name = (instance_name or EVOLUTION_INSTANCE).strip()
+def evolution_send_media_to_group(
+    group_jid: str,
+    media_url: str,
+    file_name: str,
+    instance_name=None,
+    caption: str = "",
+):
+    instance_name = (
+        instance_name
+        or EVOLUTION_INSTANCE
+    ).strip()
 
-    url = f"{EVOLUTION_BASE_URL}/message/sendMedia/{instance_name}"
+    url = (
+        f"{EVOLUTION_BASE_URL}"
+        f"/message/sendMedia/"
+        f"{instance_name}"
+    )
+
     payload = {
         "number": group_jid,
         "mediatype": "document",
         "media": media_url,
         "fileName": file_name,
+        "caption": (
+            caption or ""
+        ).strip(),
     }
 
-    r = requests.post(url, json=payload, headers=evolution_headers(), timeout=240)
-    print("worker sendMedia instance:", instance_name, flush=True)
-    print("worker sendMedia payload:", payload, flush=True)
-    print("worker sendMedia resp:", r.status_code, r.text, flush=True)
+    r = requests.post(
+        url,
+        json=payload,
+        headers=evolution_headers(),
+        timeout=240,
+    )
+
+    print(
+        "worker sendMedia instance:",
+        instance_name,
+        flush=True,
+    )
+
+    print(
+        "worker sendMedia payload:",
+        payload,
+        flush=True,
+    )
+
+    print(
+        "worker sendMedia resp:",
+        r.status_code,
+        r.text,
+        flush=True,
+    )
+
     r.raise_for_status()
     return r.json()
 
@@ -645,6 +735,18 @@ def process_group_request_job(job_data: dict):
         job_data.get("inflight_key")
         or ""
     ).strip()
+
+    try:
+        request_started_at_epoch = float(
+            job_data.get(
+                "request_started_at_epoch"
+            )
+            or time.time()
+        )
+    except Exception:
+        request_started_at_epoch = (
+            time.time()
+        )
 
     is_verifiable = bool(
         job_data.get("is_verifiable")
@@ -992,6 +1094,19 @@ def process_group_request_job(job_data: dict):
                 flush=True,
             )
             return
+
+        elapsed_seconds = max(
+            0.0,
+            time.time()
+            - request_started_at_epoch,
+        )
+        
+        time_caption = (
+            "⏱️ Tiempo total: "
+            + _format_total_time(
+                elapsed_seconds
+            )
+        )
         
         try:
             evolution_send_media_to_group(
@@ -999,6 +1114,7 @@ def process_group_request_job(job_data: dict):
                 media_url=pdf_url,
                 file_name=file_name,
                 instance_name=instance_name,
+                caption=time_caption,
             )
         
             mark_delivery_done(
