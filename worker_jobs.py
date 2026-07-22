@@ -1338,7 +1338,7 @@ def process_group_request_job(job_data: dict):
                 )
 
                 if ok_count > 0:
-                    record_success_once(
+                    success_recorded = record_success_once(
                         job_data=job_data,
                         group_jid=group_jid,
                         group_name=group_name,
@@ -1346,10 +1346,11 @@ def process_group_request_job(job_data: dict):
                         count=ok_count,
                         item_key=delivery_item_key,
                     )
-
-                    record_verifiable_provider_success(
-                        job_data
-                    )
+                
+                    if success_recorded:
+                        record_verifiable_provider_success(
+                            job_data
+                        )
             
             except requests.Timeout as media_err:
                 # No liberar: Evolution pudo recibir el ZIP
@@ -1431,7 +1432,7 @@ def process_group_request_job(job_data: dict):
                             delivery_done_key,
                         )
                 
-                        record_success_once(
+                        success_recorded = record_success_once(
                             job_data=job_data,
                             group_jid=group_jid,
                             group_name=group_name,
@@ -1439,10 +1440,11 @@ def process_group_request_job(job_data: dict):
                             count=1,
                             item_key=item_key,
                         )
-
-                        record_verifiable_provider_success(
-                            job_data
-                        )
+                        
+                        if success_recorded:
+                            record_verifiable_provider_success(
+                                job_data
+                            )
                 
                     except requests.Timeout as media_err:
                         # No liberar el claim por ambigüedad.
@@ -1549,7 +1551,7 @@ def process_group_request_job(job_data: dict):
                 delivery_done_key,
             )
         
-            record_success_once(
+            success_recorded = record_success_once(
                 job_data=job_data,
                 group_jid=group_jid,
                 group_name=group_name,
@@ -1557,10 +1559,11 @@ def process_group_request_job(job_data: dict):
                 count=1,
                 item_key=delivery_item_key,
             )
-
-            record_verifiable_provider_success(
-                job_data
-            )
+            
+            if success_recorded:
+                record_verifiable_provider_success(
+                    job_data
+                )
         
         except requests.Timeout as media_err:
             # Evolution pudo haber aceptado el documento.
