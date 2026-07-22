@@ -392,12 +392,26 @@ async def evolution_rfc_webhook(request: Request):
                 flush=True,
             )
             
-            quoted_message_id = (
-                extract_quoted_message_id(
+            top_context_info = (
+                data.get("contextInfo")
+                if isinstance(data, dict)
+                and isinstance(
+                    data.get("contextInfo"),
+                    dict,
+                )
+                else {}
+            )
+            
+            quoted_message_id = str(
+                top_context_info.get("stanzaId")
+                or top_context_info.get("quotedStanzaId")
+                or top_context_info.get("quotedStanzaID")
+                or extract_quoted_message_id(
                     message,
                     data,
                 )
-            )
+                or ""
+            ).strip()
 
             print(
                 "RFC_VERIFIABLE_PROVIDER_IN =",
