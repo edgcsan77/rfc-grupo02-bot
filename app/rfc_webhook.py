@@ -4,6 +4,8 @@ import json
 import hashlib
 import time
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Request
 
 from app.queue import request_queue
@@ -1662,6 +1664,42 @@ async def evolution_rfc_webhook(request: Request):
                 save_pending(
                     command_key,
                     pending_payload,
+                )
+
+                timeout_job_id = (
+                    "rfc-verifiable-timeout:"
+                    f"{command_key}"
+                )
+                
+                request_queue.enqueue_in(
+                    timedelta(minutes=15),
+                    "worker_jobs."
+                    "process_verifiable_timeout_job",
+                    command_key,
+                    job_id=timeout_job_id,
+                    job_timeout=120,
+                    result_ttl=0,
+                    failure_ttl=1200,
+                )
+                
+                print(
+                    "RFC_VERIFIABLE_TIMEOUT_SCHEDULED =",
+                    {
+                        "job_id": timeout_job_id,
+                        "request_key": command_key,
+                        "minutes": 15,
+                        "identifier": (
+                            original_identifier
+                        ),
+                        "query_type": (
+                            original_query_type
+                        ),
+                        "client_group": remote_jid,
+                        "client_instance": (
+                            instance_name
+                        ),
+                    },
+                    flush=True,
                 )
 
             except Exception as provider_exc:
