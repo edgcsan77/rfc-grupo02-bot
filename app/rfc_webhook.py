@@ -1928,7 +1928,7 @@ async def evolution_rfc_webhook(request: Request):
                     (
                         f"🔎 {requester_label}, "
                         "tu RFC verificable fue enviado.\n"
-                        "Se entregará en un tiempo estimado de hasta 1 hora."
+                        "Se entregará en un tiempo estimado de 15min-1h."
                     ),
                     instance_name=instance_name,
                     fast=True,
