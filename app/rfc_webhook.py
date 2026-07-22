@@ -1838,14 +1838,14 @@ async def evolution_rfc_webhook(request: Request):
                 )
                 
                 request_queue.enqueue_in(
-                    timedelta(minutes=15),
+                    timedelta(hours=1),
                     "worker_jobs."
                     "process_verifiable_timeout_job",
                     command_key,
                     job_id=timeout_job_id,
                     job_timeout=120,
                     result_ttl=0,
-                    failure_ttl=1200,
+                    failure_ttl=7200,
                 )
                 
                 print(
@@ -1853,7 +1853,7 @@ async def evolution_rfc_webhook(request: Request):
                     {
                         "job_id": timeout_job_id,
                         "request_key": command_key,
-                        "minutes": 15,
+                        "minutes": 60,
                         "identifier": (
                             original_identifier
                         ),
@@ -1928,7 +1928,7 @@ async def evolution_rfc_webhook(request: Request):
                     (
                         f"🔎 {requester_label}, "
                         "tu RFC verificable fue enviado.\n"
-                        "Se entregará en un tiempo estimado de 1 a 15 minutos."
+                        "Se entregará en un tiempo estimado de hasta 1 hora."
                     ),
                     instance_name=instance_name,
                     fast=True,
