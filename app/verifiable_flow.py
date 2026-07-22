@@ -373,6 +373,169 @@ def request_key_from_provider_message(
     return str(value or "").strip()
 
 
+def find_pending_request_by_provider_rfc(
+    provider_rfc: str,
+) -> dict:
+    """
+    Resuelve una respuesta del proveedor sin cita.
+
+    Reglas:
+    - Si la solicitud original era RFC_ONLY:
+      el RFC recibido debe coincidir exactamente.
+    - Si la solicitud original era CURP:
+      los primeros 10 caracteres de la CURP deben
+      coincidir con los primeros 10 del RFC recibido.
+    - Solo se acepta si existe exactamente una
+      solicitud pendiente compatible.
+    """
+
+    redis_conn = redis_connection()
+
+    provider_rfc = normalize_token(
+        provider_rfc
+    )
+
+    if not RFC_FULL_RE.fullmatch(
+        provider_rfc
+    ):
+        return {
+            "ok": False,
+            "reason": "invalid_provider_rfc",
+            "matches": [],
+        }
+
+    # Persona física: 4 letras + 6 dígitos.
+    # Un RFC moral tiene 3 letras y no permite
+    # relacionarlo con una CURP.
+    physical_rfc_prefix = ""
+
+    if re.fullmatch(
+        r"[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}",
+        provider_rfc,
+        re.I,
+    ):
+        physical_rfc_prefix = (
+            provider_rfc[:10]
+        )
+
+    matches: list[dict] = []
+
+    pattern = "rfc:verifiable:pending:*"
+
+    for redis_key in redis_conn.scan_iter(
+        match=pattern,
+        count=200,
+    ):
+        try:
+            key_text = (
+                redis_key.decode(
+                    "utf-8",
+                    errors="ignore",
+                )
+                if isinstance(redis_key, bytes)
+                else str(redis_key)
+            )
+
+            request_key = key_text.split(
+                "rfc:verifiable:pending:",
+                1,
+            )[-1].strip()
+
+            if not request_key:
+                continue
+
+            pending = load_pending(
+                request_key
+            )
+
+            if not pending:
+                continue
+
+            original_type = str(
+                pending.get(
+                    "original_query_type"
+                )
+                or ""
+            ).strip().upper()
+
+            original_identifier = (
+                normalize_token(
+                    pending.get(
+                        "original_identifier"
+                    )
+                    or ""
+                )
+            )
+
+            matched_by = ""
+
+            if (
+                original_type == "RFC_ONLY"
+                and original_identifier
+                == provider_rfc
+            ):
+                matched_by = "exact_rfc"
+
+            elif (
+                original_type == "CURP"
+                and physical_rfc_prefix
+                and len(original_identifier) >= 10
+                and original_identifier[:10]
+                == physical_rfc_prefix
+            ):
+                matched_by = "curp_rfc_prefix"
+
+            if not matched_by:
+                continue
+
+            matches.append({
+                "request_key": request_key,
+                "pending": pending,
+                "matched_by": matched_by,
+                "original_type": original_type,
+                "original_identifier": (
+                    original_identifier
+                ),
+            })
+
+        except Exception as scan_exc:
+            print(
+                "RFC_VERIFIABLE_PENDING_SCAN_ERROR =",
+                {
+                    "redis_key": str(
+                        redis_key
+                    ),
+                    "error": repr(
+                        scan_exc
+                    ),
+                },
+                flush=True,
+            )
+
+    if len(matches) == 1:
+        return {
+            "ok": True,
+            "unique": True,
+            **matches[0],
+            "matches": matches,
+        }
+
+    if not matches:
+        return {
+            "ok": False,
+            "unique": False,
+            "reason": "no_pending_match",
+            "matches": [],
+        }
+
+    return {
+        "ok": False,
+        "unique": False,
+        "reason": "ambiguous_pending_match",
+        "matches": matches,
+    }
+
+
 def claim_provider_result(
     request_key: str,
 ) -> bool:
