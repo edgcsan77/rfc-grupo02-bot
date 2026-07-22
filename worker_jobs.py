@@ -9,9 +9,6 @@ import hashlib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from redis import Redis
-from app.verifiable_flow import (
-    release_provider_result_claim,
-)
 
 EVOLUTION_BASE_URL = os.getenv("EVOLUTION_BASE_URL", "").rstrip("/")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY", "").strip()
