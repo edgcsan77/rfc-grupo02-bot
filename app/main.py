@@ -1211,21 +1211,40 @@ def bot_label(inst, db: Session = None):
     return inst
 
 
-def _rfc_request_family(act_type: str | None) -> str:
+def _rfc_request_family(
+    act_type: str | None,
+) -> str:
     """
     Familias comerciales RFC:
-      CLON  = RFC solo + CURP
-      IDCIF = QR + RFC_IDCIF
-    """
-    t = (act_type or "").strip().upper()
 
-    if t in {"QR", "RFC_IDCIF"}:
+      CLON         = CURP + RFC_ONLY
+      IDCIF        = QR + RFC_IDCIF
+      VERIFICABLE  = RFC_VERIFICABLE
+    """
+    t = (
+        act_type
+        or ""
+    ).strip().upper()
+
+    # Debe ir antes de startswith("RFC"),
+    # porque RFC_VERIFICABLE también empieza con RFC.
+    if t == "RFC_VERIFICABLE":
+        return "VERIFICABLE"
+
+    if t in {
+        "QR",
+        "RFC_IDCIF",
+    }:
         return "IDCIF"
 
-    if t in {"RFC", "RFC_ONLY", "CURP"}:
+    if t in {
+        "RFC",
+        "RFC_ONLY",
+        "CURP",
+    }:
         return "CLON"
 
-    if "IDCIF" in t or t == "QR":
+    if "IDCIF" in t:
         return "IDCIF"
 
     if t.startswith("RFC") or "CURP" in t:
@@ -2176,6 +2195,13 @@ def botpanel_audit_all_groups(
             1 for r in rows
             if _rfc_request_family(getattr(r, "act_type", "")) == "IDCIF"
         ),
+        "verificable": sum(
+            1
+            for r in rows
+            if _rfc_request_family(
+                getattr(r, "act_type", "")
+            ) == "VERIFICABLE"
+        ),
     
         "done_clon": sum(
             1 for r in rows
@@ -2186,6 +2212,14 @@ def botpanel_audit_all_groups(
             1 for r in rows
             if r.status == "DONE"
             and _rfc_request_family(getattr(r, "act_type", "")) == "IDCIF"
+        ),
+        "done_verificable": sum(
+            1
+            for r in rows
+            if r.status == "DONE"
+            and _rfc_request_family(
+                getattr(r, "act_type", "")
+            ) == "VERIFICABLE"
         ),
     }
 
@@ -2218,6 +2252,8 @@ def botpanel_audit_all_groups(
                 "idcif": 0,
                 "done_clon": 0,
                 "done_idcif": 0,
+                "verificable": 0,
+                "done_verificable": 0,
             }
 
             current_day = current_day + timedelta(days=1)
@@ -2240,6 +2276,8 @@ def botpanel_audit_all_groups(
                 "idcif": 0,
                 "done_clon": 0,
                 "done_idcif": 0,
+                "verificable": 0,
+                "done_verificable": 0,
             }
 
         item = daily_cut_map[day_key]
@@ -2252,6 +2290,8 @@ def botpanel_audit_all_groups(
             item["clon"] += 1
         elif family == "IDCIF":
             item["idcif"] += 1
+        elif family == "VERIFICABLE":
+            item["verificable"] += 1
         
         if st == "DONE":
             item["done"] += 1
@@ -2260,6 +2300,8 @@ def botpanel_audit_all_groups(
                 item["done_clon"] += 1
             elif family == "IDCIF":
                 item["done_idcif"] += 1
+            elif family == "VERIFICABLE":
+                item["done_verificable"] += 1
 
     daily_cut_rows = sorted(
         daily_cut_map.values(),
@@ -2292,6 +2334,8 @@ def botpanel_audit_all_groups(
             item["clon"] += 1
         elif family == "IDCIF":
             item["idcif"] += 1
+        elif family == "VERIFICABLE":
+            item["done_verificable"] += 1
         
         if r.status == "DONE":
             item["done"] += 1
@@ -2300,6 +2344,8 @@ def botpanel_audit_all_groups(
                 item["done_clon"] += 1
             elif family == "IDCIF":
                 item["done_idcif"] += 1
+            elif family == "VERIFICABLE":
+                item["done_verificable"] += 1
 
     group_rows = list(by_group.values())
     group_rows.sort(key=lambda x: (-x["total"], x["group_name"] or ""))
@@ -2478,6 +2524,10 @@ def botpanel_audit_all_groups(
             <div class="stat"><span>Total vendido</span><strong>{totals["done"]}</strong></div>
             <div class="stat"><span>CLON</span><strong>{totals["done_clon"]}</strong></div>
             <div class="stat"><span>IDCIF</span><strong>{totals["done_idcif"]}</strong></div>
+            <div class="stat">
+              <span>RFC verificable</span>
+              <strong>{totals["done_verificable"]}</strong>
+            </div>
           </div>
         </div>
     """
@@ -2497,6 +2547,7 @@ def botpanel_audit_all_groups(
                 <th>Total vendido</th>
                 <th>CLON</th>
                 <th>IDCIF</th>
+                <th>RFC verificable</th>
               </tr>
             </thead>
             <tbody>
@@ -2507,6 +2558,7 @@ def botpanel_audit_all_groups(
         weekly_done = 0
         weekly_clon = 0
         weekly_idcif = 0
+        weekly_verificable = 0
         weekly_start = None
 
         for idx, d in enumerate(daily_cut_rows):
@@ -2517,6 +2569,7 @@ def botpanel_audit_all_groups(
             weekly_done += int(d["done"] or 0)
             weekly_clon += int(d["done_clon"] or 0)
             weekly_idcif += int(d["done_idcif"] or 0)
+            weekly_verificable += int(d["done_verificable"] or 0)
 
             html += f"""
               <tr>
@@ -2525,6 +2578,7 @@ def botpanel_audit_all_groups(
                 <td>{int(d["done"] or 0)}</td>
                 <td>{int(d["done_clon"] or 0)}</td>
                 <td>{int(d["done_idcif"] or 0)}</td>
+                <td>{int(d["done_verificable"] or 0)}</td>
               </tr>
             """
 
@@ -2539,6 +2593,7 @@ def botpanel_audit_all_groups(
                     <td>{weekly_done}</td>
                     <td>{weekly_clon}</td>
                     <td>{weekly_idcif}</td>
+                    <td>{weekly_verificable}</td>
                   </tr>
                 """
 
@@ -2546,11 +2601,12 @@ def botpanel_audit_all_groups(
                 weekly_done = 0
                 weekly_clon = 0
                 weekly_idcif = 0
+                weekly_verificable = 0
                 weekly_start = None
     else:
         html += """
               <tr>
-                <td colspan="5">Sin movimientos en este periodo.</td>
+                <td colspan="6">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -2569,6 +2625,7 @@ def botpanel_audit_all_groups(
                 <th>Total vendido</th>
                 <th>CLON</th>
                 <th>IDCIF</th>
+                <th>RFC verificable</th>
               </tr>
             </thead>
             <tbody>
@@ -2585,12 +2642,13 @@ def botpanel_audit_all_groups(
                 <td>{g["done"]}</td>
                 <td>{g["done_clon"]}</td>
                 <td>{g["done_idcif"]}</td>
+                <td>{g["done_verificable"]}</td>
               </tr>
             """
     else:
         html += """
               <tr>
-                <td colspan="4">Sin movimientos en este periodo.</td>
+                <td colspan="5">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -11141,15 +11199,55 @@ def panel_RFC(
         };
 
         window.rfcBotSetPrice = function(inst) {
-          const managerEl = document.getElementById("manager_name_" + inst);
-          const clonEl = document.getElementById("price_clon_" + inst);
-          const idcifEl = document.getElementById("price_idcif_" + inst);
-          const noteEl = document.getElementById("price_note_" + inst);
+          const managerEl =
+            document.getElementById(
+              "manager_name_" + inst
+            );
         
-          const managerName = managerEl ? managerEl.value.trim() : "";
-          const clonPrice = clonEl ? clonEl.value.trim() : "";
-          const idcifPrice = idcifEl ? idcifEl.value.trim() : "";
-          const note = noteEl ? noteEl.value.trim() : "";
+          const clonEl =
+            document.getElementById(
+              "price_clon_" + inst
+            );
+        
+          const idcifEl =
+            document.getElementById(
+              "price_idcif_" + inst
+            );
+        
+          const verifiableEl =
+            document.getElementById(
+              "price_verifiable_" + inst
+            );
+        
+          const noteEl =
+            document.getElementById(
+              "price_note_" + inst
+            );
+        
+          const managerName =
+            managerEl
+              ? managerEl.value.trim()
+              : "";
+        
+          const clonPrice =
+            clonEl
+              ? clonEl.value.trim()
+              : "";
+        
+          const idcifPrice =
+            idcifEl
+              ? idcifEl.value.trim()
+              : "";
+        
+          const verifiablePrice =
+            verifiableEl
+              ? verifiableEl.value.trim()
+              : "";
+        
+          const note =
+            noteEl
+              ? noteEl.value.trim()
+              : "";
         
           window.rfcBotUpdate({
             instance: inst,
@@ -11158,7 +11256,22 @@ def panel_RFC(
             manager_name: managerName,
             clon_price: clonPrice,
             idcif_price: idcifPrice,
+            verifiable_price: verifiablePrice,
             note: note
+          });
+        };
+
+        window.rfcBotToggleVerifiable = function(
+          inst,
+          enabled
+        ) {
+          window.rfcBotUpdate({
+            instance: inst,
+            action: enabled
+              ? "disable_verifiable"
+              : "enable_verifiable",
+            family: "verifiable",
+            value: "0"
           });
         };
 
@@ -19469,9 +19582,14 @@ def panel_rfc_bot_control_fragment(request: Request):
                     COALESCE(label, instance_name) AS label,
                     COALESCE(manager_name, '') AS manager_name,
             
-                    COALESCE(sale_price_clon, 0) AS sale_price_clon,
-                    COALESCE(sale_price_idcif, 0) AS sale_price_idcif,
-                    COALESCE(sale_price_note, '') AS sale_price_note,
+                    COALESCE(sale_price_clon, 0)
+                        AS sale_price_clon,
+                    COALESCE(sale_price_idcif, 0)
+                        AS sale_price_idcif,
+                    COALESCE(sale_price_verifiable, 0)
+                        AS sale_price_verifiable, 
+                    COALESCE(sale_price_note, '')
+                        AS sale_price_note,
                     sale_price_updated_at,
             
                     COALESCE(clon_limit, 0) AS clon_limit,
@@ -19481,6 +19599,11 @@ def panel_rfc_bot_control_fragment(request: Request):
                     COALESCE(idcif_limit, 0) AS idcif_limit,
                     COALESCE(idcif_used, 0) AS idcif_used,
                     COALESCE(idcif_recharges, 0) AS idcif_recharges,
+
+                    COALESCE(verifiable_enabled, FALSE)
+                        AS verifiable_enabled,
+                    COALESCE(verifiable_used, 0)
+                        AS verifiable_used,
             
                     COALESCE(is_blocked, FALSE) AS is_blocked,
                     COALESCE(is_active, TRUE) AS is_active
@@ -19513,7 +19636,10 @@ def panel_rfc_bot_control_fragment(request: Request):
                   <th class="right">IDCIF disponibles</th>
                   <th>Nuevo límite IDCIF</th>
                   <th>Recarga IDCIF</th>
-
+                
+                  <th>RFC verificable</th>
+                  <th class="right">Verificables usados</th>
+                
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -19536,6 +19662,38 @@ def panel_rfc_bot_control_fragment(request: Request):
             idcif_avail = "∞" if idcif_limit == 0 else str(max(idcif_limit - idcif_used, 0))
             idcif_limit_txt = "∞" if idcif_limit == 0 else str(idcif_limit)
 
+            verifiable_enabled = bool(
+                r.get("verifiable_enabled")
+            )
+            
+            verifiable_used = int(
+                r.get("verifiable_used")
+                or 0
+            )
+            
+            verifiable_badge = (
+                '<span class="badge badge-success">'
+                'ACTIVO'
+                '</span>'
+                if verifiable_enabled
+                else
+                '<span class="badge badge-danger">'
+                'DESACTIVADO'
+                '</span>'
+            )
+            
+            verifiable_button_text = (
+                "Desactivar"
+                if verifiable_enabled
+                else "Activar"
+            )
+            
+            verifiable_enabled_js = (
+                "true"
+                if verifiable_enabled
+                else "false"
+            )
+
             blocked = bool(r["is_blocked"])
             active = bool(r["is_active"])
 
@@ -19554,10 +19712,23 @@ def panel_rfc_bot_control_fragment(request: Request):
 
             price_clon = Decimal(str(r.get("sale_price_clon") or 0))
             price_idcif = Decimal(str(r.get("sale_price_idcif") or 0))
+            price_verifiable = Decimal(
+                str(
+                    r.get(
+                        "sale_price_verifiable"
+                    )
+                    or 0
+                )
+            )
             price_note = str(r.get("sale_price_note") or "").strip()
             
             price_clon_txt = f"{price_clon:.2f}" if price_clon > 0 else ""
             price_idcif_txt = f"{price_idcif:.2f}" if price_idcif > 0 else ""
+            price_verifiable_txt = (
+                f"{price_verifiable:.2f}"
+                if price_verifiable > 0
+                else ""
+            )
             
             price_note_e = _esc(price_note)
 
@@ -19596,6 +19767,25 @@ def panel_rfc_bot_control_fragment(request: Request):
                   <td>
                     <input id="idcif_add_{inst_e}" type="number" min="1" value="10" style="width:80px;">
                     <button class="btn btn-success" onclick="rfcBotRecharge('{inst_e}', 'idcif')">Recargar</button>
+                  </td>
+
+                  <td>
+                    {verifiable_badge}<br>
+                
+                    <button
+                      class="btn"
+                      style="margin-top:6px;"
+                      onclick="window.rfcBotToggleVerifiable(
+                        '{inst_e}',
+                        {verifiable_enabled_js}
+                      )"
+                    >
+                      {verifiable_button_text}
+                    </button>
+                  </td>
+                
+                  <td class="right">
+                    <strong>{verifiable_used}</strong>
                   </td>
 
                   <td>
@@ -19661,6 +19851,28 @@ def panel_rfc_bot_control_fragment(request: Request):
                   </td>
 
                   <td>
+                    <div
+                      style="
+                        display:flex;
+                        align-items:center;
+                        gap:6px;
+                      "
+                    >
+                      <span style="font-weight:800;">$</span>
+                
+                      <input
+                        id="price_verifiable_{inst_e}"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="{price_verifiable_txt}"
+                        placeholder="Ej. 15.00"
+                        style="width:110px;"
+                      >
+                    </div>
+                  </td>
+
+                  <td>
                     <input
                       id="price_note_{inst_e}"
                       type="text"
@@ -19697,13 +19909,14 @@ def panel_rfc_bot_control_fragment(request: Request):
           </div>
 
           <div class="table-wrap">
-            <table style="min-width:1050px;">
+            <table style="min-width:1200px;">
               <thead>
                 <tr>
                   <th>Gestor / bot</th>
                   <th>Nombre gestor</th>
                   <th>Precio CLON</th>
                   <th>Precio IDCIF</th>
+                  <th>Precio verificable</th>
                   <th>Nota del acuerdo</th>
                   <th>Acción</th>
                 </tr>
@@ -19748,12 +19961,16 @@ def panel_rfc_bot_control_update(request: Request):
         manager_name = (q.get("manager_name") or "").strip()
         clon_price_raw = (q.get("clon_price") or "").strip()
         idcif_price_raw = (q.get("idcif_price") or "").strip()
+        verifiable_price_raw = (
+            q.get("verifiable_price")
+            or ""
+        ).strip()
         price_note = (q.get("note") or "").strip()
 
         if not instance:
             return HTMLResponse("Falta instance", status_code=400)
 
-        if family not in ("clon", "idcif", "all"):
+        if family not in ("clon", "idcif", "verificable", "all"):
             return HTMLResponse("family inválida", status_code=400)
 
         if action not in (
@@ -19763,6 +19980,8 @@ def panel_rfc_bot_control_update(request: Request):
             "block",
             "unblock",
             "set_price",
+            "enable_verifiable",
+            "disable_verifiable",
         ):
             return HTMLResponse("action inválida", status_code=400)
 
@@ -19812,17 +20031,70 @@ def panel_rfc_bot_control_update(request: Request):
                 DO NOTHING
             """), {"instance": instance})
 
-            if action == "set_price":
+            if action == "enable_verifiable":
+                conn.execute(
+                    text("""
+                        UPDATE bot_control
+                        SET
+                            verifiable_enabled = TRUE,
+                            updated_at = now()
+                        WHERE instance_name = :instance
+                    """),
+                    {
+                        "instance": instance,
+                    },
+                )
+            
+            
+            elif action == "disable_verifiable":
+                conn.execute(
+                    text("""
+                        UPDATE bot_control
+                        SET
+                            verifiable_enabled = FALSE,
+                            updated_at = now()
+                        WHERE instance_name = :instance
+                    """),
+                    {
+                        "instance": instance,
+                    },
+                )
+            
+            
+            elif action == "set_price":
                 try:
-                    clon_price = Decimal(clon_price_raw) if clon_price_raw else Decimal("0")
-                    idcif_price = Decimal(idcif_price_raw) if idcif_price_raw else Decimal("0")
+                    clon_price = (
+                        Decimal(clon_price_raw)
+                        if clon_price_raw
+                        else Decimal("0")
+                    )
+                
+                    idcif_price = (
+                        Decimal(idcif_price_raw)
+                        if idcif_price_raw
+                        else Decimal("0")
+                    )
+                
+                    verifiable_price = (
+                        Decimal(verifiable_price_raw)
+                        if verifiable_price_raw
+                        else Decimal("0")
+                    )
+                
                 except Exception:
                     return HTMLResponse(
-                        "Los precios deben ser números válidos. Ejemplo: 3 o 3.50",
+                        (
+                            "Los precios deben ser números válidos. "
+                            "Ejemplo: 3 o 3.50"
+                        ),
                         status_code=400,
                     )
             
-                if clon_price < 0 or idcif_price < 0:
+                if (
+                    clon_price < 0
+                    or idcif_price < 0
+                    or verifiable_price < 0
+                ):
                     return HTMLResponse(
                         "Los precios no pueden ser negativos.",
                         status_code=400,
@@ -19834,6 +20106,8 @@ def panel_rfc_bot_control_update(request: Request):
                         manager_name = :manager_name,
                         sale_price_clon = :clon_price,
                         sale_price_idcif = :idcif_price,
+                        sale_price_verifiable =
+                            :verifiable_price,
                         sale_price_note = :note,
                         sale_price_updated_at = now(),
                         updated_at = now()
@@ -19843,6 +20117,9 @@ def panel_rfc_bot_control_update(request: Request):
                     "manager_name": manager_name or None,
                     "clon_price": clon_price,
                     "idcif_price": idcif_price,
+                    "verifiable_price": (
+                        verifiable_price
+                    ),
                     "note": price_note or None,
                 })
             
