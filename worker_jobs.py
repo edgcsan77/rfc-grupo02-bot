@@ -7,9 +7,14 @@ import json
 import hashlib
 import time
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from redis import Redis
+from app.verifiable_flow import (
+    load_pending,
+    claim_provider_result,
+    finish_pending,
+)
 
 EVOLUTION_BASE_URL = os.getenv("EVOLUTION_BASE_URL", "").rstrip("/")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY", "").strip()
@@ -719,6 +724,217 @@ def release_request_inflight(
             repr(release_exc),
             flush=True,
         )
+
+def process_verifiable_timeout_job(
+    request_key: str,
+):
+    """
+    Se ejecuta 15 minutos después de enviar una
+    solicitud RFC verificable al proveedor.
+
+    Si la solicitud todavía está pendiente:
+    - avisa al cliente;
+    - libera el inflight;
+    - elimina el pendiente;
+    - evita que una respuesta tardía genere PDF.
+    """
+
+    request_key = (
+        request_key or ""
+    ).strip()
+
+    if not request_key:
+        print(
+            "[RFC VERIFIABLE TIMEOUT SKIP] "
+            "EMPTY_REQUEST_KEY",
+            flush=True,
+        )
+        return {
+            "ok": True,
+            "ignored": "empty_request_key",
+        }
+
+    pending = load_pending(
+        request_key
+    )
+
+    # El proveedor ya respondió, llegó "no id"
+    # o la solicitud ya fue finalizada.
+    if not pending:
+        print(
+            "[RFC VERIFIABLE TIMEOUT SKIP]",
+            {
+                "request_key": request_key,
+                "reason": "pending_not_found",
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": True,
+            "ignored": "already_finished",
+        }
+
+    # Competencia segura:
+    # - si el proveedor ya tomó el resultado, no avisar timeout;
+    # - si este job toma el resultado, una respuesta posterior
+    #   del proveedor ya no debe generar el documento.
+    if not claim_provider_result(
+        request_key
+    ):
+        print(
+            "[RFC VERIFIABLE TIMEOUT SKIP]",
+            {
+                "request_key": request_key,
+                "reason": (
+                    "provider_result_already_claimed"
+                ),
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": True,
+            "ignored": "result_already_claimed",
+        }
+
+    client_group_jid = (
+        pending.get("client_group_jid")
+        or ""
+    ).strip()
+
+    client_instance = (
+        pending.get("client_instance")
+        or EVOLUTION_INSTANCE
+        or "grupo02"
+    ).strip()
+
+    requester_label = (
+        pending.get("requester_label")
+        or pending.get("requester_name")
+        or "Usuario"
+    ).strip()
+
+    original_type = (
+        pending.get("original_query_type")
+        or ""
+    ).strip().upper()
+
+    original_identifier = (
+        pending.get("original_identifier")
+        or ""
+    ).strip().upper()
+
+    inflight_key = (
+        pending.get("inflight_key")
+        or ""
+    ).strip()
+
+    provider_message_id = (
+        pending.get("provider_message_id")
+        or ""
+    ).strip()
+
+    if original_type == "CURP":
+        identifier_text = (
+            f"la CURP {original_identifier}"
+        )
+
+    elif original_type == "RFC_ONLY":
+        identifier_text = (
+            f"el RFC {original_identifier}"
+        )
+
+    else:
+        identifier_text = (
+            original_identifier
+            or "el dato solicitado"
+        )
+
+    try:
+        if client_group_jid:
+            evolution_send_text_to_group(
+                client_group_jid,
+                (
+                    f"⚠️ {requester_label}, "
+                    "solicitud sin éxito después "
+                    "de 15 minutos para "
+                    f"{identifier_text}."
+                ),
+                instance_name=client_instance,
+            )
+
+        print(
+            "[RFC VERIFIABLE TIMEOUT SENT]",
+            {
+                "request_key": request_key,
+                "client_group": (
+                    client_group_jid
+                ),
+                "client_instance": (
+                    client_instance
+                ),
+                "original_type": original_type,
+                "original_identifier": (
+                    original_identifier
+                ),
+            },
+            flush=True,
+        )
+
+    except Exception as send_exc:
+        print(
+            "[RFC VERIFIABLE TIMEOUT "
+            "SEND ERROR]",
+            {
+                "request_key": request_key,
+                "client_group": (
+                    client_group_jid
+                ),
+                "error": repr(send_exc),
+            },
+            flush=True,
+        )
+
+    finally:
+        # Permite que el cliente vuelva a enviar
+        # la misma CURP o RFC.
+        if inflight_key:
+            try:
+                redis_stats.delete(
+                    inflight_key
+                )
+
+                print(
+                    "[RFC VERIFIABLE TIMEOUT "
+                    "INFLIGHT RELEASED]",
+                    inflight_key,
+                    flush=True,
+                )
+
+            except Exception as inflight_exc:
+                print(
+                    "[RFC VERIFIABLE TIMEOUT "
+                    "INFLIGHT RELEASE ERROR]",
+                    repr(inflight_exc),
+                    flush=True,
+                )
+
+        # Elimina pendiente y asociación con
+        # el mensaje enviado al proveedor.
+        finish_pending(
+            request_key,
+            provider_message_id=(
+                provider_message_id
+            ),
+        )
+
+    return {
+        "ok": True,
+        "timeout": True,
+        "request_key": request_key,
+        "identifier": original_identifier,
+    }
 
 def process_group_request_job(job_data: dict):
     requester_number = job_data["requester_number"]
