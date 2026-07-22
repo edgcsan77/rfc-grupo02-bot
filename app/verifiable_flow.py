@@ -164,115 +164,93 @@ def extract_quoted_message_id(
     data: dict,
 ) -> str:
     """
-    Extrae stanzaId del mensaje que el proveedor
-    respondió/citó.
+    Extrae el ID del mensaje citado desde las distintas
+    estructuras que puede enviar Evolution/Baileys.
     """
-    message = message or {}
-    data = data or {}
 
-    candidates: list[dict] = []
+    id_fields = (
+        "stanzaId",
+        "quotedStanzaId",
+        "quotedStanzaID",
+        "quotedMessageId",
+        "quotedMessageID",
+    )
 
-    if isinstance(message, dict):
-        candidates.append(message)
+    def _direct_id(node) -> str:
+        if not isinstance(node, dict):
+            return ""
 
-        ephemeral = message.get(
-            "ephemeralMessage"
-        ) or {}
+        for field in id_fields:
+            value = node.get(field)
 
-        ephemeral_message = ephemeral.get(
-            "message"
-        ) or {}
+            if value:
+                return str(value).strip()
 
-        if isinstance(ephemeral_message, dict):
-            candidates.append(
-                ephemeral_message
-            )
+        return ""
 
-        view_once = message.get(
-            "viewOnceMessage"
-        ) or {}
+    def _search(
+        node,
+        depth: int = 0,
+    ) -> str:
+        if depth > 15:
+            return ""
 
-        view_once_message = view_once.get(
-            "message"
-        ) or {}
+        if isinstance(node, dict):
+            # El nodo actual puede ser directamente contextInfo.
+            found = _direct_id(node)
 
-        if isinstance(view_once_message, dict):
-            candidates.append(
-                view_once_message
-            )
+            if found:
+                return found
 
-        view_once_v2 = message.get(
-            "viewOnceMessageV2"
-        ) or {}
+            # O puede contener contextInfo.
+            context = node.get("contextInfo")
 
-        view_once_v2_message = (
-            view_once_v2.get("message")
-            or {}
+            found = _direct_id(context)
+
+            if found:
+                return found
+
+            # Buscar recursivamente en toda la estructura.
+            for value in node.values():
+                found = _search(
+                    value,
+                    depth + 1,
+                )
+
+                if found:
+                    return found
+
+        elif isinstance(node, list):
+            for item in node:
+                found = _search(
+                    item,
+                    depth + 1,
+                )
+
+                if found:
+                    return found
+
+        return ""
+
+    try:
+        found = _search(message)
+
+        if found:
+            return found
+
+        found = _search(data)
+
+        if found:
+            return found
+
+    except Exception as exc:
+        print(
+            "RFC_VERIFIABLE_QUOTE_EXTRACT_ERROR =",
+            repr(exc),
+            flush=True,
         )
 
-        if isinstance(view_once_v2_message, dict):
-            candidates.append(
-                view_once_v2_message
-            )
-
-    for candidate in candidates:
-        extended = candidate.get(
-            "extendedTextMessage"
-        ) or {}
-
-        context = extended.get(
-            "contextInfo"
-        ) or {}
-
-        quoted_id = (
-            context.get("stanzaId")
-            or context.get("quotedStanzaID")
-            or context.get("quotedStanzaId")
-            or ""
-        )
-
-        if quoted_id:
-            return str(quoted_id).strip()
-
-        image = candidate.get(
-            "imageMessage"
-        ) or {}
-
-        context = image.get(
-            "contextInfo"
-        ) or {}
-
-        quoted_id = (
-            context.get("stanzaId")
-            or context.get("quotedStanzaID")
-            or ""
-        )
-
-        if quoted_id:
-            return str(quoted_id).strip()
-
-        document = candidate.get(
-            "documentMessage"
-        ) or {}
-
-        context = document.get(
-            "contextInfo"
-        ) or {}
-
-        quoted_id = (
-            context.get("stanzaId")
-            or context.get("quotedStanzaID")
-            or ""
-        )
-
-        if quoted_id:
-            return str(quoted_id).strip()
-
-    return str(
-        data.get("quotedMessageId")
-        or data.get("quotedStanzaId")
-        or ""
-    ).strip()
+    return ""
 
 
 def verifiable_request_key(
