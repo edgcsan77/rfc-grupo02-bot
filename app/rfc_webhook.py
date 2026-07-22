@@ -1418,10 +1418,8 @@ async def evolution_rfc_webhook(request: Request):
                     remote_jid,
                     (
                         f"🔎 {requester_label}, "
-                        "tu RFC verificable fue enviado "
-                        "al proveedor.\n"
-                        "Se entregará automáticamente "
-                        "cuando responda."
+                        "tu RFC verificable fue enviado.\n"
+                        "Se entregará en un tiempo estimado de 1 a 15 minutos."
                     ),
                     instance_name=instance_name,
                     fast=True,
