@@ -13,6 +13,7 @@ from redis import Redis
 from app.verifiable_flow import (
     load_pending,
     claim_provider_result,
+    release_provider_result_claim,
     finish_pending,
 )
 
