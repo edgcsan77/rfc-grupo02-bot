@@ -19790,8 +19790,12 @@ def panel_rfc_bot_control_fragment(request: Request):
 
                     COALESCE(verifiable_enabled, FALSE)
                         AS verifiable_enabled,
+                    COALESCE(verifiable_limit, 0)
+                        AS verifiable_limit, 
                     COALESCE(verifiable_used, 0)
                         AS verifiable_used,
+                    COALESCE(verifiable_recharges, 0)
+                        AS verifiable_recharges,
             
                     COALESCE(is_blocked, FALSE) AS is_blocked,
                     COALESCE(is_active, TRUE) AS is_active
@@ -19825,8 +19829,12 @@ def panel_rfc_bot_control_fragment(request: Request):
                   <th>Nuevo límite IDCIF</th>
                   <th>Recarga IDCIF</th>
                 
-                  <th>RFC verificable</th>
-                  <th class="right">Verificables usados</th>
+                  <th>Verificable</th>
+                  <th>Verif. usados</th>
+                  <th>Verif. límite</th>
+                  <th>Verif. disponibles</th>
+                  <th>Fijar verif.</th>
+                  <th>Recargar verif.</th>
                 
                   <th>Acciones</th>
                 </tr>
@@ -19857,6 +19865,38 @@ def panel_rfc_bot_control_fragment(request: Request):
             verifiable_used = int(
                 r.get("verifiable_used")
                 or 0
+            )
+
+            verifiable_limit = int(
+                r.get("verifiable_limit")
+                or 0
+            )
+            
+            verifiable_recharges = int(
+                r.get("verifiable_recharges")
+                or 0
+            )
+            
+            verifiable_available = (
+                max(
+                    verifiable_limit
+                    - verifiable_used,
+                    0,
+                )
+                if verifiable_limit > 0
+                else None
+            )
+            
+            verifiable_limit_txt = (
+                str(verifiable_limit)
+                if verifiable_limit > 0
+                else "Ilimitado"
+            )
+            
+            verifiable_available_txt = (
+                str(verifiable_available)
+                if verifiable_available is not None
+                else "∞"
             )
             
             verifiable_badge = (
@@ -19973,12 +20013,69 @@ def panel_rfc_bot_control_fragment(request: Request):
                   </td>
                 
                   <td class="right">
-                    <strong>{verifiable_used}</strong>
+                      <strong>{verifiable_used}</strong>
+                  </td>
+                
+                  <td class="right">
+                      {verifiable_limit_txt}
+                  </td>
+                
+                  <td class="right">
+                      <strong>{verifiable_available_txt}</strong>
+                  </td>
+                 
+                  <td>
+                      <input
+                        id="verifiable_limit_{inst_e}"
+                        type="number"
+                        min="0"
+                        value="{verifiable_limit}"
+                        style="width:90px;"
+                      >
+                
+                      <button
+                        class="btn"
+                        onclick="rfcBotSetLimit(
+                          '{inst_e}',
+                          'verifiable'
+                        )"
+                      >
+                        Guardar
+                      </button>
+                  </td>
+                
+                  <td>
+                      <input
+                        id="verifiable_add_{inst_e}"
+                        type="number"
+                        min="1"
+                        value="10"
+                        style="width:80px;"
+                      >
+                
+                      <button
+                        class="btn btn-success"
+                        onclick="rfcBotRecharge(
+                          '{inst_e}',
+                          'verifiable'
+                        )"
+                      >
+                        Recargar
+                      </button>
                   </td>
 
                   <td>
                     <button class="btn" onclick="rfcBotReset('{inst_e}', 'clon')">Reset CLON</button>
                     <button class="btn" onclick="rfcBotReset('{inst_e}', 'idcif')">Reset IDCIF</button>
+                    <button
+                      class="btn"
+                      onclick="rfcBotReset(
+                        '{inst_e}',
+                        'verifiable'
+                      )"
+                    >
+                      Reset verificable
+                    </button>
             """
 
             if blocked:
@@ -20376,12 +20473,33 @@ def panel_rfc_bot_control_update(request: Request):
                         WHERE instance_name = :instance
                     """), {"value": new_limit, "instance": instance})
 
-                else:
+                elif family == "idcif":
                     conn.execute(text("""
                         UPDATE bot_control
                         SET idcif_limit = :value, updated_at = now()
                         WHERE instance_name = :instance
                     """), {"value": max(value, 0), "instance": instance})
+
+                elif family == "verifiable":
+                    if value < 0:
+                        return HTMLResponse(
+                            "El límite no puede ser negativo",
+                            status_code=400,
+                        )
+                
+                    conn.execute(
+                        text("""
+                            UPDATE bot_control
+                            SET
+                                verifiable_limit = :value,
+                                updated_at = now()
+                            WHERE instance_name = :instance
+                        """),
+                        {
+                            "value": value,
+                            "instance": instance,
+                        },
+                    )
 
             elif action == "recharge":
                 if value <= 0:
@@ -20389,14 +20507,29 @@ def panel_rfc_bot_control_update(request: Request):
 
                 before = conn.execute(text("""
                     SELECT
-                        COALESCE(clon_limit, 0) AS clon_limit,
-                        COALESCE(clon_used, 0) AS clon_used,
-                        COALESCE(idcif_limit, 0) AS idcif_limit,
-                        COALESCE(idcif_used, 0) AS idcif_used
+                        COALESCE(clon_limit, 0)
+                            AS clon_limit,
+                
+                        COALESCE(clon_used, 0)
+                            AS clon_used,
+                
+                        COALESCE(idcif_limit, 0)
+                            AS idcif_limit,
+                
+                        COALESCE(idcif_used, 0)
+                            AS idcif_used,
+                
+                        COALESCE(verifiable_limit, 0)
+                            AS verifiable_limit,
+                
+                        COALESCE(verifiable_used, 0)
+                            AS verifiable_used
+                
                     FROM bot_control
                     WHERE instance_name = :instance
-                    LIMIT 1
-                """), {"instance": instance}).mappings().first() or {}
+                """), {
+                    "instance": instance,
+                }).mappings().first()
 
                 if family == "clon":
                     wallet = conn.execute(text("""
@@ -20462,7 +20595,7 @@ def panel_rfc_bot_control_update(request: Request):
                         "note": "Recarga CLON desde Control por bot",
                     })
 
-                else:
+                elif family == "idcif":
                     previous_limit = int(before.get("idcif_limit") or 0)
                     used_now = int(before.get("idcif_used") or 0)
                     new_limit = previous_limit + value
@@ -20511,6 +20644,94 @@ def panel_rfc_bot_control_update(request: Request):
                         "note": "Recarga IDCIF desde Control por bot",
                     })
 
+                elif family == "verifiable":
+                    previous_limit = int(
+                        before.get("verifiable_limit")
+                        or 0
+                    )
+                
+                    used_now = int(
+                        before.get("verifiable_used")
+                        or 0
+                    )
+                
+                    new_limit = (
+                        previous_limit
+                        + value
+                    )
+                
+                    available_after = max(
+                        new_limit
+                        - used_now,
+                        0,
+                    )
+                
+                    conn.execute(
+                        text("""
+                            UPDATE bot_control
+                            SET
+                                verifiable_limit =
+                                    COALESCE(
+                                        verifiable_limit,
+                                        0
+                                    ) + :value,
+                
+                                verifiable_recharges =
+                                    COALESCE(
+                                        verifiable_recharges,
+                                        0
+                                    ) + :value,
+                
+                                updated_at = now()
+                
+                            WHERE instance_name = :instance
+                        """),
+                        {
+                            "value": value,
+                            "instance": instance,
+                        },
+                    )
+                
+                    conn.execute(
+                        text("""
+                            INSERT INTO bot_recharge_logs (
+                                instance_name,
+                                amount,
+                                previous_limit,
+                                new_limit,
+                                used_at_recharge,
+                                available_after,
+                                source,
+                                note,
+                                created_at
+                            )
+                            VALUES (
+                                :instance,
+                                :amount,
+                                :previous_limit,
+                                :new_limit,
+                                :used_at_recharge,
+                                :available_after,
+                                :source,
+                                :note,
+                                now()
+                            )
+                        """),
+                        {
+                            "instance": instance,
+                            "amount": value,
+                            "previous_limit": previous_limit,
+                            "new_limit": new_limit,
+                            "used_at_recharge": used_now,
+                            "available_after": available_after,
+                            "source": "panel principal",
+                            "note": (
+                                "Recarga RFC verificable "
+                                "desde Control por bot"
+                            ),
+                        },
+                    )
+
             elif action == "reset":
                 if family == "clon":
                     conn.execute(text("""
@@ -20524,6 +20745,19 @@ def panel_rfc_bot_control_update(request: Request):
                         SET idcif_used = 0, updated_at = now()
                         WHERE instance_name = :instance
                     """), {"instance": instance})
+                elif family == "verifiable":
+                    conn.execute(
+                        text("""
+                            UPDATE bot_control
+                            SET
+                                verifiable_used = 0,
+                                updated_at = now()
+                            WHERE instance_name = :instance
+                        """),
+                        {
+                            "instance": instance,
+                        },
+                    )
 
             elif action == "block":
                 conn.execute(text("""
