@@ -17,6 +17,80 @@ from app.verifiable_flow import (
     finish_pending,
 )
 
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+)
+
+from app.db import (
+    Base,
+    engine,
+    SessionLocal,
+)
+
+class VerifiableProviderStat(Base):
+    __tablename__ = "verifiable_provider_stats"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    provider_db_name = Column(
+        String(120),
+        nullable=False,
+        index=True,
+    )
+
+    provider_name = Column(
+        String(200),
+        nullable=False,
+        default="",
+    )
+
+    provider_group_jid = Column(
+        String(120),
+        nullable=False,
+        default="",
+    )
+
+    status = Column(
+        String(30),
+        nullable=False,
+        default="DONE",
+        index=True,
+    )
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        index=True,
+    )
+
+    request_key = Column(
+        String(180),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+
+try:
+    VerifiableProviderStat.__table__.create(
+        bind=engine,
+        checkfirst=True,
+    )
+except Exception as provider_stat_table_exc:
+    print(
+        "VERIFIABLE_PROVIDER_STATS_TABLE_ERROR =",
+        repr(provider_stat_table_exc),
+        flush=True,
+    )
+
 EVOLUTION_BASE_URL = os.getenv("EVOLUTION_BASE_URL", "").rstrip("/")
 EVOLUTION_API_KEY = os.getenv("EVOLUTION_API_KEY", "").strip()
 EVOLUTION_INSTANCE = os.getenv("EVOLUTION_INSTANCE", "").strip()
@@ -937,6 +1011,127 @@ def process_verifiable_timeout_job(
         "identifier": original_identifier,
     }
 
+def record_verifiable_provider_success(
+    job_data: dict,
+):
+    if not bool(
+        job_data.get("is_verifiable")
+    ):
+        return
+
+    provider_db_name = (
+        job_data.get(
+            "verifiable_provider_db_name"
+        )
+        or ""
+    ).strip().upper()
+
+    provider_name = (
+        job_data.get(
+            "verifiable_provider_name"
+        )
+        or provider_db_name
+        or "RFC VERIFICABLE"
+    ).strip()
+
+    provider_group_jid = (
+        job_data.get(
+            "verifiable_provider_group"
+        )
+        or ""
+    ).strip()
+
+    request_key = (
+        job_data.get(
+            "verifiable_request_key"
+        )
+        or job_data.get("request_key")
+        or ""
+    ).strip()
+
+    if not provider_db_name:
+        print(
+            "VERIFIABLE_PROVIDER_STAT_SKIPPED =",
+            {
+                "reason": "provider_db_name_empty",
+                "request_key": request_key,
+            },
+            flush=True,
+        )
+        return
+
+    if not request_key:
+        print(
+            "VERIFIABLE_PROVIDER_STAT_SKIPPED =",
+            {
+                "reason": "request_key_empty",
+                "provider": provider_db_name,
+            },
+            flush=True,
+        )
+        return
+
+    db = SessionLocal()
+
+    try:
+        existing = (
+            db.query(
+                VerifiableProviderStat
+            )
+            .filter(
+                VerifiableProviderStat.request_key
+                == request_key
+            )
+            .first()
+        )
+
+        if existing:
+            return
+
+        row = VerifiableProviderStat(
+            provider_db_name=provider_db_name,
+            provider_name=provider_name,
+            provider_group_jid=(
+                provider_group_jid
+            ),
+            status="DONE",
+            request_key=request_key,
+            created_at=datetime.utcnow(),
+        )
+
+        db.add(row)
+        db.commit()
+
+        print(
+            "VERIFIABLE_PROVIDER_SUCCESS_RECORDED =",
+            {
+                "provider_db_name": (
+                    provider_db_name
+                ),
+                "provider_name": provider_name,
+                "request_key": request_key,
+            },
+            flush=True,
+        )
+
+    except Exception as stat_exc:
+        db.rollback()
+
+        print(
+            "VERIFIABLE_PROVIDER_STAT_ERROR =",
+            {
+                "provider_db_name": (
+                    provider_db_name
+                ),
+                "request_key": request_key,
+                "error": repr(stat_exc),
+            },
+            flush=True,
+        )
+
+    finally:
+        db.close()
+
 def process_group_request_job(job_data: dict):
     requester_number = job_data["requester_number"]
     requester_name = job_data["requester_name"]
@@ -1151,6 +1346,10 @@ def process_group_request_job(job_data: dict):
                         count=ok_count,
                         item_key=delivery_item_key,
                     )
+
+                    record_verifiable_provider_success(
+                        job_data
+                    )
             
             except requests.Timeout as media_err:
                 # No liberar: Evolution pudo recibir el ZIP
@@ -1239,6 +1438,10 @@ def process_group_request_job(job_data: dict):
                             kind=kind,
                             count=1,
                             item_key=item_key,
+                        )
+
+                        record_verifiable_provider_success(
+                            job_data
                         )
                 
                     except requests.Timeout as media_err:
@@ -1353,6 +1556,10 @@ def process_group_request_job(job_data: dict):
                 kind=kind,
                 count=1,
                 item_key=delivery_item_key,
+            )
+
+            record_verifiable_provider_success(
+                job_data
             )
         
         except requests.Timeout as media_err:
