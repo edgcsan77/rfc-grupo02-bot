@@ -74,7 +74,17 @@ from app.utils.bot_limits import (
     unblock_instance,
 )
 
-from sqlalchemy import func, case, or_, and_
+from sqlalchemy import (
+    func,
+    case,
+    or_,
+    and_,
+    Column,
+    Integer,
+    String,
+    DateTime,
+    UniqueConstraint,
+)
 from app.broadcast_jobs import botpanel_broadcast_job, panel_private_bots_broadcast_job
 from app.pdf_storage import save_request_pdf_to_r2, generate_r2_presigned_download_url
 
@@ -84,6 +94,66 @@ from app.verifiable_flow import (
 )
 
 app = FastAPI(title=settings.APP_NAME)
+
+class VerifiableProviderStat(Base):
+    __tablename__ = "verifiable_provider_stats"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    provider_db_name = Column(
+        String(120),
+        nullable=False,
+        index=True,
+    )
+
+    provider_name = Column(
+        String(200),
+        nullable=False,
+        default="",
+    )
+
+    provider_group_jid = Column(
+        String(120),
+        nullable=False,
+        default="",
+    )
+
+    status = Column(
+        String(30),
+        nullable=False,
+        default="DONE",
+        index=True,
+    )
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        index=True,
+    )
+
+    request_key = Column(
+        String(180),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+try:
+    VerifiableProviderStat.__table__.create(
+        bind=engine,
+        checkfirst=True,
+    )
+except Exception as provider_stat_table_exc:
+    print(
+        "VERIFIABLE_PROVIDER_STATS_TABLE_ERROR =",
+        repr(provider_stat_table_exc),
+        flush=True,
+    )
 
 # Comprime HTML/JS/CSS grandes del panel y mini panel.
 # Esto ayuda mucho cuando 20+ personas abren paneles desde internet.
@@ -9873,7 +9943,9 @@ def panel_RFC(
 
         verifiable_provider_cards = (
             _verifiable_provider_cards_html(
-                db
+                db,
+                time_min,
+                time_max,
             )
         )
 
@@ -10160,6 +10232,29 @@ def panel_RFC(
                 display: flex;
                 flex-wrap: wrap;
                 gap: 8px;
+              }}
+
+              .verifiable-provider-count {{
+                margin: 14px 0 12px;
+                padding: 10px 12px;
+                border-radius: 12px;
+                background: rgba(15, 23, 42, 0.28);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                text-align: center;
+              }}
+            
+              .verifiable-provider-count-label {{
+                font-size: 12px;
+                font-weight: 800;
+                color: #dbeafe;
+              }}
+            
+              .verifiable-provider-count-value {{
+                margin-top: 3px;
+                font-size: 28px;
+                line-height: 1;
+                font-weight: 900;
+                color: #ffffff;
               }}
             
               .status-panel {{
@@ -15970,9 +16065,53 @@ def _verifiable_provider_settings_rows(
     return rows
 
 
+def _verifiable_provider_count_map(
+    db: Session,
+    time_min,
+    time_max,
+) -> dict[str, int]:
+    rows = (
+        db.query(
+            VerifiableProviderStat.provider_db_name,
+            func.count(
+                VerifiableProviderStat.id
+            ).label("total"),
+        )
+        .filter(
+            VerifiableProviderStat.status
+            == "DONE",
+            VerifiableProviderStat.created_at
+            >= time_min,
+            VerifiableProviderStat.created_at
+            < time_max,
+        )
+        .group_by(
+            VerifiableProviderStat.provider_db_name
+        )
+        .all()
+    )
+
+    return {
+        (
+            provider_db_name or ""
+        ).strip().upper(): int(total or 0)
+        for provider_db_name, total in rows
+    }
+
+
 def _verifiable_provider_cards_html(
     db: Session,
+    time_min,
+    time_max,
 ) -> str:
+    count_map = (
+        _verifiable_provider_count_map(
+            db,
+            time_min,
+            time_max,
+        )
+    )
+
     cards = ""
 
     for provider in (
@@ -15992,6 +16131,13 @@ def _verifiable_provider_cards_html(
         )
         enabled = bool(
             provider.get("enabled")
+        )
+        provider_done_count = int(
+            count_map.get(
+                db_name.upper(),
+                0,
+            )
+            or 0
         )
 
         status_text = (
@@ -16078,6 +16224,16 @@ def _verifiable_provider_cards_html(
               >
                 Aplicar
               </button>
+            </div>
+          </div>
+
+          <div class="verifiable-provider-count">
+            <div class="verifiable-provider-count-label">
+              RFC entregados
+            </div>
+        
+            <div class="verifiable-provider-count-value">
+              {provider_done_count}
             </div>
           </div>
 
