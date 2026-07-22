@@ -2467,33 +2467,21 @@ def datos_to_persona_sat(datos: dict, d3: str, idcif: str, rfc: str, curp: str) 
         "IDCIF_ETIQUETA": S(idcif),
     }
 
-def usar_mismo_qr_idcif_rfc(input_type: str, datos: dict | None = None) -> bool:
+def usar_mismo_qr_idcif_rfc(
+    input_type: str,
+    datos: dict | None = None,
+) -> bool:
     """
-    RFC+IDCIF y QR leído desde imagen:
-    QR1 y QR2 deben ser exactamente el mismo QR D1=10 / IDCIF_RFC.
+    En grupo02 nunca reutilizar QR1 como QR2.
+
+    QR1:
+      conserva la URL correspondiente al tipo de solicitud.
+
+    QR2:
+      siempre se genera como D1=26 y apunta a
+      https://siat.sat-gb.com
     """
-    tipo = (input_type or "").strip().upper()
-
-    if tipo not in ("RFC_IDCIF", "QR"):
-        return False
-
-    datos = datos or {}
-
-    rfc = (
-        datos.get("RFC_ETIQUETA")
-        or datos.get("RFC")
-        or datos.get("rfc")
-        or ""
-    ).strip().upper()
-
-    idcif = (
-        datos.get("IDCIF_ETIQUETA")
-        or datos.get("IDCIF")
-        or datos.get("idcif")
-        or ""
-    ).strip()
-
-    return bool(rfc and idcif)
+    return False
 
 def validacion_sat_publish(datos: dict, input_type: str) -> str | None:
     if not validacion_sat_enabled():
