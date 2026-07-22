@@ -620,9 +620,8 @@ async def evolution_rfc_webhook(request: Request):
                     generated_query
                 ),
                 "query": generated_query,
-                "query_type": (
-                    "RFC_IDCIF"
-                ),
+                "query_type": "RFC_VERIFICABLE",
+                "forced_success_kind": "RFC_VERIFICABLE",
                 "msg_type": "",
                 "media_id": "",
                 "msg_id": original_msg_id,
@@ -643,6 +642,10 @@ async def evolution_rfc_webhook(request: Request):
 
                 # Trazabilidad.
                 "is_verifiable": True,
+                "verifiable_price": float(
+                    pending.get("verifiable_price")
+                    or 0
+                ),
                 "verifiable_request_key": (
                     verifiable_key
                 ),
@@ -955,6 +958,78 @@ async def evolution_rfc_webhook(request: Request):
             requester_label = (
                 push_name or "Usuario"
             )
+
+            verifiable_config = (
+                _verifiable_bot_config(
+                    db,
+                    instance_name,
+                )
+            )
+
+            if not verifiable_config["exists"]:
+                print(
+                    "RFC_VERIFICABLE_BOT_NOT_FOUND =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "este bot no tiene configurado "
+                            "RFC verificable."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_bot_not_configured"
+                    ),
+                }
+
+            if not verifiable_config["enabled"]:
+                print(
+                    "RFC_VERIFICABLE_DISABLED =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                        "identifier": (
+                            original_identifier
+                        ),
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "RFC verificable no está activo "
+                            "para este bot."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_disabled"
+                    ),
+                }
 
             normalized_query = (
                 "VERIFICABLE:"
