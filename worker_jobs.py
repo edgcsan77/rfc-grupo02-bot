@@ -1726,6 +1726,17 @@ def process_group_request_job(job_data: dict):
                     instance_name=instance_name
                 )
 
+            elif (
+                "GOB_CURP_FAIL:TIMEOUTEXCEPTION" in err_code
+                or "GOB_CURP_FAIL:TIMEOUTEXCEPTION" in resp_text.upper()
+            ):
+                evolution_send_text_to_group(
+                    group_jid,
+                    f"⚠️ {requester_label} no se encontró información para esta CURP.\n"
+                    "Verifica que esté escrita correctamente o que se encuentre certificada.",
+                    instance_name=instance_name
+                )
+
             else:
                 evolution_send_text_to_group(
                     group_jid,
