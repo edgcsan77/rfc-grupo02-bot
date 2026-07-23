@@ -1710,6 +1710,22 @@ def process_group_request_job(job_data: dict):
                     "No se generó el documento para evitar datos incorrectos. Verifica la CURP/RFC o intenta más tarde.",
                     instance_name=instance_name
                 )
+
+            elif (
+                "FALTA APELLIDO PATERNO" in err_code
+                or "FALTA APELLIDO PATERNO" in resp_text.upper()
+                or "FALTA APELLIDO MATERNO" in err_code
+                or "FALTA APELLIDO MATERNO" in resp_text.upper()
+                or "FALTA NOMBRE" in err_code
+                or "FALTA NOMBRE" in resp_text.upper()
+            ):
+                evolution_send_text_to_group(
+                    group_jid,
+                    f"⚠️ {requester_label} no se encontró información completa para esta CURP.\n"
+                    "Verifica que esté escrita correctamente y que se encuentre certificada.",
+                    instance_name=instance_name
+                )
+
             else:
                 evolution_send_text_to_group(
                     group_jid,
