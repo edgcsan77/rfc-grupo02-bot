@@ -2033,7 +2033,7 @@ async def evolution_rfc_webhook(request: Request):
                 inflight_key,
                 "1",
                 nx=True,
-                ex=VERIFIABLE_TIMEOUT_SEC,
+                ex=86400,
             ):
                 duplicate_notice_key = (
                     "rfc:verifiable:"
@@ -2221,42 +2221,6 @@ async def evolution_rfc_webhook(request: Request):
                     pending_payload,
                 )
 
-                timeout_job_id = (
-                    "rfc-verifiable-timeout:"
-                    f"{command_key}"
-                )
-                
-                request_queue.enqueue_in(
-                    timedelta(hours=1),
-                    "worker_jobs."
-                    "process_verifiable_timeout_job",
-                    command_key,
-                    job_id=timeout_job_id,
-                    job_timeout=120,
-                    result_ttl=0,
-                    failure_ttl=7200,
-                )
-                
-                print(
-                    "RFC_VERIFIABLE_TIMEOUT_SCHEDULED =",
-                    {
-                        "job_id": timeout_job_id,
-                        "request_key": command_key,
-                        "minutes": 60,
-                        "identifier": (
-                            original_identifier
-                        ),
-                        "query_type": (
-                            original_query_type
-                        ),
-                        "client_group": remote_jid,
-                        "client_instance": (
-                            instance_name
-                        ),
-                    },
-                    flush=True,
-                )
-
             except Exception as provider_exc:
                 redis_conn.delete(
                     inflight_key
@@ -2326,7 +2290,7 @@ async def evolution_rfc_webhook(request: Request):
                     (
                         f"🔎 {requester_label}, "
                         "tu RFC verificable fue enviado.\n"
-                        "Se entregará en un tiempo estimado de 15min-1h."
+                        "Se entregará cuando el proveedor responda."
                     ),
                     instance_name=instance_name,
                     fast=True,
