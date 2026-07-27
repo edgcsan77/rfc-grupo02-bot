@@ -804,6 +804,7 @@ def calcular_rfc_moffin(
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.common.keys import Keys
+    from selenium.webdriver.chrome.service import Service
 
     nombre = re.sub(
         r"\s+",
@@ -866,10 +867,31 @@ def calcular_rfc_moffin(
     if chrome_bin:
         options.binary_location = chrome_bin
 
+    chromedriver_bin = (
+        os.environ.get("CHROMEDRIVER_BIN")
+        or ""
+    ).strip()
+    
+    if not chromedriver_bin:
+        raise RuntimeError(
+            "MOFFIN_CHROMEDRIVER_BIN_NO_CONFIGURADO"
+        )
+    
+    if not os.path.isfile(chromedriver_bin):
+        raise RuntimeError(
+            "MOFFIN_CHROMEDRIVER_NO_EXISTE:"
+            f"{chromedriver_bin}"
+        )
+    
+    service = Service(
+        executable_path=chromedriver_bin
+    )
+
     driver = None
 
     try:
         driver = webdriver.Chrome(
+            service=service,
             options=options
         )
 
