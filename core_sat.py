@@ -727,8 +727,6 @@ def calcular_rfc_taxdown(nombre, apellido_paterno, apellido_materno, fecha_nac):
         options=options
     )
 
-    driver = webdriver.Chrome(options=options)
-
     try:
         driver.get(URL_RFC)
         wait = WebDriverWait(driver, 20)
