@@ -16,6 +16,10 @@ from app.models import (
     BotControl,
     ProviderSetting,
 )
+from core_sat import (
+    consultar_curp_bot,
+    calcular_rfc_moffin,
+)
 
 from app.verifiable_flow import (
     VERIFIABLE_PROVIDER_GROUP,
@@ -42,6 +46,13 @@ router = APIRouter()
 
 MAIN_PANEL_INSTANCE = os.getenv("MAIN_PANEL_INSTANCE", "grupo02").strip()
 GROUP_COMMAND = os.getenv("GROUP_COMMAND", "/csf").strip() or "/csf"
+LOCALIZACIONES_PROVIDER_GROUP = (
+    os.getenv(
+        "LOCALIZACIONES_PROVIDER_GROUP",
+        "120363409752881042@g.us",
+    )
+    or "120363409752881042@g.us"
+).strip()
 
 BLOCKED_GROUPS_KEY = "blocked_groups_no_response"
 
@@ -71,6 +82,175 @@ def _norm_text(s: str) -> str:
 
 def _upper(s: str) -> str:
     return _norm_text(s).upper()
+
+
+def _curp_to_moffin_rfc_cached(
+    curp: str
+) -> str:
+    curp = re.sub(
+        r"\s+",
+        "",
+        str(curp or "")
+    ).strip().upper()
+
+    if not CURP_RE.fullmatch(curp):
+        raise ValueError(
+            f"CURP_MOFFIN_INVALIDA:{curp}"
+        )
+
+    redis_conn = (
+        request_queue.connection
+    )
+
+    cache_key = (
+        "rfc:moffin:curp:v2:"
+        f"{curp}"
+    )
+
+    try:
+        cached = redis_conn.get(
+            cache_key
+        )
+
+        if isinstance(cached, bytes):
+            cached = cached.decode(
+                "utf-8",
+                errors="ignore"
+            )
+
+        cached = str(
+            cached or ""
+        ).strip().upper()
+
+        if (
+            re.fullmatch(
+                r"[A-ZÑ&]{4}"
+                r"\d{6}"
+                r"[A-Z0-9]{3}",
+                cached
+            )
+            and cached[4:10]
+            == curp[4:10]
+        ):
+            print(
+                "[VERIFIABLE_MOFFIN_CACHE_HIT]",
+                {
+                    "curp": curp,
+                    "rfc": cached,
+                },
+                flush=True,
+            )
+
+            return cached
+
+    except Exception as cache_exc:
+        print(
+            "[VERIFIABLE_MOFFIN_CACHE_GET_FAIL]",
+            repr(cache_exc),
+            flush=True,
+        )
+
+    datos_curp = (
+        consultar_curp_bot(curp)
+        or {}
+    )
+
+    nombre = (
+        datos_curp.get("NOMBRE")
+        or ""
+    ).strip()
+
+    apellido_paterno = (
+        datos_curp.get(
+            "PRIMER_APELLIDO"
+        )
+        or ""
+    ).strip()
+
+    apellido_materno = (
+        datos_curp.get(
+            "SEGUNDO_APELLIDO"
+        )
+        or ""
+    ).strip()
+
+    fecha_nacimiento = (
+        datos_curp.get(
+            "FECHA_NACIMIENTO"
+        )
+        or ""
+    ).strip()
+
+    if (
+        not apellido_paterno
+        and apellido_materno
+    ):
+        apellido_paterno, apellido_materno = (
+            apellido_materno,
+            ""
+        )
+
+    if (
+        not nombre
+        or not apellido_paterno
+        or not fecha_nacimiento
+    ):
+        raise RuntimeError(
+            "VERIFIABLE_MOFFIN_"
+            "CURP_DATA_INCOMPLETE:"
+            f"curp={curp}"
+        )
+
+    rfc = calcular_rfc_moffin(
+        nombre,
+        apellido_paterno,
+        apellido_materno,
+        fecha_nacimiento
+    ).strip().upper()
+
+    if not re.fullmatch(
+        r"[A-ZÑ&]{4}"
+        r"\d{6}"
+        r"[A-Z0-9]{3}",
+        rfc
+    ):
+        raise RuntimeError(
+            "VERIFIABLE_MOFFIN_"
+            f"RFC_INVALID:{rfc}"
+        )
+
+    if rfc[4:10] != curp[4:10]:
+        raise RuntimeError(
+            "VERIFIABLE_MOFFIN_"
+            "RFC_CURP_DATE_MISMATCH:"
+            f"curp={curp}:"
+            f"rfc={rfc}"
+        )
+
+    try:
+        redis_conn.set(
+            cache_key,
+            rfc,
+            ex=30 * 24 * 60 * 60
+        )
+
+    except Exception as cache_exc:
+        print(
+            "[VERIFIABLE_MOFFIN_CACHE_SET_FAIL]",
+            repr(cache_exc),
+            flush=True,
+        )
+
+    print(
+        "[VERIFIABLE_CURP_TO_RFC_OK]",
+        {
+            "curp": curp,
+            "rfc": rfc,
+        },
+        flush=True,
+    )
+
+    return rfc
 
 
 def _is_group(jid: str) -> bool:
@@ -2071,10 +2251,6 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                 }
 
-            provider_text = (
-                f"{original_identifier}"
-            )
-
             selected_provider = (
                 _choose_verifiable_provider(
                     db
@@ -2130,6 +2306,107 @@ async def evolution_rfc_webhook(request: Request):
                 ]
             )
 
+            provider_query_type = (
+                original_query_type
+            )
+            
+            provider_identifier = (
+                original_identifier
+            )
+            
+            provider_text = (
+                original_identifier
+            )
+            
+            must_convert_curp_to_rfc = (
+                original_query_type == "CURP"
+                and provider_group_jid
+                == LOCALIZACIONES_PROVIDER_GROUP
+            )
+            
+            if must_convert_curp_to_rfc:
+                try:
+                    provider_identifier = (
+                        _curp_to_moffin_rfc_cached(
+                            original_identifier
+                        )
+                    )
+            
+                    provider_query_type = (
+                        "RFC_ONLY"
+                    )
+            
+                    provider_text = (
+                        provider_identifier
+                    )
+            
+                    print(
+                        "[VERIFIABLE_PROVIDER_"
+                        "CURP_CONVERTED_TO_RFC]",
+                        {
+                            "client_curp": (
+                                original_identifier
+                            ),
+                            "provider_rfc": (
+                                provider_identifier
+                            ),
+                            "provider_group": (
+                                provider_group_jid
+                            ),
+                            "provider_instance": (
+                                provider_instance_name
+                            ),
+                        },
+                        flush=True,
+                    )
+            
+                except Exception as conversion_exc:
+                    redis_conn.delete(
+                        inflight_key
+                    )
+            
+                    print(
+                        "[VERIFIABLE_PROVIDER_"
+                        "CURP_TO_RFC_FAIL]",
+                        {
+                            "curp": (
+                                original_identifier
+                            ),
+                            "provider_group": (
+                                provider_group_jid
+                            ),
+                            "error": repr(
+                                conversion_exc
+                            ),
+                        },
+                        flush=True,
+                    )
+            
+                    try:
+                        send_text(
+                            remote_jid,
+                            (
+                                f"⚠️ {requester_label}, "
+                                "no fue posible convertir "
+                                "la CURP a RFC verificable. "
+                                "Intenta nuevamente."
+                            ),
+                            instance_name=(
+                                instance_name
+                            ),
+                            fast=True,
+                        )
+                    except Exception:
+                        pass
+            
+                    return {
+                        "ok": False,
+                        "error": (
+                            "verifiable_curp_to_"
+                            "rfc_failed"
+                        ),
+                    }
+
             pending_payload = {
                 "normal_request_key": (
                     command_key
@@ -2160,6 +2437,15 @@ async def evolution_rfc_webhook(request: Request):
                 ),
                 "original_identifier": (
                     original_identifier
+                ),
+                "provider_query_type": (
+                    provider_query_type
+                ),
+                "provider_identifier": (
+                    provider_identifier
+                ),
+                "provider_text": (
+                    provider_text
                 ),
                 "verifiable_price": float(
                     verifiable_config["price"]
