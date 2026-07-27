@@ -39,6 +39,13 @@ class VerifiableProviderStat(Base):
         index=True,
     )
 
+    count = Column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+
     provider_db_name = Column(
         String(120),
         nullable=False,
@@ -403,6 +410,64 @@ def _stats_counted_key(
     )
 
 
+def _commercial_accounting_key(
+    job_data: dict,
+    kind: str,
+    item_key: str = "",
+) -> str:
+    instance = (
+        job_data.get("evolution_instance")
+        or job_data.get("instance_name")
+        or EVOLUTION_INSTANCE
+        or ""
+    ).strip()
+
+    group = (
+        job_data.get("group_jid")
+        or ""
+    ).strip()
+
+    requester = (
+        job_data.get("requester_number")
+        or ""
+    ).strip()
+
+    execution_key = (
+        job_data.get("execution_key")
+        or job_data.get("msg_id")
+        or job_data.get("request_key")
+        or ""
+    ).strip()
+
+    normalized_item = re.sub(
+        r"\s+",
+        " ",
+        str(item_key or "").strip().upper(),
+    )
+
+    if not execution_key:
+        raise RuntimeError(
+            "RFC_ACCOUNTING_IDENTITY_EMPTY"
+        )
+
+    base = (
+        f"{instance}|"
+        f"{group}|"
+        f"{requester}|"
+        f"{execution_key}|"
+        f"{kind}|"
+        f"{normalized_item}"
+    )
+
+    digest = hashlib.sha256(
+        base.encode("utf-8")
+    ).hexdigest()
+
+    return (
+        f"rfc_accounting:{digest}"
+    )
+
+
 def record_success_once(job_data: dict, group_jid: str, group_name: str, kind: str, count: int = 1, item_key: str = "") -> bool:
     """
     Cuenta una solicitud exitosa una sola vez.
@@ -413,70 +478,115 @@ def record_success_once(job_data: dict, group_jid: str, group_name: str, kind: s
 
     key = _stats_counted_key(job_data, kind, item_key=item_key)
 
-    ok = redis_stats.set(key, "1", nx=True, ex=60 * 60 * 24 * 35)
-
-    if not ok:
-        print("[STATS DUPLICATE IGNORED]", key, flush=True)
-        return False
-
-    _save_rfc_panel_request_log(
-        {
-            **job_data,
-            "item_key": locals().get("item_key") or locals().get("pdf_filename") or locals().get("filename"),
-            "query_type": locals().get("kind") or job_data.get("query_type") or job_data.get("msg_type"),
-        },
-        (
-            locals().get("result")
-            or locals().get("media_result")
-            or locals().get("bot_result")
-            or locals().get("data")
-            or locals().get("resp_json")
-            or locals().get("response_json")
-            or locals().get("internal_result")
-            or {
-                "pdf_url": locals().get("pdf_url"),
-                "filename": locals().get("item_key") or locals().get("filename") or locals().get("pdf_filename"),
-                "detected_query": locals().get("detected_query"),
-            }
-        ),
-        status="DONE",
+    accounting_key = (
+        _commercial_accounting_key(
+            job_data,
+            kind,
+            item_key=item_key,
+        )
     )
 
-    print("[COUNT_SUCCESS]", {
-        "group_jid": group_jid,
-        "group_name": group_name,
-        "kind": kind,
-        "count": count,
-        "item_key": item_key,
-        "msg_id": job_data.get("msg_id"),
-        "media_id": job_data.get("media_id"),
-        "query": job_data.get("query"),
-        "original_text": job_data.get("original_text"),
-    }, flush=True)
-
-    panel_record_success(group_jid=group_jid, group_name=group_name, kind=kind, count=count)
-    cut_record_success(group_jid=group_jid, group_name=group_name, kind=kind, count=count)
-
+    ok = redis_stats.set(
+        key,
+        "1",
+        nx=True,
+        ex=60 * 60 * 24 * 35,
+    )
+    
+    if not ok:
+        print(
+            "[STATS DUPLICATE IGNORED]",
+            key,
+            flush=True,
+        )
+        return False
+    
     try:
+        _save_rfc_panel_request_log(
+            {
+                **job_data,
+                "item_key": item_key,
+                "query_type": kind,
+            },
+            {
+                "filename": item_key,
+            },
+            status="DONE",
+        )
+
         instance_name = (
-            job_data.get("evolution_instance")
-            or job_data.get("instance_name")
+            job_data.get(
+                "evolution_instance"
+            )
+            or job_data.get(
+                "instance_name"
+            )
             or EVOLUTION_INSTANCE
             or "grupo02"
         ).strip()
 
-        _rfc_commercial_after_success(
-            job_data=job_data,
+        commercial_recorded = (
+            _rfc_commercial_after_success(
+                job_data=job_data,
+                group_jid=group_jid,
+                group_name=group_name,
+                instance_name=instance_name,
+                kind=kind,
+                count=count,
+                accounting_key=accounting_key,
+                item_key=item_key,
+            )
+        )
+        
+        if commercial_recorded is False:
+            print(
+                "[RFC_SUCCESS_DUPLICATE_FULLY_IGNORED]",
+                {
+                    "accounting_key": key,
+                    "group_jid": group_jid,
+                    "kind": kind,
+                    "item_key": item_key,
+                },
+                flush=True,
+            )
+        
+            return False
+        
+        panel_record_success(
             group_jid=group_jid,
             group_name=group_name,
-            instance_name=instance_name,
             kind=kind,
-            count=count
+            count=count,
         )
-    except Exception as e:
-        print("[RFC_COMMERCIAL_AFTER_SUCCESS_ERROR]", repr(e), flush=True)
-
-    return True
+    
+        cut_record_success(
+            group_jid=group_jid,
+            group_name=group_name,
+            kind=kind,
+            count=count,
+        )
+    
+        print(
+            "[COUNT_SUCCESS]",
+            {
+                "group_jid": group_jid,
+                "group_name": group_name,
+                "kind": kind,
+                "count": count,
+                "item_key": item_key,
+            },
+            flush=True,
+        )
+    
+        return True
+    
+    except Exception:
+        try:
+            redis_stats.delete(key)
+        except Exception:
+            pass
+    
+        raise
 
 def evolution_headers():
     return {
@@ -1013,6 +1123,7 @@ def process_verifiable_timeout_job(
 
 def record_verifiable_provider_success(
     job_data: dict,
+    count: int = 1,
 ):
     if not bool(
         job_data.get("is_verifiable")
@@ -1096,6 +1207,10 @@ def record_verifiable_provider_success(
             ),
             status="DONE",
             request_key=request_key,
+            count=max(
+                int(count or 1),
+                1,
+            ),
             created_at=datetime.utcnow(),
         )
 
@@ -1110,6 +1225,10 @@ def record_verifiable_provider_success(
                 ),
                 "provider_name": provider_name,
                 "request_key": request_key,
+                "count": max(
+                    int(count or 1),
+                    1,
+                ),
             },
             flush=True,
         )
@@ -1128,6 +1247,8 @@ def record_verifiable_provider_success(
             },
             flush=True,
         )
+
+        raise
 
     finally:
         db.close()
@@ -1332,39 +1453,18 @@ def process_group_request_job(job_data: dict):
                     instance_name=instance_name,
                 )
             
-                mark_delivery_done(
-                    delivery_lock_key,
-                    delivery_done_key,
-                )
-
-                if ok_count > 0:
-                    success_recorded = record_success_once(
-                        job_data=job_data,
-                        group_jid=group_jid,
-                        group_name=group_name,
-                        kind=kind,
-                        count=ok_count,
-                        item_key=delivery_item_key,
-                    )
-                
-                    if success_recorded:
-                        record_verifiable_provider_success(
-                            job_data
-                        )
-            
             except requests.Timeout as media_err:
-                # No liberar: Evolution pudo recibir el ZIP
-                # aunque no devolviera respuesta HTTP.
                 print(
                     "[RFC BATCH ZIP TIMEOUT - CLAIM RETAINED]",
                     repr(media_err),
                     delivery_lock_key,
                     flush=True,
                 )
+                return
             
             except Exception as media_err:
                 print(
-                    "group batch zip media send fail:",
+                    "[RFC BATCH ZIP SEND ERROR]",
                     repr(media_err),
                     flush=True,
                 )
@@ -1376,16 +1476,62 @@ def process_group_request_job(job_data: dict):
                 evolution_send_text_to_group(
                     group_jid,
                     (
-                        f"⚠️ {requester_label} el lote se generó, "
-                        f"pero no pude adjuntarlo.\n{zip_url}"
+                        f"⚠️ {requester_label} "
+                        "el lote se generó, "
+                        "pero no pude adjuntarlo.\n"
+                        f"{zip_url}"
                     ),
                     instance_name=instance_name,
                 )
+            
+                return
+
+            try:
+                if ok_count > 0:
+                    success_recorded = (
+                        record_success_once(
+                            job_data=job_data,
+                            group_jid=group_jid,
+                            group_name=group_name,
+                            kind=kind,
+                            count=ok_count,
+                            item_key=
+                                delivery_item_key,
+                        )
+                    )
+            
+                    if success_recorded:
+                        record_verifiable_provider_success(
+                            job_data,
+                            count=ok_count,
+                        )
+            
+                mark_delivery_done(
+                    delivery_lock_key,
+                    delivery_done_key,
+                )
+            
+            except Exception as accounting_exc:
+                print(
+                    "[RFC BATCH ZIP ACCOUNTING ERROR]",
+                    repr(accounting_exc),
+                    {
+                        "group_jid": group_jid,
+                        "kind": kind,
+                        "count": ok_count,
+                        "item_key":
+                            delivery_item_key,
+                    },
+                    flush=True,
+                )
+            
+                raise
             
             return
 
         if mode == "batch_multi":
             items = result.get("items") or []
+            provider_success_count = 0
 
             for item in items:
                 pdf_url = (item.get("pdf_url") or "").strip()
@@ -1426,60 +1572,86 @@ def process_group_request_job(job_data: dict):
                             file_name=file_name,
                             instance_name=instance_name,
                         )
-                
-                        mark_delivery_done(
-                            delivery_lock_key,
-                            delivery_done_key,
-                        )
-                
-                        success_recorded = record_success_once(
-                            job_data=job_data,
-                            group_jid=group_jid,
-                            group_name=group_name,
-                            kind=kind,
-                            count=1,
-                            item_key=item_key,
-                        )
-                        
-                        if success_recorded:
-                            record_verifiable_provider_success(
-                                job_data
-                            )
-                
+                    
                     except requests.Timeout as media_err:
-                        # No liberar el claim por ambigüedad.
                         print(
                             "[RFC BATCH ITEM TIMEOUT - CLAIM RETAINED]",
                             repr(media_err),
                             delivery_lock_key,
                             flush=True,
                         )
-                
+                        continue
+                    
                     except Exception as media_err:
                         print(
-                            "group batch multi media send fail:",
+                            "[RFC BATCH ITEM SEND ERROR]",
                             repr(media_err),
                             flush=True,
                         )
-                
+                    
                         release_delivery_claim(
                             delivery_lock_key
                         )
-                
+                    
                         evolution_send_text_to_group(
                             group_jid,
                             (
-                                f"⚠️ {requester_label} no pude "
-                                f"adjuntar {file_name}.\n{pdf_url}"
+                                f"⚠️ {requester_label} "
+                                f"no pude adjuntar "
+                                f"{file_name}.\n{pdf_url}"
                             ),
                             instance_name=instance_name,
                         )
+                    
+                        continue
+
+                    try:
+                        success_recorded = (
+                            record_success_once(
+                                job_data=job_data,
+                                group_jid=group_jid,
+                                group_name=group_name,
+                                kind=kind,
+                                count=1,
+                                item_key=item_key,
+                            )
+                        )
+                    
+                        if success_recorded:
+                            provider_success_count += 1
+                    
+                        mark_delivery_done(
+                            delivery_lock_key,
+                            delivery_done_key,
+                        )
+                    
+                    except Exception as accounting_exc:
+                        print(
+                            "[RFC BATCH ITEM ACCOUNTING ERROR]",
+                            repr(accounting_exc),
+                            {
+                                "group_jid": group_jid,
+                                "kind": kind,
+                                "item_key": item_key,
+                            },
+                            flush=True,
+                        )
+                    
+                        raise
+                
                 else:
                     evolution_send_text_to_group(
                         group_jid,
                         f"❌ {requester_label} fallo {rfc} {idcif}: {err or 'error desconocido'}",
                         instance_name=instance_name
                     )
+
+            if provider_success_count > 0:
+                record_verifiable_provider_success(
+                    job_data,
+                    count=provider_success_count,
+                )
+                
             return
 
         pdf_url = (result.get("pdf_url") or "").strip()
@@ -1546,38 +1718,18 @@ def process_group_request_job(job_data: dict):
                 caption=time_caption,
             )
         
-            mark_delivery_done(
-                delivery_lock_key,
-                delivery_done_key,
-            )
-        
-            success_recorded = record_success_once(
-                job_data=job_data,
-                group_jid=group_jid,
-                group_name=group_name,
-                kind=kind,
-                count=1,
-                item_key=delivery_item_key,
-            )
-            
-            if success_recorded:
-                record_verifiable_provider_success(
-                    job_data
-                )
-        
         except requests.Timeout as media_err:
-            # Evolution pudo haber aceptado el documento.
-            # No liberar y no repetir automáticamente.
             print(
                 "[RFC PDF TIMEOUT - CLAIM RETAINED]",
                 repr(media_err),
                 delivery_lock_key,
                 flush=True,
             )
+            return
         
         except Exception as media_err:
             print(
-                "group media send fail:",
+                "[RFC PDF SEND ERROR]",
                 repr(media_err),
                 flush=True,
             )
@@ -1589,12 +1741,53 @@ def process_group_request_job(job_data: dict):
             evolution_send_text_to_group(
                 group_jid,
                 (
-                    f"⚠️ {requester_label} el documento "
-                    f"se generó, pero no pude adjuntarlo.\n"
+                    f"⚠️ {requester_label} "
+                    "el documento se generó, "
+                    "pero no pude adjuntarlo.\n"
                     f"{pdf_url}"
                 ),
                 instance_name=instance_name,
             )
+        
+            return
+
+        try:
+            success_recorded = record_success_once(
+                job_data=job_data,
+                group_jid=group_jid,
+                group_name=group_name,
+                kind=kind,
+                count=1,
+                item_key=delivery_item_key,
+            )
+        
+            if success_recorded:
+                record_verifiable_provider_success(
+                    job_data,
+                    count=1,
+                )
+        
+            mark_delivery_done(
+                delivery_lock_key,
+                delivery_done_key,
+            )
+        
+        except Exception as accounting_exc:
+            print(
+                "[RFC DELIVERY ACCOUNTING ERROR]",
+                repr(accounting_exc),
+                {
+                    "group_jid": group_jid,
+                    "kind": kind,
+                    "item_key":
+                        delivery_item_key,
+                },
+                flush=True,
+            )
+        
+            # No enviar al cliente un mensaje falso
+            # diciendo que el archivo no se adjuntó.
+            raise
 
     except requests.HTTPError as e:
         print("process_group_request_job HTTPError:", repr(e), flush=True)
@@ -2028,15 +2221,6 @@ def _save_rfc_panel_request_log(job_data: dict, result: dict | None = None, stat
         }, flush=True)
 
 
-def _rfc_plan_family(kind: str) -> str:
-    kind = (kind or "").upper().strip()
-    if kind in ("CURP", "RFC_ONLY"):
-        return "CLON"
-    if kind in ("QR", "RFC_IDCIF"):
-        return "IDCIF"
-    return "UNKNOWN"
-
-
 def _rfc_plan_engine():
     import os
     from dotenv import load_dotenv
@@ -2079,393 +2263,6 @@ def _rfc_plan_get(group_jid: str, instance_name: str):
         }).mappings().first()
 
     return dict(row) if row else None
-
-
-def _rfc_plan_check_or_notify(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
-    """
-    Valida saldo antes de generar.
-    CLON: necesita clon_balance > 0.
-    IDCIF: necesita plan semanal activo.
-    """
-    try:
-        from datetime import datetime, timezone
-
-        family = _rfc_plan_family(kind)
-
-        if family == "UNKNOWN":
-            return True
-
-        plan = _rfc_plan_get(group_jid, instance_name)
-
-        requester_label = (
-            job_data.get("requester_label")
-            or job_data.get("requester_name")
-            or ""
-        )
-
-        if not plan:
-            evolution_send_text_to_group(
-                group_jid,
-                f"⚠️ {requester_label} este grupo no tiene bolsa RFC configurada. Contacta al administrador.",
-                instance_name=instance_name
-            )
-            return False
-
-        if family == "CLON":
-            if not plan.get("clon_enabled"):
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} la bolsa RFC CLON está desactivada.",
-                    instance_name=instance_name
-                )
-                return False
-
-            balance = int(plan.get("clon_balance") or 0)
-
-            if balance <= 0:
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} la bolsa RFC CLON se terminó.\n\n"
-                    "Contacta al administrador para recargar.",
-                    instance_name=instance_name
-                )
-                return False
-
-            return True
-
-        if family == "IDCIF":
-            if not plan.get("idcif_enabled"):
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} el plan semanal RFC IDCIF no está activo.",
-                    instance_name=instance_name
-                )
-                return False
-
-            expires_at = plan.get("idcif_expires_at")
-
-            if not expires_at:
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} el plan semanal RFC IDCIF no tiene fecha activa.",
-                    instance_name=instance_name
-                )
-                return False
-
-            now = datetime.now(timezone.utc)
-
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-            if expires_at <= now:
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} el plan semanal RFC IDCIF venció.\n\n"
-                    "Contacta al administrador para renovar.",
-                    instance_name=instance_name
-                )
-                return False
-
-            return True
-
-        return True
-
-    except Exception as e:
-        print("[RFC_PLAN_CHECK_ERROR]", repr(e), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "kind": kind,
-        }, flush=True)
-        return True
-
-
-def _rfc_plan_deduct_success(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    """
-    Descuenta SOLO cuando ya fue éxito y record_success_once aceptó contar.
-    CLON: descuenta piezas.
-    IDCIF: solo suma uso semanal.
-    """
-    try:
-        from sqlalchemy import text
-
-        family = _rfc_plan_family(kind)
-
-        if family == "UNKNOWN":
-            return
-
-        engine = _rfc_plan_engine()
-
-        with engine.begin() as conn:
-            if family == "CLON":
-                conn.execute(text("""
-                    UPDATE rfc_group_plans
-                    SET
-                        clon_balance = GREATEST(clon_balance - :count, 0),
-                        clon_used = clon_used + :count,
-                        updated_at = now()
-                    WHERE group_jid = :group_jid
-                      AND instance_name = :instance_name
-                """), {
-                    "count": int(count or 1),
-                    "group_jid": group_jid,
-                    "instance_name": instance_name,
-                })
-
-                print("[RFC_CLON_DEDUCTED]", {
-                    "group_jid": group_jid,
-                    "instance_name": instance_name,
-                    "kind": kind,
-                    "count": count,
-                }, flush=True)
-
-            elif family == "IDCIF":
-                conn.execute(text("""
-                    UPDATE rfc_group_plans
-                    SET
-                        idcif_used = idcif_used + :count,
-                        updated_at = now()
-                    WHERE group_jid = :group_jid
-                      AND instance_name = :instance_name
-                """), {
-                    "count": int(count or 1),
-                    "group_jid": group_jid,
-                    "instance_name": instance_name,
-                })
-
-                print("[RFC_IDCIF_USED_INC]", {
-                    "group_jid": group_jid,
-                    "instance_name": instance_name,
-                    "kind": kind,
-                    "count": count,
-                }, flush=True)
-
-    except Exception as e:
-        print("[RFC_PLAN_DEDUCT_ERROR]", repr(e), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "kind": kind,
-            "count": count,
-        }, flush=True)
-
-
-def _rfc_plan_family(kind: str) -> str:
-    kind = (kind or "").upper().strip()
-    if kind in ("CURP", "RFC_ONLY"):
-        return "CLON"
-    if kind in ("QR", "RFC_IDCIF"):
-        return "IDCIF"
-    return "UNKNOWN"
-
-
-def _rfc_plan_engine():
-    import os
-    from dotenv import load_dotenv
-    from sqlalchemy import create_engine
-
-    load_dotenv("/opt/rfc-grupo02-bot/.env")
-    db_url = os.getenv("DATABASE_URL", "").strip()
-    if not db_url:
-        raise RuntimeError("DATABASE_URL_EMPTY")
-    return create_engine(db_url, pool_pre_ping=True)
-
-
-def _rfc_plan_get(group_jid: str, instance_name: str):
-    from sqlalchemy import text
-
-    engine = _rfc_plan_engine()
-
-    with engine.begin() as conn:
-        row = conn.execute(text("""
-            SELECT
-                group_jid,
-                instance_name,
-                group_name,
-                clon_enabled,
-                clon_balance,
-                clon_used,
-                clon_price,
-                idcif_enabled,
-                idcif_weekly_price,
-                idcif_starts_at,
-                idcif_expires_at,
-                idcif_used
-            FROM rfc_group_plans
-            WHERE group_jid = :group_jid
-              AND instance_name = :instance_name
-            LIMIT 1
-        """), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-        }).mappings().first()
-
-    return dict(row) if row else None
-
-
-def _rfc_plan_check_or_notify(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
-    """
-    Valida saldo antes de generar.
-    CLON: necesita clon_balance > 0.
-    IDCIF: necesita plan semanal activo.
-    """
-    try:
-        from datetime import datetime, timezone
-
-        family = _rfc_plan_family(kind)
-
-        if family == "UNKNOWN":
-            return True
-
-        plan = _rfc_plan_get(group_jid, instance_name)
-
-        requester_label = (
-            job_data.get("requester_label")
-            or job_data.get("requester_name")
-            or ""
-        )
-
-        if not plan:
-            evolution_send_text_to_group(
-                group_jid,
-                f"⚠️ {requester_label} este grupo no tiene bolsa RFC configurada. Contacta al administrador.",
-                instance_name=instance_name
-            )
-            return False
-
-        if family == "CLON":
-            if not plan.get("clon_enabled"):
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} la bolsa RFC CLON está desactivada.",
-                    instance_name=instance_name
-                )
-                return False
-
-            balance = int(plan.get("clon_balance") or 0)
-
-            if balance <= 0:
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} la bolsa RFC CLON se terminó.\n\n"
-                    "Contacta al administrador para recargar.",
-                    instance_name=instance_name
-                )
-                return False
-
-            return True
-
-        if family == "IDCIF":
-            if not plan.get("idcif_enabled"):
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} el plan semanal RFC IDCIF no está activo.",
-                    instance_name=instance_name
-                )
-                return False
-
-            expires_at = plan.get("idcif_expires_at")
-
-            if not expires_at:
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} el plan semanal RFC IDCIF no tiene fecha activa.",
-                    instance_name=instance_name
-                )
-                return False
-
-            now = datetime.now(timezone.utc)
-
-            if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-            if expires_at <= now:
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} el plan semanal RFC IDCIF venció.\n\n"
-                    "Contacta al administrador para renovar.",
-                    instance_name=instance_name
-                )
-                return False
-
-            return True
-
-        return True
-
-    except Exception as e:
-        print("[RFC_PLAN_CHECK_ERROR]", repr(e), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "kind": kind,
-        }, flush=True)
-        return True
-
-
-def _rfc_plan_deduct_success(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    """
-    Descuenta SOLO cuando ya fue éxito y record_success_once aceptó contar.
-    CLON: descuenta piezas.
-    IDCIF: solo suma uso semanal.
-    """
-    try:
-        from sqlalchemy import text
-
-        family = _rfc_plan_family(kind)
-
-        if family == "UNKNOWN":
-            return
-
-        engine = _rfc_plan_engine()
-
-        with engine.begin() as conn:
-            if family == "CLON":
-                conn.execute(text("""
-                    UPDATE rfc_group_plans
-                    SET
-                        clon_balance = GREATEST(clon_balance - :count, 0),
-                        clon_used = clon_used + :count,
-                        updated_at = now()
-                    WHERE group_jid = :group_jid
-                      AND instance_name = :instance_name
-                """), {
-                    "count": int(count or 1),
-                    "group_jid": group_jid,
-                    "instance_name": instance_name,
-                })
-
-                print("[RFC_CLON_DEDUCTED]", {
-                    "group_jid": group_jid,
-                    "instance_name": instance_name,
-                    "kind": kind,
-                    "count": count,
-                }, flush=True)
-
-            elif family == "IDCIF":
-                conn.execute(text("""
-                    UPDATE rfc_group_plans
-                    SET
-                        idcif_used = idcif_used + :count,
-                        updated_at = now()
-                    WHERE group_jid = :group_jid
-                      AND instance_name = :instance_name
-                """), {
-                    "count": int(count or 1),
-                    "group_jid": group_jid,
-                    "instance_name": instance_name,
-                })
-
-                print("[RFC_IDCIF_USED_INC]", {
-                    "group_jid": group_jid,
-                    "instance_name": instance_name,
-                    "kind": kind,
-                    "count": count,
-                }, flush=True)
-
-    except Exception as e:
-        print("[RFC_PLAN_DEDUCT_ERROR]", repr(e), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "kind": kind,
-            "count": count,
-        }, flush=True)
 
 
 # =========================================================
@@ -2566,266 +2363,6 @@ def _rfc_ensure_bot_control(conn, instance_name: str):
     }
 
 
-def _rfc_commercial_check_or_notify(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
-    """
-    Antes de generar PDF:
-    - CURP/RFC_ONLY valida saldo/límite del bot interno en bot_control.
-    - QR/RFC_IDCIF valida plan semanal IDCIF del owner grupo02.
-    """
-    try:
-        from datetime import datetime, timezone
-        from sqlalchemy import text
-
-        family = _rfc_kind_family(kind)
-
-        if family == "UNKNOWN":
-            return True
-
-        requester_label = (
-            job_data.get("requester_label")
-            or job_data.get("requester_name")
-            or ""
-        )
-
-        engine = _rfc_commercial_engine()
-
-        # =========================
-        # CLON: por bot_control
-        # =========================
-        if family == "CLON":
-            with engine.begin() as conn:
-                row = _rfc_ensure_bot_control(conn, instance_name)
-
-                limit_value = int(row.get("limit") or 0)
-                used_value = int(row.get("used") or 0)
-                is_blocked = bool(row.get("is_blocked"))
-                is_active = bool(row.get("is_active"))
-
-                if not is_active:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} este bot interno no está activo.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                if is_blocked:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} este bot interno está bloqueado o sin saldo RFC CLON.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                # limit=0 significa ilimitado, igual que el panel actual muestra ∞
-                if limit_value > 0 and used_value >= limit_value:
-                    conn.execute(text("""
-                        UPDATE bot_control
-                        SET
-                            is_blocked = TRUE,
-                            updated_at = now()
-                        WHERE instance_name = :instance_name
-                    """), {
-                        "instance_name": instance_name,
-                    })
-
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} este bot interno ya no tiene RFC CLON disponibles.\n\n"
-                        "Contacta al administrador para recarga.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-            return True
-
-        # =========================
-        # IDCIF: plan semanal owner grupo02
-        # =========================
-        if family == "IDCIF":
-            owner = _rfc_owner_instance()
-
-            with engine.begin() as conn:
-                wallet = conn.execute(text("""
-                    SELECT
-                        owner_instance,
-                        idcif_enabled,
-                        idcif_expires_at
-                    FROM rfc_owner_wallets
-                    WHERE owner_instance = :owner
-                    LIMIT 1
-                """), {
-                    "owner": owner,
-                }).mappings().first()
-
-                if not wallet:
-                    conn.execute(text("""
-                        INSERT INTO rfc_owner_wallets (
-                            owner_instance,
-                            owner_name,
-                            idcif_enabled,
-                            idcif_weekly_price,
-                            created_at,
-                            updated_at
-                        )
-                        VALUES (
-                            :owner,
-                            :owner_name,
-                            FALSE,
-                            500.00,
-                            now(),
-                            now()
-                        )
-                        ON CONFLICT (owner_instance)
-                        DO NOTHING
-                    """), {
-                        "owner": owner,
-                        "owner_name": owner.upper(),
-                    })
-
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no está activo.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                if not bool(wallet.get("idcif_enabled")):
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no está activo.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                expires_at = wallet.get("idcif_expires_at")
-
-                if not expires_at:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no tiene vigencia activa.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                now = datetime.now(timezone.utc)
-
-                if expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-                if expires_at <= now:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF venció.\n\n"
-                        "Contacta al administrador para renovar.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-            return True
-
-        return True
-
-    except Exception as e:
-        print("[RFC_COMMERCIAL_CHECK_ERROR]", repr(e), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "kind": kind,
-        }, flush=True)
-
-        # Si falla la validación por error interno, NO generamos para evitar consumo sin control.
-        try:
-            evolution_send_text_to_group(
-                group_jid,
-                "⚠️ Ocurrió un error validando saldo/plan RFC. Intenta de nuevo en unos minutos.",
-                instance_name=instance_name
-            )
-        except Exception:
-            pass
-
-        return False
-
-
-def _rfc_commercial_after_success(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    """
-    Después de DONE:
-    - CURP/RFC_ONLY incrementa used del bot interno.
-    - QR/RFC_IDCIF incrementa uso IDCIF semanal del owner grupo02.
-    """
-    try:
-        from sqlalchemy import text
-
-        family = _rfc_kind_family(kind)
-
-        if family == "UNKNOWN":
-            return
-
-        engine = _rfc_commercial_engine()
-        count = int(count or 1)
-
-        if family == "CLON":
-            with engine.begin() as conn:
-                _rfc_ensure_bot_control(conn, instance_name)
-
-                conn.execute(text("""
-                    UPDATE bot_control
-                    SET
-                        used = used + :count,
-                        is_blocked = CASE
-                            WHEN "limit" > 0 AND (used + :count) >= "limit"
-                            THEN TRUE
-                            ELSE is_blocked
-                        END,
-                        updated_at = now()
-                    WHERE instance_name = :instance_name
-                """), {
-                    "count": count,
-                    "instance_name": instance_name,
-                })
-
-            print("[RFC_CLON_BOT_USED_INC]", {
-                "instance_name": instance_name,
-                "group_jid": group_jid,
-                "kind": kind,
-                "count": count,
-            }, flush=True)
-
-            return
-
-        if family == "IDCIF":
-            owner = _rfc_owner_instance()
-
-            with engine.begin() as conn:
-                conn.execute(text("""
-                    UPDATE rfc_owner_wallets
-                    SET
-                        idcif_used = idcif_used + :count,
-                        updated_at = now()
-                    WHERE owner_instance = :owner
-                """), {
-                    "count": count,
-                    "owner": owner,
-                })
-
-            print("[RFC_IDCIF_OWNER_USED_INC]", {
-                "owner": owner,
-                "instance_name": instance_name,
-                "group_jid": group_jid,
-                "kind": kind,
-                "count": count,
-            }, flush=True)
-
-            return
-
-    except Exception as e:
-        print("[RFC_COMMERCIAL_AFTER_SUCCESS_ERROR]", repr(e), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "kind": kind,
-            "count": count,
-        }, flush=True)
-
-
 # =========================================================
 # OVERRIDE FINAL RFC GRUPO02
 # Modelo correcto:
@@ -2834,13 +2371,26 @@ def _rfc_commercial_after_success(job_data: dict, group_jid: str, group_name: st
 # - NO usar rfc_group_plans.
 # =========================================================
 
-def _rfc_plan_family(kind: str) -> str:
-    k = (kind or "").strip().upper()
+def _rfc_plan_family(
+    kind: str,
+) -> str:
+    kind = (
+        kind or ""
+    ).upper().strip()
 
-    if k in ("CURP", "RFC_ONLY", "RFC"):
+    if kind == "RFC_VERIFICABLE":
+        return "VERIFICABLE"
+
+    if kind in (
+        "CURP",
+        "RFC_ONLY",
+    ):
         return "CLON"
 
-    if k in ("QR", "RFC_IDCIF", "IDCIF"):
+    if kind in (
+        "QR",
+        "RFC_IDCIF",
+    ):
         return "IDCIF"
 
     return "UNKNOWN"
@@ -2913,293 +2463,12 @@ def _rfc_global_wallet_ensure(conn, owner: str):
     })
 
 
-def _rfc_plan_check_or_notify(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
-    """
-    OVERRIDE FINAL.
-    Antes de procesar:
-    - CLON revisa saldo global rfc_owner_wallets.clon_balance.
-    - IDCIF revisa plan semanal global rfc_owner_wallets.idcif_expires_at.
-    """
-    try:
-        from datetime import datetime, timezone
-        from sqlalchemy import text
-
-        family = _rfc_plan_family(kind)
-
-        if family == "UNKNOWN":
-            return True
-
-        owner = _rfc_global_wallet_owner()
-        engine = _rfc_global_wallet_engine()
-
-        requester_label = (
-            job_data.get("requester_label")
-            or job_data.get("requester_name")
-            or ""
-        )
-
-        with engine.begin() as conn:
-            _rfc_global_wallet_ensure(conn, owner)
-
-            wallet = conn.execute(text("""
-                SELECT
-                    owner_instance,
-                    clon_balance,
-                    clon_used,
-                    idcif_enabled,
-                    idcif_expires_at,
-                    idcif_used
-                FROM rfc_owner_wallets
-                WHERE owner_instance = :owner
-                LIMIT 1
-            """), {
-                "owner": owner,
-            }).mappings().first()
-
-            if not wallet:
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} no hay saldo RFC configurado.",
-                    instance_name=instance_name
-                )
-                return False
-
-            if family == "CLON":
-                balance = int(wallet.get("clon_balance") or 0)
-
-                if balance <= 0:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el panel ya no tiene RFC CLON disponibles.\n\n"
-                        "Contacta al administrador para recargar.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                print("[RFC_CLON_GLOBAL_CHECK_OK]", {
-                    "owner": owner,
-                    "instance_name": instance_name,
-                    "group_jid": group_jid,
-                    "kind": kind,
-                    "balance": balance,
-                }, flush=True)
-
-                return True
-
-            if family == "IDCIF":
-                if not bool(wallet.get("idcif_enabled")):
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no está activo.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                expires_at = wallet.get("idcif_expires_at")
-
-                if not expires_at:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no tiene vigencia activa.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                now = datetime.now(timezone.utc)
-
-                if expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-                if expires_at <= now:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF venció.\n\n"
-                        "Contacta al administrador para renovar.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                print("[RFC_IDCIF_GLOBAL_CHECK_OK]", {
-                    "owner": owner,
-                    "instance_name": instance_name,
-                    "group_jid": group_jid,
-                    "kind": kind,
-                    "expires_at": str(expires_at),
-                }, flush=True)
-
-                return True
-
-        return True
-
-    except Exception as e:
-        print("[RFC_GLOBAL_CHECK_ERROR]", repr(e), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "kind": kind,
-        }, flush=True)
-
-        try:
-            evolution_send_text_to_group(
-                group_jid,
-                "⚠️ Error validando saldo RFC. Intenta de nuevo.",
-                instance_name=instance_name
-            )
-        except Exception:
-            pass
-
-        return False
-
-
-def _rfc_plan_deduct_success(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    """
-    OVERRIDE FINAL.
-    Después de DONE:
-    - CLON descuenta saldo global grupo02.
-    - IDCIF suma uso global IDCIF.
-    - También suma bot_control.used para auditoría por bot interno.
-    """
-    try:
-        from sqlalchemy import text
-
-        family = _rfc_plan_family(kind)
-
-        if family == "UNKNOWN":
-            print("[RFC_GLOBAL_DEDUCT_SKIP_UNKNOWN]", {
-                "kind": kind,
-                "instance_name": instance_name,
-                "group_jid": group_jid,
-            }, flush=True)
-            return
-
-        owner = _rfc_global_wallet_owner()
-        engine = _rfc_global_wallet_engine()
-        count = int(count or 1)
-
-        with engine.begin() as conn:
-            _rfc_global_wallet_ensure(conn, owner)
-
-            if family == "CLON":
-                conn.execute(text("""
-                    UPDATE rfc_owner_wallets
-                    SET
-                        clon_balance = GREATEST(clon_balance - :count, 0),
-                        clon_used = clon_used + :count,
-                        updated_at = now()
-                    WHERE owner_instance = :owner
-                """), {
-                    "count": count,
-                    "owner": owner,
-                })
-
-                print("[RFC_CLON_GLOBAL_DEDUCTED]", {
-                    "owner": owner,
-                    "instance_name": instance_name,
-                    "group_jid": group_jid,
-                    "kind": kind,
-                    "count": count,
-                }, flush=True)
-
-            elif family == "IDCIF":
-                conn.execute(text("""
-                    UPDATE rfc_owner_wallets
-                    SET
-                        idcif_used = idcif_used + :count,
-                        updated_at = now()
-                    WHERE owner_instance = :owner
-                """), {
-                    "count": count,
-                    "owner": owner,
-                })
-
-                print("[RFC_IDCIF_GLOBAL_USED_INC]", {
-                    "owner": owner,
-                    "instance_name": instance_name,
-                    "group_jid": group_jid,
-                    "kind": kind,
-                    "count": count,
-                }, flush=True)
-
-            # Auditoría por bot interno en el panel.
-            # Esto NO controla saldo real; solo deja ver qué bot consumió.
-            conn.execute(text("""
-                INSERT INTO bot_control (
-                    instance_name,
-                    label,
-                    panel_token,
-                    "limit",
-                    used,
-                    recharges,
-                    is_blocked,
-                    is_active,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    :instance_name,
-                    :instance_name,
-                    NULL,
-                    0,
-                    :count,
-                    0,
-                    FALSE,
-                    TRUE,
-                    now(),
-                    now()
-                )
-                ON CONFLICT (instance_name)
-                DO UPDATE SET
-                    used = bot_control.used + :count,
-                    updated_at = now()
-            """), {
-                "instance_name": instance_name,
-                "count": count,
-            })
-
-    except Exception as e:
-        print("[RFC_GLOBAL_DEDUCT_ERROR]", repr(e), {
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "kind": kind,
-            "count": count,
-        }, flush=True)
-
-
 # =========================================================
 # OVERRIDE DEFINITIVO RFC GRUPO02
 # CLON = saldo global rfc_owner_wallets.clon_balance
 # IDCIF = plan semanal global rfc_owner_wallets.idcif_expires_at
 # NO usar rfc_group_plans ni saldo por bot.
 # =========================================================
-
-def _rfc_final_owner_instance() -> str:
-    import os
-    return (os.getenv("RFC_OWNER_INSTANCE") or "grupo02").strip()
-
-
-def _rfc_final_engine():
-    import os
-    from dotenv import load_dotenv
-    from sqlalchemy import create_engine
-
-    load_dotenv("/opt/rfc-grupo02-bot/.env")
-    db_url = (os.getenv("DATABASE_URL") or "").strip()
-
-    if not db_url:
-        raise RuntimeError("DATABASE_URL_EMPTY")
-
-    return create_engine(db_url, pool_pre_ping=True)
-
-
-def _rfc_final_family(kind: str) -> str:
-    k = (kind or "").strip().upper()
-
-    if k in ("CURP", "RFC", "RFC_ONLY"):
-        return "CLON"
-
-    if k in ("QR", "IDCIF", "RFC_IDCIF"):
-        return "IDCIF"
-
-    return "UNKNOWN"
 
 
 def _rfc_final_ensure_wallet(conn, owner: str):
@@ -3250,262 +2519,7 @@ def _rfc_final_ensure_wallet(conn, owner: str):
     })
 
 
-def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
-    try:
-        from datetime import datetime, timezone
-        from sqlalchemy import text
-
-        family = _rfc_final_family(kind)
-
-        if family == "UNKNOWN":
-            return True
-
-        owner = _rfc_final_owner_instance()
-        engine = _rfc_final_engine()
-
-        requester_label = (
-            job_data.get("requester_label")
-            or job_data.get("requester_name")
-            or ""
-        )
-
-        with engine.begin() as conn:
-            _rfc_final_ensure_wallet(conn, owner)
-
-            wallet = conn.execute(text("""
-                SELECT
-                    owner_instance,
-                    clon_balance,
-                    clon_used,
-                    idcif_enabled,
-                    idcif_expires_at,
-                    idcif_used
-                FROM rfc_owner_wallets
-                WHERE owner_instance = :owner
-                LIMIT 1
-            """), {
-                "owner": owner,
-            }).mappings().first()
-
-            if not wallet:
-                evolution_send_text_to_group(
-                    group_jid,
-                    f"⚠️ {requester_label} no hay saldo RFC configurado.",
-                    instance_name=instance_name
-                )
-                return False
-
-            if family == "CLON":
-                balance = int(wallet.get("clon_balance") or 0)
-
-                if balance <= 0:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el panel ya no tiene RFC CLON disponibles.\n\n"
-                        "Contacta al administrador para recargar.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                print("[RFC_CLON_GLOBAL_CHECK_OK]", {
-                    "owner": owner,
-                    "instance_name": instance_name,
-                    "group_jid": group_jid,
-                    "kind": kind,
-                    "balance": balance,
-                }, flush=True)
-
-                return True
-
-            if family == "IDCIF":
-                if not bool(wallet.get("idcif_enabled")):
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no está activo.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                expires_at = wallet.get("idcif_expires_at")
-
-                if not expires_at:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no tiene vigencia activa.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                now = datetime.now(timezone.utc)
-
-                if expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-                if expires_at <= now:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF venció.\n\n"
-                        "Contacta al administrador para renovar.",
-                        instance_name=instance_name
-                    )
-                    return False
-
-                print("[RFC_IDCIF_GLOBAL_CHECK_OK]", {
-                    "owner": owner,
-                    "instance_name": instance_name,
-                    "group_jid": group_jid,
-                    "kind": kind,
-                    "expires_at": str(expires_at),
-                }, flush=True)
-
-                return True
-
-        return True
-
-    except Exception as e:
-        print("[RFC_FINAL_GLOBAL_CHECK_ERROR]", repr(e), {
-            "kind": kind,
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-        }, flush=True)
-
-        try:
-            evolution_send_text_to_group(
-                group_jid,
-                "⚠️ Error validando saldo RFC. Intenta de nuevo.",
-                instance_name=instance_name
-            )
-        except Exception:
-            pass
-
-        return False
-
-
-def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    try:
-        from sqlalchemy import text
-
-        family = _rfc_final_family(kind)
-
-        if family == "UNKNOWN":
-            print("[RFC_FINAL_GLOBAL_SKIP_UNKNOWN]", {
-                "kind": kind,
-                "instance_name": instance_name,
-                "group_jid": group_jid,
-            }, flush=True)
-            return
-
-        owner = _rfc_final_owner_instance()
-        engine = _rfc_final_engine()
-        count = int(count or 1)
-
-        with engine.begin() as conn:
-            _rfc_final_ensure_wallet(conn, owner)
-
-            if family == "CLON":
-                conn.execute(text("""
-                    UPDATE rfc_owner_wallets
-                    SET
-                        clon_balance = GREATEST(clon_balance - :count, 0),
-                        clon_used = clon_used + :count,
-                        updated_at = now()
-                    WHERE owner_instance = :owner
-                """), {
-                    "count": count,
-                    "owner": owner,
-                })
-
-                print("[RFC_CLON_GLOBAL_DEDUCTED]", {
-                    "owner": owner,
-                    "instance_name": instance_name,
-                    "group_jid": group_jid,
-                    "kind": kind,
-                    "count": count,
-                }, flush=True)
-                _rfc_clear_panel_cache_v2()
-
-            elif family == "IDCIF":
-                conn.execute(text("""
-                    UPDATE rfc_owner_wallets
-                    SET
-                        idcif_used = idcif_used + :count,
-                        updated_at = now()
-                    WHERE owner_instance = :owner
-                """), {
-                    "count": count,
-                    "owner": owner,
-                })
-
-                print("[RFC_IDCIF_GLOBAL_USED_INC]", {
-                    "owner": owner,
-                    "instance_name": instance_name,
-                    "group_jid": group_jid,
-                    "kind": kind,
-                    "count": count,
-                }, flush=True)
-                _rfc_clear_panel_cache_v2()
-
-            # Solo auditoría por bot; no controla saldo real.
-            conn.execute(text("""
-                INSERT INTO bot_control (
-                    instance_name,
-                    label,
-                    panel_token,
-                    "limit",
-                    used,
-                    recharges,
-                    is_blocked,
-                    is_active,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    :instance_name,
-                    :instance_name,
-                    NULL,
-                    0,
-                    :count,
-                    0,
-                    FALSE,
-                    TRUE,
-                    now(),
-                    now()
-                )
-                ON CONFLICT (instance_name)
-                DO UPDATE SET
-                    used = bot_control.used + :count,
-                    updated_at = now()
-            """), {
-                "instance_name": instance_name,
-                "count": count,
-            })
-
-    except Exception as e:
-        print("[RFC_FINAL_GLOBAL_AFTER_ERROR]", repr(e), {
-            "kind": kind,
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "count": count,
-        }, flush=True)
-
-
 # Alias para pisar todas las funciones viejas que el código ya llama.
-def _rfc_plan_check_or_notify(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
-    return _rfc_final_check_global(job_data, group_jid, group_name, instance_name, kind)
-
-
-def _rfc_commercial_check_or_notify(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
-    return _rfc_final_check_global(job_data, group_jid, group_name, instance_name, kind)
-
-
-def _rfc_plan_deduct_success(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    return _rfc_final_after_success_global(job_data, group_jid, group_name, instance_name, kind, count)
-
-
-def _rfc_commercial_after_success(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    return _rfc_final_after_success_global(job_data, group_jid, group_name, instance_name, kind, count)
-
-
 def _rfc_clear_panel_cache_after_success():
     try:
         import os
@@ -3672,7 +2686,14 @@ def _rfc_final_ensure_wallet_and_bot(conn, owner: str, instance_name: str):
     })
 
 
-def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
+def _rfc_final_check_global(
+    job_data: dict,
+    group_jid: str,
+    group_name: str,
+    instance_name: str,
+    kind: str,
+    count: int = 1,
+) -> bool:
     try:
         from datetime import datetime, timezone
         from sqlalchemy import text
@@ -3683,6 +2704,7 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
 
         owner = _rfc_final_owner_instance()
         engine = _rfc_final_engine()
+        count = int(count or 1)
 
         requester_label = job_data.get("requester_label") or job_data.get("requester_name") or ""
 
@@ -3947,8 +2969,161 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                 
                     return False
 
+                group_promo = conn.execute(
+                    text("""
+                        SELECT
+                            id,
+                            COALESCE(
+                                verifiable_total,
+                                0
+                            ) AS verifiable_total,
+                
+                            COALESCE(
+                                verifiable_used,
+                                0
+                            ) AS verifiable_used,
+                
+                            COALESCE(
+                                shared_group_limit_verifiable,
+                                0
+                            ) AS shared_limit_verifiable,
+                
+                            COALESCE(
+                                shared_group_used_verifiable,
+                                0
+                            ) AS shared_used_verifiable,
+                
+                            COALESCE(
+                                shared_key,
+                                ''
+                            ) AS shared_key,
+                
+                            is_active
+                
+                        FROM group_promotions
+                
+                        WHERE group_jid = :group_jid
+                          AND is_active = TRUE
+                
+                        ORDER BY
+                            updated_at DESC NULLS LAST,
+                            id DESC
+                
+                        LIMIT 1
+                    """),
+                    {
+                        "group_jid": group_jid,
+                    },
+                ).mappings().first()
+
+                if group_promo:
+                    group_total = int(
+                        group_promo.get(
+                            "verifiable_total"
+                        )
+                        or 0
+                    )
+                
+                    group_used = int(
+                        group_promo.get(
+                            "verifiable_used"
+                        )
+                        or 0
+                    )
+
+                    if group_total <= 0:
+                        evolution_send_text_to_group(
+                            group_jid,
+                            (
+                                f"⚠️ {requester_label} "
+                                "este grupo no tiene una bolsa "
+                                "de RFC verificables asignada."
+                            ),
+                            instance_name=instance_name,
+                        )
+                    
+                        print(
+                            "[RFC_VERIFICABLE_GROUP_NOT_ASSIGNED]",
+                            {
+                                "group_jid": group_jid,
+                                "verifiable_total":
+                                    group_total,
+                            },
+                            flush=True,
+                        )
+                    
+                        return False
+                
+                    if group_used >= group_total:
+                        evolution_send_text_to_group(
+                            group_jid,
+                            (
+                                f"⚠️ {requester_label} "
+                                "este grupo ya no tiene "
+                                "RFC verificables disponibles."
+                            ),
+                            instance_name=instance_name,
+                        )
+                
+                        print(
+                            "[RFC_VERIFICABLE_GROUP_LIMIT_REACHED]",
+                            {
+                                "group_jid": group_jid,
+                                "verifiable_total":
+                                    group_total,
+                                "verifiable_used":
+                                    group_used,
+                            },
+                            flush=True,
+                        )
+                
+                        return False
+                
+                    shared_limit = int(
+                        group_promo.get(
+                            "shared_limit_verifiable"
+                        )
+                        or 0
+                    )
+                
+                    shared_used = int(
+                        group_promo.get(
+                            "shared_used_verifiable"
+                        )
+                        or 0
+                    )
+                
+                    if (
+                        shared_limit > 0
+                        and shared_used >= shared_limit
+                    ):
+                        evolution_send_text_to_group(
+                            group_jid,
+                            (
+                                f"⚠️ {requester_label} "
+                                "este grupo alcanzó su "
+                                "límite de RFC verificables "
+                                "dentro de la bolsa compartida."
+                            ),
+                            instance_name=instance_name,
+                        )
+                
+                        print(
+                            "[RFC_VERIFICABLE_SHARED_GROUP_LIMIT_REACHED]",
+                            {
+                                "group_jid": group_jid,
+                                "shared_limit":
+                                    shared_limit,
+                                "shared_used":
+                                    shared_used,
+                            },
+                            flush=True,
+                        )
+                
+                        return False
+
                 print(
-                    "[RFC_VERIFICABLE_BOT_CHECK_OK]",
+                    "[RFC_VERIFICABLE_BOT_AND_GROUP_CHECK_OK]",
                     {
                         "instance_name": instance_name,
                         "group_jid": group_jid,
@@ -3973,6 +3148,29 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
                                 "sale_price_verifiable"
                             )
                             or 0
+                        ),
+                        "group_promo_found": bool(
+                            group_promo
+                        ),
+                        "group_verifiable_total": (
+                            int(
+                                group_promo.get(
+                                    "verifiable_total"
+                                )
+                                or 0
+                            )
+                            if group_promo
+                            else None
+                        ),
+                        "group_verifiable_used": (
+                            int(
+                                group_promo.get(
+                                    "verifiable_used"
+                                )
+                                or 0
+                            )
+                            if group_promo
+                            else None
                         ),
                     },
                     flush=True,
@@ -3999,7 +3197,7 @@ def _rfc_final_check_global(job_data: dict, group_jid: str, group_name: str, ins
         return False
 
 
-def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
+def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1, accounting_key: str = "", item_key: str = ""):
     try:
         from sqlalchemy import text
 
@@ -4013,6 +3211,70 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
 
         with engine.begin() as conn:
             _rfc_final_ensure_wallet_and_bot(conn, owner, instance_name)
+
+            if not accounting_key:
+                raise RuntimeError(
+                    "RFC_ACCOUNTING_KEY_EMPTY"
+                )
+            
+            accounting_result = conn.execute(
+                text("""
+                    INSERT INTO rfc_delivery_accounting (
+                        accounting_key,
+                        instance_name,
+                        group_jid,
+                        kind,
+                        item_key,
+                        count,
+                        created_at
+                    )
+                    VALUES (
+                        :accounting_key,
+                        :instance_name,
+                        :group_jid,
+                        :kind,
+                        :item_key,
+                        :count,
+                        now()
+                    )
+                    ON CONFLICT (
+                        accounting_key
+                    )
+                    DO NOTHING
+                """),
+                {
+                    "accounting_key":
+                        accounting_key,
+                    "instance_name":
+                        instance_name,
+                    "group_jid":
+                        group_jid,
+                    "kind":
+                        kind,
+                    "item_key":
+                        item_key,
+                    "count":
+                        count,
+                },
+            )
+            
+            if accounting_result.rowcount == 0:
+                print(
+                    "[RFC_COMMERCIAL_DUPLICATE_IGNORED]",
+                    {
+                        "accounting_key":
+                            accounting_key,
+                        "group_jid":
+                            group_jid,
+                        "kind":
+                            kind,
+                        "item_key":
+                            item_key,
+                    },
+                    flush=True,
+                )
+            
+                return False
 
             if family == "CLON":
                 conn.execute(text("""
@@ -4102,24 +3364,354 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                 }, flush=True)
 
             elif family == "VERIFICABLE":
-                conn.execute(text("""
-                    UPDATE bot_control
-                    SET
-                        verifiable_used =
-                            COALESCE(verifiable_used, 0)
-                            + :count,
-            
-                        used =
-                            COALESCE(used, 0)
-                            + :count,
-            
-                        updated_at = now()
-            
-                    WHERE instance_name = :instance_name
-                """), {
-                    "count": count,
-                    "instance_name": instance_name,
-                })
+                promo = conn.execute(
+                    text("""
+                        SELECT
+                            id,
+                            group_jid,
+                            COALESCE(
+                                shared_key,
+                                ''
+                            ) AS shared_key,
+                
+                            COALESCE(
+                                verifiable_total,
+                                0
+                            ) AS verifiable_total,
+                
+                            COALESCE(
+                                verifiable_used,
+                                0
+                            ) AS verifiable_used,
+                
+                            COALESCE(
+                                shared_group_limit_verifiable,
+                                0
+                            ) AS shared_limit_verifiable,
+                
+                            COALESCE(
+                                shared_group_used_verifiable,
+                                0
+                            ) AS shared_used_verifiable
+                
+                        FROM group_promotions
+                
+                        WHERE group_jid = :group_jid
+                          AND is_active = TRUE
+                
+                        ORDER BY
+                            updated_at DESC NULLS LAST,
+                            id DESC
+                
+                        LIMIT 1
+                
+                        FOR UPDATE
+                    """),
+                    {
+                        "group_jid": group_jid,
+                    },
+                ).mappings().first()
+
+                promo_requires_consumption = bool(
+                    promo
+                    and int(
+                        promo.get(
+                            "verifiable_total"
+                        )
+                        or 0
+                    ) > 0
+                )
+
+                shared_key = (
+                    str(
+                        promo.get("shared_key")
+                        or ""
+                    ).strip()
+                    if promo
+                    else ""
+                )
+
+                bot_result = conn.execute(
+                    text("""
+                        UPDATE bot_control
+                
+                        SET
+                            verifiable_used =
+                                COALESCE(
+                                    verifiable_used,
+                                    0
+                                ) + :count,
+                
+                            used =
+                                COALESCE(
+                                    used,
+                                    0
+                                ) + :count,
+                
+                            updated_at = now()
+                
+                        WHERE instance_name =
+                            :instance_name
+                    """),
+                    {
+                        "count": count,
+                        "instance_name":
+                            instance_name,
+                    },
+                )
+                
+                if bot_result.rowcount != 1:
+                    raise RuntimeError(
+                        "RFC_VERIFICABLE_BOT_CONSUME_FAILED"
+                    )
+
+                if not shared_key:
+                    promo_result = conn.execute(
+                        text("""
+                            UPDATE group_promotions
+                
+                            SET
+                                verifiable_used =
+                                    COALESCE(
+                                        verifiable_used,
+                                        0
+                                    ) + :count,
+                
+                                used_actas =
+                                    COALESCE(
+                                        clon_used,
+                                        0
+                                    )
+                                    + COALESCE(
+                                        idcif_used,
+                                        0
+                                    )
+                                    + COALESCE(
+                                        verifiable_used,
+                                        0
+                                    )
+                                    + :count,
+                
+                                updated_at = now()
+                
+                            WHERE group_jid = :group_jid
+                              AND is_active = TRUE
+                
+                              AND COALESCE(
+                                    verifiable_used,
+                                    0
+                                  ) + :count
+                                  <= COALESCE(
+                                    verifiable_total,
+                                    0
+                                  )
+                        """),
+                        {
+                            "count": count,
+                            "group_jid": group_jid,
+                        },
+                    )
+                
+                    if (
+                        promo_requires_consumption
+                        and promo_result.rowcount != 1
+                    ):
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_GROUP_PROMO_CONSUME_FAILED"
+                        )
+
+                else:
+                    shared_rows = conn.execute(
+                        text("""
+                            SELECT
+                                id,
+                                group_jid,
+                                COALESCE(
+                                    verifiable_total,
+                                    0
+                                ) AS verifiable_total,
+                
+                                COALESCE(
+                                    verifiable_used,
+                                    0
+                                ) AS verifiable_used
+                
+                            FROM group_promotions
+                
+                            WHERE shared_key = :shared_key
+                              AND is_active = TRUE
+                
+                            ORDER BY id
+                
+                            FOR UPDATE
+                        """),
+                        {
+                            "shared_key": shared_key,
+                        },
+                    ).mappings().all()
+                
+                    if not shared_rows:
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_SHARED_PROMO_NOT_FOUND"
+                        )
+
+                    shared_totals = {
+                        int(
+                            row.get(
+                                "verifiable_total"
+                            )
+                            or 0
+                        )
+                        for row in shared_rows
+                    }
+                    
+                    shared_used_values = {
+                        int(
+                            row.get(
+                                "verifiable_used"
+                            )
+                            or 0
+                        )
+                        for row in shared_rows
+                    }
+                    
+                    if len(shared_totals) != 1:
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_SHARED_TOTAL_MISMATCH"
+                        )
+                    
+                    if len(shared_used_values) != 1:
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_SHARED_USED_MISMATCH"
+                        )
+                
+                    shared_total = int(
+                        shared_rows[0].get(
+                            "verifiable_total"
+                        )
+                        or 0
+                    )
+                
+                    shared_used = int(
+                        shared_rows[0].get(
+                            "verifiable_used"
+                        )
+                        or 0
+                    )
+                
+                    if shared_total <= 0:
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_SHARED_PROMO_NOT_ASSIGNED"
+                        )
+                
+                    if (
+                        shared_used + count
+                        > shared_total
+                    ):
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_SHARED_PROMO_EXHAUSTED"
+                        )
+                
+                    shared_result = conn.execute(
+                        text("""
+                            UPDATE group_promotions
+                
+                            SET
+                                verifiable_used =
+                                    COALESCE(
+                                        verifiable_used,
+                                        0
+                                    ) + :count,
+                
+                                used_actas =
+                                    COALESCE(
+                                        clon_used,
+                                        0
+                                    )
+                                    + COALESCE(
+                                        idcif_used,
+                                        0
+                                    )
+                                    + COALESCE(
+                                        verifiable_used,
+                                        0
+                                    )
+                                    + :count,
+                
+                                updated_at = now()
+                
+                            WHERE shared_key = :shared_key
+                              AND is_active = TRUE
+                        """),
+                        {
+                            "count": count,
+                            "shared_key": shared_key,
+                        },
+                    )
+                
+                    if (
+                        shared_result.rowcount
+                        != len(shared_rows)
+                    ):
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_SHARED_SYNC_FAILED"
+                        )
+                
+                    group_result = conn.execute(
+                        text("""
+                            UPDATE group_promotions
+                
+                            SET
+                                shared_group_used_verifiable =
+                                    COALESCE(
+                                        shared_group_used_verifiable,
+                                        0
+                                    ) + :count,
+                
+                                updated_at = now()
+                
+                            WHERE group_jid = :group_jid
+                              AND shared_key = :shared_key
+                              AND is_active = TRUE
+                
+                              AND (
+                                  COALESCE(
+                                      shared_group_limit_verifiable,
+                                      0
+                                  ) = 0
+                
+                                  OR COALESCE(
+                                      shared_group_used_verifiable,
+                                      0
+                                  ) + :count
+                                  <= COALESCE(
+                                      shared_group_limit_verifiable,
+                                      0
+                                  )
+                              )
+                        """),
+                        {
+                            "count": count,
+                            "group_jid": group_jid,
+                            "shared_key": shared_key,
+                        },
+                    )
+                
+                    if group_result.rowcount != 1:
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_SHARED_GROUP_CONSUME_FAILED"
+                        )
+
+                print(
+                    "[RFC_VERIFICABLE_GROUP_PROMO_USED_INC]",
+                    {
+                        "group_jid": group_jid,
+                        "shared_key": shared_key or None,
+                        "kind": kind,
+                        "count": count,
+                    },
+                    flush=True,
+                )
             
                 print(
                     "[RFC_VERIFICABLE_USED_INC]",
@@ -4143,13 +3735,23 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
             except Exception:
                 pass
 
+            return True
+
     except Exception as e:
-        print("[RFC_FINAL_BOT_LIMIT_AFTER_ERROR]", repr(e), {
-            "kind": kind,
-            "group_jid": group_jid,
-            "instance_name": instance_name,
-            "count": count,
-        }, flush=True)
+        print(
+            "[RFC_FINAL_BOT_LIMIT_AFTER_ERROR]",
+            repr(e),
+            {
+                "kind": kind,
+                "group_jid": group_jid,
+                "instance_name":
+                    instance_name,
+                "count": count,
+            },
+            flush=True,
+        )
+    
+        raise
 
 
 # Aliases finales para pisar cualquier lógica anterior.
@@ -4161,9 +3763,45 @@ def _rfc_commercial_check_or_notify(job_data: dict, group_jid: str, group_name: 
     return _rfc_final_check_global(job_data, group_jid, group_name, instance_name, kind)
 
 
-def _rfc_plan_deduct_success(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    return _rfc_final_after_success_global(job_data, group_jid, group_name, instance_name, kind, count)
+def _rfc_plan_deduct_success(
+    job_data: dict,
+    group_jid: str,
+    group_name: str,
+    instance_name: str,
+    kind: str,
+    count: int = 1,
+    accounting_key: str = "",
+    item_key: str = "",
+):
+    return _rfc_final_after_success_global(
+        job_data=job_data,
+        group_jid=group_jid,
+        group_name=group_name,
+        instance_name=instance_name,
+        kind=kind,
+        count=count,
+        accounting_key=accounting_key,
+        item_key=item_key,
+    )
+    
 
-
-def _rfc_commercial_after_success(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str, count: int = 1):
-    return _rfc_final_after_success_global(job_data, group_jid, group_name, instance_name, kind, count)
+def _rfc_commercial_after_success(
+    job_data: dict,
+    group_jid: str,
+    group_name: str,
+    instance_name: str,
+    kind: str,
+    count: int = 1,
+    accounting_key: str = "",
+    item_key: str = "",
+):
+    return _rfc_final_after_success_global(
+        job_data=job_data,
+        group_jid=group_jid,
+        group_name=group_name,
+        instance_name=instance_name,
+        kind=kind,
+        count=count,
+        accounting_key=accounting_key,
+        item_key=item_key,
+    )
