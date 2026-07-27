@@ -512,7 +512,8 @@ def consultar_curp(curp: str, *, allow_manual: bool = True, timeout_s: int = 30)
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.common.keys import Keys
     from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
-
+    from selenium.webdriver.chrome.service import Service
+    
     curp = (curp or "").strip().upper()
     if len(curp) != 18:
         raise RuntimeError("CURP_INVALIDA")
@@ -560,9 +561,32 @@ def consultar_curp(curp: str, *, allow_manual: bool = True, timeout_s: int = 30)
     if chrome_bin:
         options.binary_location = chrome_bin
 
+    chromedriver_bin = (
+        os.environ.get("CHROMEDRIVER_BIN")
+        or ""
+    ).strip()
+    
+    if not chromedriver_bin:
+        raise RuntimeError(
+            "CURP_CHROMEDRIVER_BIN_NO_CONFIGURADO"
+        )
+    
+    if not os.path.isfile(chromedriver_bin):
+        raise RuntimeError(
+            "CURP_CHROMEDRIVER_NO_EXISTE:"
+            f"{chromedriver_bin}"
+        )
+    
+    service = Service(
+        executable_path=chromedriver_bin
+    )
+
     driver = None
     try:
-        driver = webdriver.Chrome(options=options)
+        driver = webdriver.Chrome(
+            service=service,
+            options=options
+        )
         driver.set_page_load_timeout(timeout_s)
 
         driver.get(URL_CURP)
@@ -673,6 +697,7 @@ def calcular_rfc_taxdown(nombre, apellido_paterno, apellido_materno, fecha_nac):
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.webdriver.common.keys import Keys
     from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+    from selenium.webdriver.chrome.service import Service
     
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
@@ -682,6 +707,25 @@ def calcular_rfc_taxdown(nombre, apellido_paterno, apellido_materno, fecha_nac):
     chrome_bin = os.environ.get("CHROME_BIN")
     if chrome_bin:
         options.binary_location = chrome_bin
+
+    chromedriver_bin = (
+        os.environ.get("CHROMEDRIVER_BIN")
+        or ""
+    ).strip()
+    
+    if not chromedriver_bin:
+        raise RuntimeError(
+            "TAXDOWN_CHROMEDRIVER_BIN_NO_CONFIGURADO"
+        )
+    
+    service = Service(
+        executable_path=chromedriver_bin
+    )
+    
+    driver = webdriver.Chrome(
+        service=service,
+        options=options
+    )
 
     driver = webdriver.Chrome(options=options)
 
