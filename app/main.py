@@ -104,6 +104,13 @@ class VerifiableProviderStat(Base):
         index=True,
     )
 
+    count = Column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
+
     provider_db_name = Column(
         String(120),
         nullable=False,
@@ -820,6 +827,62 @@ def _utc_now_naive():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _safe_nonnegative_int(
+    value,
+    *,
+    field_name: str,
+) -> int:
+    raw = str(
+        value
+        if value is not None
+        else "0"
+    ).strip()
+
+    if raw == "":
+        return 0
+
+    try:
+        result = int(raw)
+    except Exception:
+        raise ValueError(
+            f"{field_name}_INVALID"
+        )
+
+    if result < 0:
+        raise ValueError(
+            f"{field_name}_NEGATIVE"
+        )
+
+    return result
+
+
+def _optional_nonnegative_decimal(
+    value,
+    *,
+    field_name: str,
+):
+    raw = str(
+        value or ""
+    ).strip()
+
+    if raw == "":
+        return None
+
+    try:
+        result = Decimal(raw)
+    except Exception:
+        raise ValueError(
+            f"{field_name}_INVALID"
+        )
+
+    if result < 0:
+        raise ValueError(
+            f"{field_name}_NEGATIVE"
+        )
+
+    return result
+
+
 def _mx_now():
     return datetime.now(ZoneInfo(PANEL_TZ))
 
@@ -1240,20 +1303,142 @@ def _bot_group_stats(db: Session, instance_name: str):
             "month_done": month_map.get(gid, 0),
             "prev_month_done": prev_month_map.get(gid, 0),
             "blocked": gid in blocked_set,
-            "promo_clon_total": int(getattr(promo, "clon_total", 0) or 0) if promo else 0,
-            "promo_clon_used": int(getattr(promo, "clon_used", 0) or 0) if promo else 0,
-            "promo_idcif_total": int(getattr(promo, "idcif_total", 0) or 0) if promo else 0,
-            "promo_idcif_used": int(getattr(promo, "idcif_used", 0) or 0) if promo else 0,
+            
+            "promo_clon_total": (
+                int(
+                    getattr(
+                        promo,
+                        "clon_total",
+                        0,
+                    )
+                    or 0
+                )
+                if promo
+                else 0
+            ),
+            
+            "promo_clon_used": (
+                int(
+                    getattr(
+                        promo,
+                        "clon_used",
+                        0,
+                    )
+                    or 0
+                )
+                if promo
+                else 0
+            ),
+            
+            "promo_idcif_total": (
+                int(
+                    getattr(
+                        promo,
+                        "idcif_total",
+                        0,
+                    )
+                    or 0
+                )
+                if promo
+                else 0
+            ),
+            
+            "promo_idcif_used": (
+                int(
+                    getattr(
+                        promo,
+                        "idcif_used",
+                        0,
+                    )
+                    or 0
+                )
+                if promo
+                else 0
+            ),
+            
+            "promo_verifiable_total": (
+                int(
+                    getattr(
+                        promo,
+                        "verifiable_total",
+                        0,
+                    )
+                    or 0
+                )
+                if promo
+                else 0
+            ),
+            
+            "promo_verifiable_used": (
+                int(
+                    getattr(
+                        promo,
+                        "verifiable_used",
+                        0,
+                    )
+                    or 0
+                )
+                if promo
+                else 0
+            ),
             
             "promo_total": (
-                int(getattr(promo, "clon_total", 0) or 0)
-                + int(getattr(promo, "idcif_total", 0) or 0)
-            ) if promo else 0,
+                int(
+                    getattr(
+                        promo,
+                        "clon_total",
+                        0,
+                    )
+                    or 0
+                )
+                + int(
+                    getattr(
+                        promo,
+                        "idcif_total",
+                        0,
+                    )
+                    or 0
+                )
+                + int(
+                    getattr(
+                        promo,
+                        "verifiable_total",
+                        0,
+                    )
+                    or 0
+                )
+            )
+            if promo
+            else 0,
             
             "promo_used": (
-                int(getattr(promo, "clon_used", 0) or 0)
-                + int(getattr(promo, "idcif_used", 0) or 0)
-            ) if promo else 0,
+                int(
+                    getattr(
+                        promo,
+                        "clon_used",
+                        0,
+                    )
+                    or 0
+                )
+                + int(
+                    getattr(
+                        promo,
+                        "idcif_used",
+                        0,
+                    )
+                    or 0
+                )
+                + int(
+                    getattr(
+                        promo,
+                        "verifiable_used",
+                        0,
+                    )
+                    or 0
+                )
+            )
+            if promo
+            else 0,
             
             "promo_active": bool(promo.is_active) if promo else False,
         })
@@ -1289,13 +1474,6 @@ def bot_label(inst, db: Session = None):
 def _rfc_request_family(
     act_type: str | None,
 ) -> str:
-    """
-    Familias comerciales RFC:
-
-      CLON         = CURP + RFC_ONLY
-      IDCIF        = QR + RFC_IDCIF
-      VERIFICABLE  = RFC_VERIFICABLE
-    """
     t = (
         act_type
         or ""
@@ -2081,12 +2259,54 @@ def _redis_sismember_str(key: str, value: str) -> bool:
         return False
 
 
-def is_instance_admin_blocked(instance_name: str) -> bool:
-    instance_name = (instance_name or "").strip()
+def is_instance_admin_blocked(
+    instance_name: str,
+) -> bool:
+    instance_name = (
+        instance_name or ""
+    ).strip()
+
     if not instance_name:
         return False
 
-    return _redis_sismember_str(ADMIN_BLOCKED_INSTANCES_KEY, instance_name)
+    db = SessionLocal()
+
+    try:
+        row = (
+            db.query(
+                BotControl.is_blocked
+            )
+            .filter(
+                BotControl.instance_name
+                == instance_name
+            )
+            .first()
+        )
+
+        return bool(
+            row
+            and row[0]
+        )
+
+    except Exception as exc:
+        print(
+            "[IS_INSTANCE_ADMIN_BLOCKED_ERROR]",
+            repr(exc),
+            {
+                "instance_name":
+                    instance_name,
+            },
+            flush=True,
+        )
+
+        # Como respaldo, revisar Redis.
+        return _redis_sismember_str(
+            ADMIN_BLOCKED_INSTANCES_KEY,
+            instance_name,
+        )
+
+    finally:
+        db.close()
 
 
 def is_instance_blocked(instance_name: str) -> bool:
@@ -4330,6 +4550,22 @@ def panel_remove_shared_promotion(
         row.is_active = False
         row.used_actas = 0
         row.total_actas = 0
+        row.clon_total = 0
+        row.clon_used = 0
+        
+        row.idcif_total = 0
+        row.idcif_used = 0
+        
+        row.verifiable_total = 0
+        row.verifiable_used = 0
+        
+        row.price_per_verifiable = None
+        
+        row.shared_group_limit_verifiable = (
+            None
+        )
+        
+        row.shared_group_used_verifiable = 0
         row.promo_name = ""
         row.price_per_piece = ""
         row.client_key = None
@@ -4359,52 +4595,138 @@ def panel_remove_shared_promotion(
     return {"ok": True, "shared_key": shared_key}
 
 
-@app.post("/panel/promotions/set-group-limit")
+def _payload_value_error(
+    exc: ValueError,
+):
+    return {
+        "ok": False,
+        "error": str(exc),
+    }
+
+
+@app.post(
+    "/panel/promotions/set-group-limit"
+)
 def panel_set_shared_group_limit(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
 ):
-    group_jid = (payload.get("group_jid") or "").strip()
-    limit_RFC = int(payload.get("limit_RFC") or 0)
+    group_jid = (
+        payload.get("group_jid")
+        or ""
+    ).strip()
+
+    try:
+        limit_RFC = _safe_nonnegative_int(
+            payload.get("limit_RFC"),
+            field_name="LIMIT_RFC",
+        )
+    
+        limit_verifiable = (
+            _safe_nonnegative_int(
+                payload.get(
+                    "limit_verifiable"
+                ),
+                field_name=
+                    "LIMIT_VERIFIABLE",
+            )
+        )
+    
+    except ValueError as exc:
+        return _payload_value_error(exc)
 
     if not group_jid:
-        return {"ok": False, "error": "GROUP_JID_REQUIRED"}
+        return {
+            "ok": False,
+            "error": "GROUP_JID_REQUIRED",
+        }
 
     row = (
         db.query(GroupPromotion)
-        .filter(GroupPromotion.group_jid == group_jid)
+        .filter(
+            GroupPromotion.group_jid
+            == group_jid
+        )
         .first()
     )
 
     if not row:
-        return {"ok": False, "error": "PROMOTION_NOT_FOUND"}
+        return {
+            "ok": False,
+            "error": "PROMOTION_NOT_FOUND",
+        }
 
-    if not (row.shared_key or "").strip():
-        return {"ok": False, "error": "GROUP_NOT_IN_SHARED_PROMOTION"}
+    if not (
+        row.shared_key or ""
+    ).strip():
+        return {
+            "ok": False,
+            "error":
+                "GROUP_NOT_IN_SHARED_PROMOTION",
+        }
 
-    row.shared_group_limit_actas = limit_RFC if limit_RFC > 0 else None
+    row.shared_group_limit_actas = (
+        limit_RFC
+        if limit_RFC > 0
+        else None
+    )
+
+    row.shared_group_limit_verifiable = (
+        limit_verifiable
+        if limit_verifiable > 0
+        else None
+    )
+
     row.updated_at = _utc_now_naive()
+
     db.commit()
 
     try:
+        lines = []
+    
         if limit_RFC > 0:
-            msg = f"""📦 *Actualización de bolsa RFC*
-Se ha establecido un *límite individual* dentro de la bolsa RFC compartida.
-
-🔢 Límite asignado: *{limit_RFC} RFC*
-
-Este grupo podrá utilizar hasta esa cantidad dentro de la bolsa compartida.
-"""
+            lines.append(
+                "🔢 Límite CLON/IDCIF: "
+                f"*{limit_RFC} RFC*"
+            )
+    
+        if limit_verifiable > 0:
+            lines.append(
+                "✅ Límite verificable: "
+                f"*{limit_verifiable} RFC*"
+            )
+    
+        if lines:
+            msg = (
+                "📦 *Actualización de "
+                "bolsa RFC*\n\n"
+                "Se establecieron límites "
+                "individuales para este "
+                "grupo:\n\n"
+                + "\n".join(lines)
+                + "\n\nEstos límites aplican "
+                "dentro de la bolsa "
+                "compartida."
+            )
         else:
-            msg = """📦 *Actualización de bolsa RFC*
-
-Se eliminó el límite individual para este grupo.
-Ahora puede usar libremente la bolsa compartida disponible.
-"""
-        send_group_text(group_jid, msg)
-
+            msg = (
+                "📦 *Actualización de "
+                "bolsa RFC*\n\n"
+                "Se eliminaron los límites "
+                "individuales de este grupo."
+            )
+    
+        send_group_text(
+            group_jid,
+            msg,
+        )
+    
     except Exception as e:
-        print("PROMO_LIMIT_NOTIFY_ERROR:", e)
+        print(
+            "PROMO_LIMIT_NOTIFY_ERROR:",
+            e,
+            flush=True,
+        )
 
     _clear_panel_cache()
     return {
@@ -4413,6 +4735,13 @@ Ahora puede usar libremente la bolsa compartida disponible.
         "group_jid": group_jid,
         "shared_group_limit_RFC": row.shared_group_limit_actas,
         "shared_group_used_actas": row.shared_group_used_actas or 0,
+        "shared_group_limit_verifiable": (
+            row.shared_group_limit_verifiable
+        ),
+        "shared_group_used_verifiable": (
+            row.shared_group_used_verifiable
+            or 0
+        ),
     }
 
 
@@ -4424,22 +4753,97 @@ def panel_apply_shared_promotion(
     selected_group_jids = payload.get("selected_group_jids") or []
     promo_name = (payload.get("promo_name") or "").strip()
     price_per_piece = (payload.get("price_per_piece") or "").strip()
+    price_per_verifiable_raw = str(
+        payload.get(
+            "price_per_verifiable"
+        )
+        or ""
+    ).strip()
+    
     client_key = (payload.get("client_key") or "").strip().upper()
     shared_key = (payload.get("shared_key") or "").strip().upper()
-    clon_total = int(payload.get("clon_total") or 0)
-    idcif_total = int(payload.get("idcif_total") or 0)
-    total_actas = clon_total + idcif_total
+    try:
+        clon_total = _safe_nonnegative_int(
+            payload.get("clon_total"),
+            field_name="CLON_TOTAL",
+        )
+    
+        idcif_total = _safe_nonnegative_int(
+            payload.get("idcif_total"),
+            field_name="IDCIF_TOTAL",
+        )
+    
+        verifiable_total = (
+            _safe_nonnegative_int(
+                payload.get(
+                    "verifiable_total"
+                ),
+                field_name=
+                    "VERIFIABLE_TOTAL",
+            )
+        )
+    
+        price_per_verifiable = (
+            _optional_nonnegative_decimal(
+                payload.get(
+                    "price_per_verifiable"
+                ),
+                field_name=
+                    "PRICE_PER_VERIFIABLE",
+            )
+        )
+    
+    except ValueError as exc:
+        return _payload_value_error(exc)
+    
+    total_actas = (
+        clon_total
+        + idcif_total
+        + verifiable_total
+    )
     
     # Compatibilidad con formulario viejo
     if total_actas <= 0:
-        total_actas = int(payload.get("total_actas") or 0)
+        try:
+            total_actas = (
+                _safe_nonnegative_int(
+                    payload.get(
+                        "total_actas"
+                    ),
+                    field_name="TOTAL_RFC",
+                )
+            )
+        except ValueError as exc:
+            return _payload_value_error(exc)
+    
         clon_total = total_actas
         idcif_total = 0
+        verifiable_total = 0
 
     is_credit = bool(payload.get("is_credit") or False)
-    credit_abono = int(payload.get("credit_abono") or 0)
-    credit_debe = int(payload.get("credit_debe") or 0)
-    shared_group_limit_RFC = int(payload.get("shared_group_limit_RFC") or 0)
+    try:
+        credit_abono = _safe_nonnegative_int(
+            payload.get("credit_abono"),
+            field_name="CREDIT_ABONO",
+        )
+    
+        credit_debe = _safe_nonnegative_int(
+            payload.get("credit_debe"),
+            field_name="CREDIT_DEBE",
+        )
+    
+        shared_group_limit_RFC = (
+            _safe_nonnegative_int(
+                payload.get(
+                    "shared_group_limit_RFC"
+                ),
+                field_name=
+                    "SHARED_GROUP_LIMIT_RFC",
+            )
+        )
+    
+    except ValueError as exc:
+        return _payload_value_error(exc)
 
     if not selected_group_jids:
         return {"ok": False, "error": "NO_GROUPS_SELECTED"}
@@ -4474,11 +4878,17 @@ def panel_apply_shared_promotion(
                 clon_used=0,
                 idcif_total=idcif_total,
                 idcif_used=0,
+                verifiable_total=verifiable_total,
+                verifiable_used=0,
+                shared_group_used_verifiable=0,
+                shared_group_limit_verifiable=None,
+                price_per_verifiable=
+                    price_per_verifiable,
                 price_per_piece=price_per_piece,
                 is_credit=is_credit,
                 credit_abono=credit_abono,
                 credit_debe=credit_debe,
-                shared_group_limit_actas=shared_group_limit_RFC or None,
+                shared_group_limit_actas=None,
                 shared_group_used_actas=0,
                 warning_sent_200=False,
                 warning_sent_100=False,
@@ -4501,11 +4911,22 @@ def panel_apply_shared_promotion(
             row.clon_used = 0
             row.idcif_total = idcif_total
             row.idcif_used = 0
+            row.verifiable_total = (
+                verifiable_total
+            )
+            
+            row.verifiable_used = 0
+
+            row.shared_group_limit_verifiable = None
+            row.shared_group_used_verifiable = 0
             row.price_per_piece = price_per_piece
+            row.price_per_verifiable = (
+                price_per_verifiable
+            )
             row.is_credit = is_credit
             row.credit_abono = credit_abono
             row.credit_debe = credit_debe
-            row.shared_group_limit_actas = shared_group_limit_RFC or None
+            row.shared_group_limit_actas = None
             row.shared_group_used_actas = 0
             row.warning_sent_200 = False
             row.warning_sent_100 = False
@@ -5643,8 +6064,74 @@ def panel_group_detail(
     promo_idcif_total = int(getattr(promo, "idcif_total", 0) or 0) if promo else 0
     promo_idcif_used = int(getattr(promo, "idcif_used", 0) or 0) if promo else 0
 
-    promo_total = promo_clon_total + promo_idcif_total
-    promo_used = promo_clon_used + promo_idcif_used
+    promo_verifiable_total = (
+        int(
+            getattr(
+                promo,
+                "verifiable_total",
+                0,
+            )
+            or 0
+        )
+        if promo
+        else 0
+    )
+    
+    promo_verifiable_used = (
+        int(
+            getattr(
+                promo,
+                "verifiable_used",
+                0,
+            )
+            or 0
+        )
+        if promo
+        else 0
+    )
+    
+    promo_verifiable_available = max(
+        0,
+        promo_verifiable_total
+        - promo_verifiable_used,
+    )
+    
+    promo_price_verifiable = (
+        str(
+            getattr(
+                promo,
+                "price_per_verifiable",
+                "",
+            )
+            or ""
+        )
+        if promo
+        else ""
+    )
+
+    promo_shared_verifiable_limit = (
+        int(
+            getattr(
+                promo,
+                "shared_group_limit_verifiable",
+                0,
+            )
+            or 0
+        )
+        if promo
+        else 0
+    )
+
+    promo_total = (
+        promo_clon_total
+        + promo_idcif_total
+        + promo_verifiable_total
+    )
+    promo_used = (
+        promo_clon_used
+        + promo_idcif_used
+        + promo_verifiable_used
+    )
     promo_available = max(0, promo_total - promo_used)
 
     # fallback por si hay bolsas viejas sin migrar
@@ -5712,6 +6199,8 @@ def panel_group_detail(
             "idcif": 0,
             "done_clon": 0,
             "done_idcif": 0,
+            "verifiable": 0,
+            "done_verifiable": 0,
             "error": 0,
             "queued": 0,
             "processing": 0,
@@ -5738,6 +6227,8 @@ def panel_group_detail(
             item["clon"] += 1
         elif family == "IDCIF":
             item["idcif"] += 1
+        elif family == "VERIFICABLE":
+            item["verifiable"] += 1
     
         if st == "DONE":
             item["done"] += 1
@@ -5746,6 +6237,8 @@ def panel_group_detail(
                 item["done_clon"] += 1
             elif family == "IDCIF":
                 item["done_idcif"] += 1
+            elif family == "VERIFICABLE":
+                item["done_verifiable"] += 1
     
         elif st == "ERROR":
             item["error"] += 1
@@ -5768,6 +6261,14 @@ def panel_group_detail(
             "idcif": sum(x["idcif"] for x in rows_out),
             "done_clon": sum(x["done_clon"] for x in rows_out),
             "done_idcif": sum(x["done_idcif"] for x in rows_out),
+            "verifiable": sum(
+                x["verifiable"]
+                for x in rows_out
+            ),
+            "done_verifiable": sum(
+                x["done_verifiable"]
+                for x in rows_out
+            ),
             "error": sum(x["error"] for x in rows_out),
             "queued": sum(x["queued"] for x in rows_out),
             "processing": sum(x["processing"] for x in rows_out),
@@ -6032,11 +6533,19 @@ def panel_group_detail(
               <div style="margin-top:8px;font-weight:800;">{promo_name or 'Sin nombre'}</div>
             </div>
             <div>
-              <div class="small">CLON / IDCIF</div>
+              <div class="small">CLON / IDCIF / VERIFICABLE</div>
               <div style="margin-top:8px;font-weight:800;">
-                CLON: {promo_clon_used}/{promo_clon_total}<br>
-                IDCIF: {promo_idcif_used}/{promo_idcif_total}<br>
-                Total disp.: {promo_available}
+                CLON:
+                {promo_clon_used}/{promo_clon_total}<br>
+            
+                IDCIF:
+                {promo_idcif_used}/{promo_idcif_total}<br>
+            
+                VERIF.:
+                {promo_verifiable_used}/{promo_verifiable_total}<br>
+            
+                Total disp.:
+                {promo_available}
               </div>
             </div>
             <div>
@@ -6045,7 +6554,7 @@ def panel_group_detail(
             </div>
           </div>
     
-          <div class="filters" style="grid-template-columns: repeat(6, minmax(0, 1fr));">
+          <div class="filters" style="grid-template-columns: repeat(7, minmax(0, 1fr));">
             <div>
               <div class="small">Nombre de bolsa RFC</div>
               <input id="promo_name" placeholder="" value="{promo_name}">
@@ -6067,6 +6576,23 @@ def panel_group_detail(
             <div>
               <div class="small">Total IDCIF</div>
               <input id="promo_idcif_total" placeholder="" type="number" min="0" value="{promo_idcif_total if promo_idcif_total else ''}">
+            </div>
+
+            <div>
+              <div class="small">
+                Total verificables
+              </div>
+            
+              <input
+                id="promo_verifiable_total"
+                type="number"
+                min="0"
+                value="{
+                    promo_verifiable_total
+                    if promo_verifiable_total
+                    else ''
+                }"
+              >
             </div>
           
             <div>
@@ -6101,6 +6627,26 @@ def panel_group_detail(
                      placeholder="Sin límite"
                      value="{promo_shared_group_limit if promo_shared_group_limit else ''}">
             </div>
+
+            <div>
+              <div class="small">
+                Límite verificable dentro
+                de bolsa compartida
+              </div>
+            
+              <input
+                id="shared_group_limit_verifiable"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Sin límite"
+                value="{
+                  promo_shared_verifiable_limit
+                  if promo_shared_verifiable_limit
+                  else ''
+                }"
+              >
+            </div>
     
             <div style="display:flex;align-items:end;">
               <button type="button" class="btn btn-primary" style="width:100%;" onclick="setSharedGroupLimit('{group_jid}')">
@@ -6113,6 +6659,9 @@ def panel_group_detail(
             <select id="promo_recharge_family">
               <option value="CLON">Recargar CLON</option>
               <option value="IDCIF">Recargar IDCIF</option>
+              <option value="VERIFICABLE">
+                Recargar verificables
+              </option>
             </select>
             <input id="promo_recharge" placeholder="Cantidad a recargar" type="number" min="1">
             <button type="button" class="btn btn-success" onclick="rechargePromotion('{group_jid}')">Recargar bolsa RFC</button>
@@ -6147,6 +6696,20 @@ def panel_group_detail(
                 value="{idcif_price_num}"
               >
             </div>
+
+            <div>
+              <div class="small">
+                Precio por verificable
+              </div>
+            
+              <input
+                id="VERIFIABLE_price"
+                type="number"
+                step="0.01"
+                min="0"
+                value="{promo_price_verifiable}"
+              >
+            </div>
     
             <div style="display:flex;align-items:end;">
               <button 
@@ -6167,6 +6730,21 @@ def panel_group_detail(
                 Guardar IDCIF
               </button>
             </div>
+
+            <div style="display:flex;align-items:end;">
+              <button
+                type="button"
+                class="btn btn-primary"
+                style="width:100%;"
+                onclick="
+                  saveVerifiablePrice(
+                    '{group_jid}'
+                  )
+                "
+              >
+                Guardar verificable
+              </button>
+            </div>
           </div>
         </div>
     """
@@ -6182,10 +6760,13 @@ def panel_group_detail(
                 <th class="right">Hecho</th>
                 <th class="right">CLON</th>
                 <th class="right">IDCIF</th>
+                <th class="right">Verificables</th>
                 <th class="right">Precio CLON</th>
                 <th class="right">$ CLON</th>
                 <th class="right">Precio IDCIF</th>
                 <th class="right">$ IDCIF</th>
+                <th class="right">Precio verificable</th>
+                <th class="right">$ verificables</th>
                 <th class="right">$ Total</th>
               </tr>
             </thead>
@@ -6201,6 +6782,8 @@ def panel_group_detail(
     weekly_processing = 0
     weekly_clon_amount = 0.0
     weekly_idcif_amount = 0.0
+    weekly_verifiable = 0
+    weekly_verifiable_amount = 0.0
     weekly_amount = 0.0
     weekly_start = None
     
@@ -6212,13 +6795,30 @@ def panel_group_detail(
         weekly_done += r["done"]
         weekly_clon += r["done_clon"]
         weekly_idcif += r["done_idcif"]
+        weekly_verifiable += (
+            r["done_verifiable"]
+        )
         weekly_error += r["error"]
         weekly_queued += r["queued"]
         weekly_processing += r["processing"]
         
         clon_amount = r["done_clon"] * clon_price_num
         idcif_amount = r["done_idcif"] * idcif_price_num
-        done_amount = clon_amount + idcif_amount
+        verifiable_amount = (
+            r["done_verifiable"]
+            * float(
+                promo_price_verifiable
+                or 0
+            )
+        )
+        weekly_verifiable_amount += (
+            verifiable_amount
+        )
+        done_amount = (
+            clon_amount
+            + idcif_amount
+            + verifiable_amount
+        )
 
         weekly_clon_amount += clon_amount
         weekly_idcif_amount += idcif_amount
@@ -6232,10 +6832,19 @@ def panel_group_detail(
                 <td class="right">{r["done"]}</td>
                 <td class="right">{r["done_clon"]}</td>
                 <td class="right">{r["done_idcif"]}</td>
+                <td class="right">
+                  {r["done_verifiable"]}
+                </td>
                 <td class="right">${clon_price_num:,.2f}</td>
                 <td class="right">${clon_amount:,.2f}</td>
                 <td class="right">${idcif_price_num:,.2f}</td>
                 <td class="right">${idcif_amount:,.2f}</td>
+                <td class="right">
+                  ${float(promo_price_verifiable or 0):,.2f}
+                </td>
+                <td class="right">
+                  ${verifiable_amount:,.2f}
+                </td>
                 <td class="right"><b>${done_amount:,.2f}</b></td>
               </tr>
         """
@@ -6252,10 +6861,23 @@ def panel_group_detail(
                     <td class="right">{weekly_done}</td>
                     <td class="right">{weekly_clon}</td>
                     <td class="right">{weekly_idcif}</td>
+                    <td class="right">
+                      {weekly_verifiable}
+                    </td>
                     <td class="right">${clon_price_num:,.2f}</td>
                     <td class="right">${weekly_clon_amount:,.2f}</td>
                     <td class="right">${idcif_price_num:,.2f}</td>
                     <td class="right">${weekly_idcif_amount:,.2f}</td>
+                    <td class="right">
+                      ${float(
+                          promo_price_verifiable
+                          or 0
+                      ):,.2f}
+                    </td>
+                    
+                    <td class="right">
+                      ${weekly_verifiable_amount:,.2f}
+                    </td>
                     <td class="right"><b>${weekly_amount:,.2f}</b></td>
                   </tr>
             """
@@ -6266,6 +6888,8 @@ def panel_group_detail(
             weekly_idcif = 0
             weekly_clon_amount = 0.0
             weekly_idcif_amount = 0.0
+            weekly_verifiable = 0
+            weekly_verifiable_amount = 0.0
             weekly_amount = 0.0
             weekly_error = 0
             weekly_queued = 0
@@ -6275,7 +6899,18 @@ def panel_group_detail(
     t = detail["totals"]
     total_clon_amount = t["done_clon"] * clon_price_num
     total_idcif_amount = t["done_idcif"] * idcif_price_num
-    total_amount = total_clon_amount + total_idcif_amount
+    total_verifiable_amount = (
+        t["done_verifiable"]
+        * float(
+            promo_price_verifiable
+            or 0
+        )
+    )
+    total_amount = (
+        total_clon_amount
+        + total_idcif_amount
+        + total_verifiable_amount
+    )
     html += f"""
               <tr class="total-row">
                 <td colspan="2">TOTAL</td>
@@ -6283,10 +6918,27 @@ def panel_group_detail(
                 <td class="right">{t["done"]}</td>
                 <td class="right">{t["done_clon"]}</td>
                 <td class="right">{t["done_idcif"]}</td>
+                <td class="right">{t["done_verifiable"]}</td>
                 <td class="right">${clon_price_num:,.2f}</td>
                 <td class="right">${total_clon_amount:,.2f}</td>
-                <td class="right">${idcif_price_num:,.2f}</td>
-                <td class="right">${total_idcif_amount:,.2f}</td>
+                <td class="right">
+                  ${idcif_price_num:,.2f}
+                </td>
+                
+                <td class="right">
+                  ${total_idcif_amount:,.2f}
+                </td>
+                
+                <td class="right">
+                  ${float(
+                      promo_price_verifiable
+                      or 0
+                  ):,.2f}
+                </td>
+                
+                <td class="right">
+                  ${total_verifiable_amount:,.2f}
+                </td>
                 <td class="right"><b>${total_amount:,.2f}</b></td>
               </tr>
             </tbody>
@@ -6358,12 +7010,98 @@ def panel_group_detail(
               alert("No se pudo conectar con el servidor");
             }}
           }}
+
+          async function saveVerifiablePrice(
+            groupJid
+          ) {{
+            const price = (
+              document
+                .getElementById(
+                  "VERIFIABLE_price"
+                )
+                ?.value
+                ?.trim()
+              || ""
+            );
+        
+            if (price === "") {{
+              alert(
+                "Ingresa el precio verificable"
+              );
+              return;
+            }}
+        
+            try {{
+              const res = await fetch(
+                `/panel/group/${{
+                  encodeURIComponent(groupJid)
+                }}/VERIFIABLE-price`,
+                {{
+                  method: "POST",
+                  headers: {{
+                    "Content-Type":
+                      "application/json"
+                  }},
+                  body: JSON.stringify({{
+                    verifiable_price: price
+                  }})
+                }}
+              );
+          
+              const data = await res.json();
+        
+              if (!data.ok) {{
+                alert(
+                  data.error
+                  || "Error guardando precio"
+                );
+                return;
+              }}
+         
+              alert(
+                "Precio verificable guardado"
+              );
+        
+              location.reload();
+        
+            }} catch (error) {{
+              alert(
+                "No se pudo conectar "
+                + "con el servidor"
+              );
+            }}
+          }}
           
           async function savePromotion(groupJid) {{
             const promoName = document.getElementById("promo_name")?.value?.trim() || "";
-            const clonTotal = Number(document.getElementById("promo_clon_total").value.trim() || 0);
-            const idcifTotal = Number(document.getElementById("promo_idcif_total").value.trim() || 0);
-            const totalRFC = clonTotal + idcifTotal;
+            const clonTotal = Number(
+              document
+                .getElementById("promo_clon_total")
+                ?.value
+                ?.trim()
+              || 0
+            );
+            const idcifTotal = Number(
+              document
+                .getElementById("promo_idcif_total")
+                ?.value
+                ?.trim()
+              || 0
+            );
+            const verifiableTotal = Number(
+              document
+                .getElementById(
+                  "promo_verifiable_total"
+                )
+                ?.value
+                ?.trim()
+              || 0
+            );
+            const totalRFC = (
+              clonTotal
+              + idcifTotal
+              + verifiableTotal
+            );
             const pricePerPiece = document.getElementById("promo_price")?.value?.trim() || "";
 
             const promoType = document.getElementById("promo_type")?.value || "paid";
@@ -6395,11 +7133,13 @@ def panel_group_detail(
                   promo_name: promoName,
                   total_actas: totalRFC,
                   price_per_piece: pricePerPiece,
+                  price_per_verifiable: verifiablePrice,
                   is_credit: isCredit,
                   credit_abono: creditAbono,
                   credit_debe: creditDebe,
                   clon_total: clonTotal,
-                  idcif_total: idcifTotal
+                  idcif_total: idcifTotal,
+                  verifiable_total: verifiableTotal
                 }})
               }});
 
@@ -6484,31 +7224,66 @@ def panel_group_detail(
             }}
           }}
 
-          async function setSharedGroupLimit(groupJid) {{
-            const limit = document.getElementById("shared_group_limit")?.value?.trim() || "0";
-
+          async function setSharedGroupLimit(
+            groupJid
+          ) {{
+            const value = prompt(
+              "Ingresa el límite individual "
+              + "de CLON/IDCIF para este grupo:"
+            );
+        
+            if (value === null) return;
+        
+            const verifiableValue = prompt(
+              "Ingresa el límite individual "
+              + "de RFC verificables para "
+              + "este grupo:"
+            );
+        
+            if (verifiableValue === null) {{
+              return;
+            }}
+        
             try {{
-              const res = await fetch("/panel/promotions/set-group-limit", {{
-                method: "POST",
-                headers: {{
-                  "Content-Type": "application/json"
-                }},
-                body: JSON.stringify({{
-                  group_jid: groupJid,
-                  limit_RFC: Number(limit || 0)
-                }})
-              }});
-
+              const res = await fetch(
+                "/panel/promotions/set-group-limit",
+                {{
+                  method: "POST",
+                  headers: {{
+                    "Content-Type":
+                      "application/json"
+                  }},
+                  body: JSON.stringify({{
+                    group_jid: groupJid,
+                    limit_RFC:
+                      Number(value || 0),
+                    limit_verifiable:
+                      Number(
+                        verifiableValue || 0
+                      )
+                  }})
+                }}
+              );
+        
               const data = await res.json();
-
+        
               if (data.ok) {{
-                alert(data.message || "Límite actualizado");
+                alert(
+                  data.message
+                  || "Límites actualizados"
+                );
                 location.reload();
               }} else {{
-                alert(data.error || "Error actualizando límite");
+                alert(
+                  data.error
+                  || "No se pudieron actualizar"
+                );
               }}
             }} catch (e) {{
-              alert("No se pudo conectar con el servidor");
+              alert(
+                "No se pudo conectar "
+                + "con el servidor"
+              );
             }}
           }}
 
@@ -7777,6 +8552,12 @@ def _bot_credit_stats(db: Session, instance_name: str):
         
                 COALESCE(sale_price_verifiable, 0)
                     AS sale_price_verifiable,
+
+                COALESCE(verifiable_limit, 0)
+                    AS verifiable_limit,
+                
+                COALESCE(verifiable_recharges, 0)
+                    AS verifiable_recharges,
         
                 COALESCE(recharges, 0)
                     AS recharges
@@ -7829,6 +8610,21 @@ def _bot_credit_stats(db: Session, instance_name: str):
             or 0
         )
 
+        verifiable_limit = int(
+            row["verifiable_limit"]
+            or 0
+        )
+        
+        verifiable_available = (
+            max(
+                verifiable_limit
+                - verifiable_used,
+                0,
+            )
+            if verifiable_limit > 0
+            else 0
+        )
+
         clon_available = 0 if clon_limit == 0 else max(clon_limit - clon_used, 0)
         idcif_available = 0 if idcif_limit == 0 else max(idcif_limit - idcif_used, 0)
 
@@ -7853,6 +8649,19 @@ def _bot_credit_stats(db: Session, instance_name: str):
                 sale_price_verifiable
             ),
 
+            "verifiable_limit": (
+                verifiable_limit
+            ),
+            
+            "verifiable_available": (
+                verifiable_available
+            ),
+            
+            "verifiable_recharges": int(
+                row["verifiable_recharges"]
+                or 0
+            ),
+
             "recharges": int(row["recharges"] or 0),
 
             # compatibilidad
@@ -7875,6 +8684,9 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "verifiable_enabled": False,
             "verifiable_used": 0,
             "sale_price_verifiable": 0.0,
+            "verifiable_limit": 0,
+            "verifiable_available": 0,
+            "verifiable_recharges": 0,
 
             "recharges": 0,
             
@@ -8013,15 +8825,63 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
         promo_name = (payload.get("promo_name") or "").strip()
         price_per_piece = (payload.get("price_per_piece") or "").strip()
 
-        clon_total = int(payload.get("clon_total") or 0)
-        idcif_total = int(payload.get("idcif_total") or 0)
-        total_actas = clon_total + idcif_total
+        price_per_verifiable_raw = str(
+            payload.get(
+                "price_per_verifiable"
+            )
+            or ""
+        ).strip()
+        
+        clon_total = _safe_nonnegative_int(
+            payload.get("clon_total"),
+            field_name="CLON_TOTAL",
+        )
+        
+        idcif_total = _safe_nonnegative_int(
+            payload.get("idcif_total"),
+            field_name="IDCIF_TOTAL",
+        )
+        
+        verifiable_total = (
+            _safe_nonnegative_int(
+                payload.get(
+                    "verifiable_total"
+                ),
+                field_name=
+                    "VERIFIABLE_TOTAL",
+            )
+        )
+        
+        price_per_verifiable = (
+            _optional_nonnegative_decimal(
+                payload.get(
+                    "price_per_verifiable"
+                ),
+                field_name=
+                    "PRICE_PER_VERIFIABLE",
+            )
+        )
+        
+        total_actas = (
+            clon_total
+            + idcif_total
+            + verifiable_total
+        )
 
         # Compatibilidad con frontend viejo
         if total_actas <= 0:
-            total_actas = int(payload.get("total_actas") or 0)
+            total_actas = (
+                _safe_nonnegative_int(
+                    payload.get(
+                        "total_actas"
+                    ),
+                    field_name=
+                        "TOTAL_RFC",
+                )
+            )
             clon_total = total_actas
             idcif_total = 0
+            verifiable_total = 0
 
         group = db.query(AuthorizedGroup).filter(
             AuthorizedGroup.group_jid == group_jid
@@ -8048,6 +8908,9 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
             row.warning_sent_10 = False
             row.warning_sent_0 = False
             row.price_per_piece = price_per_piece
+            row.price_per_verifiable = (
+                price_per_verifiable
+            )
             row.is_active = True
             row.owner_instance = instance_name
             row.updated_at = _utc_now_naive()
@@ -8055,6 +8918,18 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
             row.clon_used = 0
             row.idcif_total = idcif_total
             row.idcif_used = 0
+            row.verifiable_total = (
+                verifiable_total
+            )
+            row.verifiable_used = 0
+            row.client_key = None
+            row.shared_key = None
+            
+            row.shared_group_limit_actas = None
+            row.shared_group_used_actas = 0
+            
+            row.shared_group_limit_verifiable = None
+            row.shared_group_used_verifiable = 0
             row.total_actas = total_actas
             row.used_actas = 0
         else:
@@ -8063,8 +8938,10 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
                 promo_name=promo_name,
                 total_actas=total_actas,
                 used_actas=0,
-                shared_group_used_actas=0,
                 price_per_piece=price_per_piece,
+                price_per_verifiable=(
+                    price_per_verifiable
+                ),
                 is_active=True,
                 owner_instance=instance_name,
                 warning_sent_200=False,
@@ -8078,6 +8955,14 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
                 clon_used=0,
                 idcif_total=idcif_total,
                 idcif_used=0,
+                verifiable_total=verifiable_total,
+                verifiable_used=0,
+                client_key=None,
+                shared_key=None,
+                shared_group_limit_actas=None,
+                shared_group_used_actas=0,
+                shared_group_limit_verifiable=None,
+                shared_group_used_verifiable=0,
             )
             db.add(row)
 
@@ -8482,6 +9367,50 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
     idcif_limit_txt = "∞" if int(credits["idcif_limit"] or 0) == 0 else str(credits["idcif_limit"])
     idcif_available_txt = "∞" if int(credits["idcif_limit"] or 0) == 0 else str(credits["idcif_available"])
 
+    credits.setdefault(
+        "verifiable_limit",
+        0,
+    )
+    
+    credits.setdefault(
+        "verifiable_used",
+        0,
+    )
+    
+    credits.setdefault(
+        "verifiable_available",
+        0,
+    )
+    
+    credits.setdefault(
+        "verifiable_recharges",
+        0,
+    )
+    
+    verifiable_limit = int(
+        credits.get(
+            "verifiable_limit"
+        )
+        or 0
+    )
+    
+    verifiable_limit_txt = (
+        "∞"
+        if verifiable_limit == 0
+        else str(verifiable_limit)
+    )
+    
+    verifiable_available_txt = (
+        "∞"
+        if verifiable_limit == 0
+        else str(
+            credits.get(
+                "verifiable_available"
+            )
+            or 0
+        )
+    )
+
     groups = groups or []
     total_groups = len(groups)
     blocked_groups = sum(1 for g in groups if g["blocked"])
@@ -8709,12 +9638,34 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
          
           <div class="card">
             <div class="label">
+              Verificables límite
+            </div>
+        
+            <div class="value">
+              {verifiable_limit_txt}
+            </div>
+          </div>
+        
+          <div class="card">
+            <div class="label">
               Verificables usados
             </div>
+        
             <div class="value">
               {credits["verifiable_used"]}
             </div>
           </div>
+        
+          <div class="card">
+            <div class="label">
+              Verificables disponibles
+            </div>
+        
+            <div class="value">
+              {verifiable_available_txt}
+            </div>
+          </div>
+ 
         </div>
 
         <div class="box">
@@ -8886,11 +9837,42 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             clon_used = int(g.get("promo_clon_used") or 0)
             idcif_total = int(g.get("promo_idcif_total") or 0)
             idcif_used = int(g.get("promo_idcif_used") or 0)
+            verifiable_total = int(
+                g.get(
+                    "promo_verifiable_total"
+                )
+                or 0
+            )
             
-            if clon_total > 0 or idcif_total > 0:
+            verifiable_used = int(
+                g.get(
+                    "promo_verifiable_used"
+                )
+                or 0
+            )
+            
+            if (
+                clon_total > 0
+                or idcif_total > 0
+                or verifiable_total > 0
+            ):
                 promo_text = f"""
-                <div><b>CLON:</b> {clon_used}/{clon_total}</div>
-                <div><b>IDCIF:</b> {idcif_used}/{idcif_total}</div>
+                <div>
+                  <b>CLON:</b>
+                  {clon_used}/{clon_total}
+                </div>
+                
+                <div>
+                  <b>IDCIF:</b>
+                  {idcif_used}/{idcif_total}
+                </div>
+                
+                <div>
+                  <b>VERIF.:</b>
+                  {verifiable_used}/{
+                      verifiable_total
+                  }
+                </div>
                 """
             else:
                 promo_text = "Sin promo"
@@ -8975,6 +9957,20 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                       <input id="promo_name_{_esc(g["group_jid"])}" placeholder="Nombre promo">
                       <input id="promo_clon_total_{_esc(g["group_jid"])}" type="number" min="0" step="1" placeholder="Total CLON">
                       <input id="promo_idcif_total_{_esc(g["group_jid"])}" type="number" min="0" step="1" placeholder="Total IDCIF">
+                      <input
+                        id="promo_verifiable_price_{_esc(g["group_jid"])}"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Precio verificable"
+                      >
+                      <input
+                        id="promo_verifiable_total_{_esc(g["group_jid"])}"
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="Total verificables"
+                      >
                       <input id="promo_price_{_esc(g["group_jid"])}" placeholder="Precio por RFC">
                 
                       <button class="btn btn-success"
@@ -9282,37 +10278,106 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
           else alert(data.error || "No se pudo renombrar");
         }
 
-        async function assignBotPromo(groupJid) {
-          const promoName = document.getElementById(`promo_name_${groupJid}`).value.trim();
-          const clonTotal = Number(document.getElementById(`promo_clon_total_${groupJid}`).value.trim() || 0);
-          const idcifTotal = Number(document.getElementById(`promo_idcif_total_${groupJid}`).value.trim() || 0);
-          const totalRFC = clonTotal + idcifTotal;
-          const pricePerPiece = document.getElementById(`promo_price_${groupJid}`).value.trim();
+        async function assignBotPromo(
+          groupJid
+        ) {
+          const promoName = (
+            document.getElementById(
+              `promo_name_${groupJid}`
+            )?.value
+            || ""
+          ).trim();
+        
+          const clonTotal = Number(
+            document.getElementById(
+              `promo_clon_total_${groupJid}`
+            )?.value
+            || 0
+          );
+        
+          const idcifTotal = Number(
+            document.getElementById(
+              `promo_idcif_total_${groupJid}`
+            )?.value
+            || 0
+          );
+        
+          const verifiableTotal = Number(
+            document.getElementById(
+              `promo_verifiable_total_${groupJid}`
+            )?.value
+            || 0
+          );
 
-          if (!totalRFC || totalRFC < 10) {
-            alert("La bolsa RFC mínima es de 10 RFC");
+          const verifiablePrice = (
+            document.getElementById(
+              `promo_verifiable_price_${groupJid}`
+            )?.value
+            || ""
+          ).trim();
+        
+          const totalRFC = (
+            clonTotal
+            + idcifTotal
+            + verifiableTotal
+          );
+        
+          const pricePerPiece = (
+            document.getElementById(
+              `promo_price_${groupJid}`
+            )?.value
+            || ""
+          ).trim();
+        
+          if (
+            !totalRFC
+            || totalRFC < 10
+          ) {
+            alert(
+              "La bolsa RFC mínima "
+              + "es de 10 RFC"
+            );
             return;
           }
-
-          const res = await fetch(`${BOT_PANEL_BASE}/promotion/set`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              group_jid: groupJid,
-              promo_name: promoName,
-              total_actas: totalRFC,
-              clon_total: clonTotal,
-              idcif_total: idcifTotal,
-              price_per_piece: pricePerPiece
-            })
-          });
-
+        
+          const res = await fetch(
+            `${BOT_PANEL_BASE}/promotion/set`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
+              body: JSON.stringify({
+                group_jid: groupJid,
+                promo_name: promoName,
+                total_actas: totalRFC,
+                clon_total: clonTotal,
+                idcif_total: idcifTotal,
+                verifiable_total:
+                  verifiableTotal,
+                price_per_piece:
+                  pricePerPiece,
+                price_per_verifiable:
+                  verifiablePrice,
+              })
+            }
+          );
+        
           const data = await res.json();
+        
           if (data.ok) {
-            alert(data.message || "Bolsa RFC activada y mensaje enviado al grupo.");
+            alert(
+              data.message
+              || "Bolsa RFC activada"
+            );
             location.reload();
           } else {
-            alert(data.error || "No se pudo aplicar la bolsa RFC");
+            alert(
+              data.error
+              || "No se pudo aplicar "
+              + "la bolsa RFC"
+            );
           }
         }
 
@@ -11205,11 +12270,50 @@ def panel_RFC(
           </div>
           <div id="promoCompartidaBody" class="collapsible-body open">
 
-            <div class="filters" style="margin-bottom:12px;">
-              <input id="sharedPromoName" placeholder="Nombre de la bolsa RFC">
+            <div
+              class="filters"
+              style="
+                margin-bottom:12px;
+                grid-template-columns:
+                  repeat(
+                    6,
+                    minmax(180px, 1fr)
+                  );
+              "
+            >
+              <input id="sharedPromoName" placeholder="Nombre">
               <input id="sharedPromoClientKey" placeholder="Nombre de la bolsa compartida">
-              <input id="sharedPromoTotalRFC" type="number" placeholder="Total de RFC del paquete">
-              <input id="sharedPromoPricePerPiece" placeholder="Precio por RFC">
+              <input
+                id="sharedPromoClonTotal"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Total CLON"
+              >
+            
+              <input
+                id="sharedPromoIdcifTotal"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Total IDCIF"
+              >
+            
+              <input
+                id="sharedPromoVerifiableTotal"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Total verificables"
+              >
+              <input id="sharedPromoPricePerPiece" placeholder="Precio">
+              <input
+                id="sharedPromoVerifiablePrice"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Precio verificable"
+              >
             </div>
         
             <div class="box" style="padding:14px;margin-top:8px;background:#f8fafc;border:1px solid #e5e7eb;">
@@ -12846,32 +13950,68 @@ def panel_RFC(
           }}
         }}
 
-        async function setSharedGroupLimit(groupJid) {{
-          const value = prompt("Ingresa el límite individual de RFC para este grupo dentro de la bolsa compartida:");
-          if (value === null) return;
+        async function setSharedGroupLimit(
+          groupJid
+        ) {{
+          const value = prompt(
+            "Ingresa el límite individual "
+            + "de CLON/IDCIF para este grupo:"
+          );
+        
+          if (value === null) {{
+            return;
+          }}
+        
+          const verifiableValue = prompt(
+            "Ingresa el límite individual "
+            + "de RFC verificables para "
+            + "este grupo:"
+          );
+        
+          if (verifiableValue === null) {{
+            return;
+          }}
         
           try {{
-            const res = await fetch("/panel/promotions/set-group-limit", {{
-              method: "POST",
-              headers: {{
-                "Content-Type": "application/json"
-              }},
-              body: JSON.stringify({{
-                group_jid: groupJid,
-                limit_RFC: Number(value || 0)
-              }})
-            }});
+            const res = await fetch(
+              "/panel/promotions/set-group-limit",
+              {{
+                method: "POST",
+                headers: {{
+                  "Content-Type":
+                    "application/json"
+                }},
+                body: JSON.stringify({{
+                  group_jid: groupJid,
+                  limit_RFC:
+                    Number(value || 0),
+                  limit_verifiable:
+                    Number(
+                      verifiableValue || 0
+                    )
+                }})
+              }}
+            );
         
             const data = await res.json();
         
             if (data.ok) {{
-              alert(data.message || "Límite actualizado");
+              alert(
+                data.message
+                || "Límites actualizados"
+              );
               location.reload();
             }} else {{
-              alert(data.error || "No se pudo actualizar el límite");
+              alert(
+                data.error
+                || "No se pudieron actualizar"
+              );
             }}
           }} catch (e) {{
-            alert("No se pudo conectar con el servidor");
+            alert(
+              "No se pudo conectar "
+              + "con el servidor"
+            );
           }}
         }}
 
@@ -13247,8 +14387,13 @@ def panel_RFC(
           const promo_name = document.getElementById("sharedPromoName").value || "";
           const client_key = document.getElementById("sharedPromoClientKey").value || "";
           const shared_key = client_key.trim().toUpperCase();
-          const total_actas = Number(document.getElementById("sharedPromoTotalRFC").value || 0);
           const price_per_piece = document.getElementById("sharedPromoPricePerPiece").value || "";
+          const price_per_verifiable = (
+            document.getElementById(
+              "sharedPromoVerifiablePrice"
+            )?.value
+            || ""
+          );
         
           const promo_type = document.getElementById("sharedPromoType").value || "paid";
           const is_credit = promo_type === "credit";
@@ -13263,6 +14408,33 @@ def panel_RFC(
             if (credit_abono_raw === "") credit_abono_raw = "0";
             if (credit_debe_raw === "") credit_debe_raw = "0";
           }}
+
+          const clon_total = Number(
+            document.getElementById(
+              "sharedPromoClonTotal"
+            )?.value
+            || 0
+          );
+        
+          const idcif_total = Number(
+            document.getElementById(
+              "sharedPromoIdcifTotal"
+            )?.value
+            || 0
+          );
+        
+          const verifiable_total = Number(
+            document.getElementById(
+              "sharedPromoVerifiableTotal"
+            )?.value
+            || 0
+          );
+
+          const total_actas = (
+            clon_total
+            + idcif_total
+            + verifiable_total
+          );
         
           const credit_abono = Number(credit_abono_raw);
           const credit_debe = Number(credit_debe_raw);
@@ -13294,6 +14466,10 @@ def panel_RFC(
                 client_key,
                 shared_key,
                 total_actas,
+                clon_total,
+                idcif_total,
+                verifiable_total,
+                price_per_verifiable,
                 price_per_piece,
                 is_credit,
                 credit_abono,
@@ -16849,21 +18025,87 @@ def panel_set_group_promotion(
     payload: dict = Body(...),
     db: Session = Depends(get_db),
 ):
-    clon_total = int(payload.get("clon_total") or 0)
-    idcif_total = int(payload.get("idcif_total") or 0)
-    total_actas = clon_total + idcif_total
+    try:
+        clon_total = _safe_nonnegative_int(
+            payload.get("clon_total"),
+            field_name="CLON_TOTAL",
+        )
+    
+        idcif_total = _safe_nonnegative_int(
+            payload.get("idcif_total"),
+            field_name="IDCIF_TOTAL",
+        )
+    
+        verifiable_total = (
+            _safe_nonnegative_int(
+                payload.get(
+                    "verifiable_total"
+                ),
+                field_name=
+                    "VERIFIABLE_TOTAL",
+            )
+        )
+    
+        price_per_verifiable = (
+            _optional_nonnegative_decimal(
+                payload.get(
+                    "price_per_verifiable"
+                ),
+                field_name=
+                    "PRICE_PER_VERIFIABLE",
+            )
+        )
+    
+    except ValueError as exc:
+        return _payload_value_error(exc)
+    
+    total_actas = (
+        clon_total
+        + idcif_total
+        + verifiable_total
+    )
     
     if total_actas <= 0:
-        total_actas = int(payload.get("total_actas") or 0)
+        try:
+            total_actas = (
+                _safe_nonnegative_int(
+                    payload.get(
+                        "total_actas"
+                    ),
+                    field_name="TOTAL_RFC",
+                )
+            )
+        except ValueError as exc:
+            return _payload_value_error(exc)
+    
         clon_total = total_actas
         idcif_total = 0
+        verifiable_total = 0
     
     promo_name = (payload.get("promo_name") or "").strip()
     price_per_piece = (payload.get("price_per_piece") or "").strip()
 
+    price_per_verifiable_raw = str(
+        payload.get(
+            "price_per_verifiable"
+        )
+        or ""
+    ).strip()
+
     is_credit = bool(payload.get("is_credit") or False)
-    credit_abono = int(payload.get("credit_abono") or 0)
-    credit_debe = int(payload.get("credit_debe") or 0)
+    try:
+        credit_abono = _safe_nonnegative_int(
+            payload.get("credit_abono"),
+            field_name="CREDIT_ABONO",
+        )
+    
+        credit_debe = _safe_nonnegative_int(
+            payload.get("credit_debe"),
+            field_name="CREDIT_DEBE",
+        )
+    
+    except ValueError as exc:
+        return _payload_value_error(exc)
 
     if total_actas <= 0:
         return {"ok": False, "error": "TOTAL_RFC_INVALID"}
@@ -16887,6 +18129,18 @@ def panel_set_group_promotion(
         row.idcif_total = idcif_total
         row.idcif_used = 0
 
+        row.verifiable_total = (
+            verifiable_total
+        )
+        
+        row.verifiable_used = 0
+
+        row.price_per_verifiable = (
+            price_per_verifiable
+        )
+        
+        row.shared_group_used_verifiable = 0
+
         row.used_actas = 0
         row.warning_sent_200 = False
         row.warning_sent_100 = False
@@ -16896,6 +18150,12 @@ def panel_set_group_promotion(
 
         row.client_key = None
         row.shared_key = None
+
+        row.shared_group_limit_actas = None
+        row.shared_group_used_actas = 0
+        
+        row.shared_group_limit_verifiable = None
+        row.shared_group_used_verifiable = 0
 
     else:
         row = GroupPromotion(
@@ -16921,6 +18181,16 @@ def panel_set_group_promotion(
             clon_used=0,
             idcif_total=idcif_total,
             idcif_used=0,
+            verifiable_total=verifiable_total,
+            verifiable_used=0,
+            price_per_verifiable=(
+                price_per_verifiable
+            ),
+            shared_group_limit_actas=None,
+            shared_group_used_actas=0,
+            
+            shared_group_limit_verifiable=None,
+            shared_group_used_verifiable=0,
         )
         db.add(row)
         db.flush()
@@ -16991,6 +18261,11 @@ def panel_remove_group_promotion(
     row.clon_used = 0
     row.idcif_total = 0
     row.idcif_used = 0
+    row.verifiable_total = 0
+    row.verifiable_used = 0
+    row.shared_group_limit_verifiable = None
+    row.shared_group_used_verifiable = 0
+    row.price_per_verifiable = None
     row.promo_name = ""
     row.price_per_piece = ""
     row.client_key = None
@@ -17040,6 +18315,82 @@ def panel_remove_group_promotion(
     }
 
 
+@app.post(
+    "/panel/group/"
+    "{group_jid}/VERIFIABLE-price"
+)
+async def panel_save_group_verifiable_price(
+    group_jid: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = await request.json()
+
+        raw = str(
+            payload.get(
+                "verifiable_price"
+            )
+            or ""
+        ).strip()
+
+        price = float(raw)
+
+        if price < 0:
+            return {
+                "ok": False,
+                "error": (
+                    "El precio verificable "
+                    "no puede ser negativo"
+                ),
+            }
+
+        promo = (
+            db.query(GroupPromotion)
+            .filter(
+                GroupPromotion.group_jid
+                == group_jid
+            )
+            .first()
+        )
+
+        if not promo:
+            promo = GroupPromotion(
+                group_jid=group_jid,
+                total_actas=0,
+                used_actas=0,
+                clon_total=0,
+                clon_used=0,
+                idcif_total=0,
+                idcif_used=0,
+                verifiable_total=0,
+                verifiable_used=0,
+                is_active=False,
+                created_at=_utc_now_naive(),
+                updated_at=_utc_now_naive(),
+            )
+            db.add(promo)
+
+        promo.price_per_verifiable = price
+        promo.updated_at = _utc_now_naive()
+
+        db.commit()
+        _clear_panel_cache()
+
+        return {
+            "ok": True,
+            "verifiable_price": price,
+        }
+
+    except Exception as exc:
+        db.rollback()
+
+        return {
+            "ok": False,
+            "error": str(exc),
+        }
+
+
 @app.post("/panel/group/{group_jid}/promotion/recharge")
 def panel_recharge_group_promotion(
     group_jid: str,
@@ -17049,7 +18400,7 @@ def panel_recharge_group_promotion(
     extra_RFC = int(payload.get("extra_RFC") or 0)
 
     family = (payload.get("family") or "CLON").strip().upper()
-    if family not in {"CLON", "IDCIF"}:
+    if family not in {"CLON", "IDCIF", "VERIFICABLE"}:
         family = "CLON"
 
     if extra_RFC <= 0:
@@ -17077,20 +18428,58 @@ def panel_recharge_group_promotion(
 
         leader = rows[0]
         if family == "IDCIF":
-            current_family_total = int(leader.idcif_total or 0)
-            new_family_total = current_family_total + extra_RFC
+            current_family_total = int(
+                leader.idcif_total or 0
+            )
+        
+        elif family == "VERIFICABLE":
+            current_family_total = int(
+                leader.verifiable_total or 0
+            )
+        
         else:
-            current_family_total = int(leader.clon_total or 0)
-            new_family_total = current_family_total + extra_RFC
+            current_family_total = int(
+                leader.clon_total or 0
+            )
+        
+        new_family_total = (
+            current_family_total
+            + extra_RFC
+        )
         
         for r in rows:
             if family == "IDCIF":
-                r.idcif_total = new_family_total
-            else:
-                r.clon_total = new_family_total
+                r.idcif_total = (
+                    new_family_total
+                )
         
-            r.total_actas = int(r.clon_total or 0) + int(r.idcif_total or 0)
-            r.used_actas = int(r.clon_used or 0) + int(r.idcif_used or 0)
+            elif family == "VERIFICABLE":
+                r.verifiable_total = (
+                    new_family_total
+                )
+        
+            else:
+                r.clon_total = (
+                    new_family_total
+                )
+        
+            r.total_actas = (
+                int(r.clon_total or 0)
+                + int(r.idcif_total or 0)
+                + int(
+                    r.verifiable_total
+                    or 0
+                )
+            )
+        
+            r.used_actas = (
+                int(r.clon_used or 0)
+                + int(r.idcif_used or 0)
+                + int(
+                    r.verifiable_used
+                    or 0
+                )
+            )
         
             r.warning_sent_200 = False
             r.warning_sent_100 = False
@@ -17100,8 +18489,8 @@ def panel_recharge_group_promotion(
             r.is_active = True
             r.updated_at = _utc_now_naive()
         
-        new_total = int(leader.clon_total or 0) + int(leader.idcif_total or 0)
-        current_used = int(leader.clon_used or 0) + int(leader.idcif_used or 0)
+        new_total = int(leader.clon_total or 0) + int(leader.idcif_total or 0) + int(leader.verifiable_total or 0)
+        current_used = int(leader.clon_used or 0) + int(leader.idcif_used or 0) + int(leader.verifiable_used or 0)
         available = max(0, new_total - current_used)
 
         for r in rows:
@@ -17169,12 +18558,37 @@ def panel_recharge_group_promotion(
     # RECARGA INDIVIDUAL
     # =========================
     if family == "IDCIF":
-        row.idcif_total = int(row.idcif_total or 0) + extra_RFC
-    else:
-        row.clon_total = int(row.clon_total or 0) + extra_RFC
+        row.idcif_total = (
+            int(row.idcif_total or 0)
+            + extra_RFC
+        )
     
-    row.total_actas = int(row.clon_total or 0) + int(row.idcif_total or 0)
-    row.used_actas = int(row.clon_used or 0) + int(row.idcif_used or 0)
+    elif family == "VERIFICABLE":
+        row.verifiable_total = (
+            int(
+                row.verifiable_total
+                or 0
+            )
+            + extra_RFC
+        )
+    
+    else:
+        row.clon_total = (
+            int(row.clon_total or 0)
+            + extra_RFC
+        )
+    
+    row.total_actas = (
+        int(row.clon_total or 0)
+        + int(row.idcif_total or 0)
+        + int(row.verifiable_total or 0)
+    )
+    
+    row.used_actas = (
+        int(row.clon_used or 0)
+        + int(row.idcif_used or 0)
+        + int(row.verifiable_used or 0)
+    )
     row.warning_sent_200 = False
     row.warning_sent_100 = False
     row.warning_sent_50 = False
@@ -21341,39 +22755,3 @@ def panel_rfc_bot_control_update(request: Request):
     except Exception as e:
         print("panel_rfc_bot_control_update error:", repr(e), flush=True)
         return HTMLResponse(f"Error: {_esc(str(e))}", status_code=500)
-
-
-# =========================================================
-# OVERRIDE FINAL:
-# El mini panel debe detectar bloqueo del panel principal
-# leyendo bot_control.is_blocked.
-# =========================================================
-
-def is_instance_admin_blocked(instance_name: str) -> bool:
-    try:
-        import os
-        from dotenv import load_dotenv
-        from sqlalchemy import create_engine, text
-
-        instance_name = (instance_name or "").strip()
-        if not instance_name:
-            return False
-
-        load_dotenv("/opt/rfc-grupo02-bot/.env")
-        engine = create_engine(os.getenv("DATABASE_URL"), pool_pre_ping=True)
-
-        with engine.begin() as conn:
-            row = conn.execute(text("""
-                SELECT COALESCE(is_blocked, FALSE) AS is_blocked
-                FROM bot_control
-                WHERE instance_name = :instance_name
-                LIMIT 1
-            """), {
-                "instance_name": instance_name,
-            }).mappings().first()
-
-        return bool(row and row["is_blocked"])
-
-    except Exception as e:
-        print("[IS_INSTANCE_ADMIN_BLOCKED_OVERRIDE_ERROR]", repr(e), {"instance_name": instance_name}, flush=True)
-        return False
