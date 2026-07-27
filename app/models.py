@@ -136,6 +136,37 @@ class GroupPromotion(Base):
     clon_used = Column(Integer, nullable=False, default=0)
     idcif_total = Column(Integer, nullable=False, default=0)
     idcif_used = Column(Integer, nullable=False, default=0)
+
+    verifiable_total = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    
+    verifiable_used = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    
+    shared_group_limit_verifiable = Column(
+        Integer,
+        nullable=True,
+    )
+    
+    shared_group_used_verifiable = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    
+    price_per_verifiable = Column(
+        Numeric(12, 2),
+        nullable=True,
+    )
     
     price_per_piece = Column(String(30), nullable=True)
 
