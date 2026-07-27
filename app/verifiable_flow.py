@@ -773,9 +773,27 @@ def find_pending_request_by_provider_rfc(
                 )
             )
 
+            provider_identifier = (
+                normalize_token(
+                    pending.get(
+                        "provider_identifier"
+                    )
+                    or ""
+                )
+            )
+
             matched_by = ""
 
             if (
+                provider_identifier
+                and provider_identifier
+                == provider_rfc
+            ):
+                matched_by = (
+                    "exact_provider_identifier"
+                )
+            
+            elif (
                 original_type == "RFC_ONLY"
                 and original_identifier
                 == provider_rfc
