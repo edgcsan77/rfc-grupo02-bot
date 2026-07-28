@@ -866,6 +866,7 @@ def calcular_rfc_moffin(
         WebDriverException,
     )
     from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
@@ -935,7 +936,7 @@ def calcular_rfc_moffin(
         "%Y-%m-%d",
     ).strftime("%y%m%d")
 
-    url = "https://moffin.mx/calculadora-rfc"
+    url = "https://moffin.com/calcular_rfc"
 
     ultimo_error = None
 
@@ -951,6 +952,20 @@ def calcular_rfc_moffin(
             opciones.add_argument("--disable-gpu")
             opciones.add_argument("--window-size=1440,1200")
             opciones.add_argument("--lang=es-MX")
+            opciones.add_argument(
+                "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/150.0.0.0 Safari/537.36"
+            )
+            opciones.add_argument("--disable-blink-features=AutomationControlled")
+            opciones.add_experimental_option(
+                "excludeSwitches",
+                ["enable-automation"],
+            )
+            opciones.add_experimental_option(
+                "useAutomationExtension",
+                False,
+            )
             opciones.add_argument("--disable-extensions")
             opciones.add_argument("--disable-notifications")
             opciones.add_argument("--disable-popup-blocking")
@@ -961,7 +976,49 @@ def calcular_rfc_moffin(
             opciones.add_argument("--no-first-run")
             opciones.add_argument("--no-default-browser-check")
 
-            driver = webdriver.Chrome(options=opciones)
+            chrome_bin = (
+                os.environ.get("CHROME_BIN")
+                or "/usr/bin/google-chrome-stable"
+            ).strip()
+
+            chromedriver_bin = (
+                os.environ.get("CHROMEDRIVER_BIN")
+                or "/usr/local/bin/chromedriver-google"
+            ).strip()
+
+            if not os.path.isfile(chrome_bin):
+                raise RuntimeError(
+                    f"MOFFIN_CHROME_NO_EXISTE:{chrome_bin}"
+                )
+
+            if not os.access(chrome_bin, os.X_OK):
+                raise RuntimeError(
+                    f"MOFFIN_CHROME_NO_EJECUTABLE:{chrome_bin}"
+                )
+
+            if not os.path.isfile(chromedriver_bin):
+                raise RuntimeError(
+                    "MOFFIN_CHROMEDRIVER_NO_EXISTE:"
+                    f"{chromedriver_bin}"
+                )
+
+            opciones.binary_location = chrome_bin
+
+            print(
+                "[MOFFIN_BROWSER_CONFIG]",
+                {
+                    "chrome": chrome_bin,
+                    "chromedriver": chromedriver_bin,
+                },
+                flush=True,
+            )
+
+            driver = webdriver.Chrome(
+                service=Service(
+                    executable_path=chromedriver_bin
+                ),
+                options=opciones,
+            )
 
             driver.set_page_load_timeout(45)
             driver.set_script_timeout(30)
@@ -980,7 +1037,38 @@ def calcular_rfc_moffin(
 
             driver.get(url)
 
-            espera = WebDriverWait(driver, 25)
+            driver.execute_script(
+                """
+                Object.defineProperty(
+                    navigator,
+                    'webdriver',
+                    {get: () => undefined}
+                );
+                """
+            )
+
+            espera = WebDriverWait(driver, 30)
+
+            espera.until(
+                lambda d: d.execute_script(
+                    "return document.readyState"
+                ) == "complete"
+            )
+
+            print(
+                "[MOFFIN_PAGE_LOADED]",
+                {
+                    "url": driver.current_url,
+                    "title": driver.title,
+                    "inputs": len(
+                        driver.find_elements(
+                            By.CSS_SELECTOR,
+                            "input"
+                        )
+                    ),
+                },
+                flush=True,
+            )
 
             campo_nombre = espera.until(
                 EC.presence_of_element_located(
