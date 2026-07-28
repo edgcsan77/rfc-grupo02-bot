@@ -839,427 +839,400 @@ def calcular_rfc_moffin(
     nombre,
     apellido_paterno,
     apellido_materno,
-    fecha_nac,
-    timeout_s: int = 30
-):
+    fecha_nacimiento,
+) -> str:
+    """
+    Calcula el RFC utilizando la calculadora pública de Moffin.
+
+    HTML vigente:
+      #nombre
+      #apellidoPaterno
+      #apellidoMaterno
+      #fecha
+      button[data-cta="Calcular RFC"]
+
+    La calculadora procesa los datos mediante JavaScript en el navegador.
+    """
+
+    import re
+    import time
+    import unicodedata
+
+    from datetime import datetime
+
     from selenium import webdriver
+    from selenium.common.exceptions import (
+        TimeoutException,
+        WebDriverException,
+    )
+    from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.common.keys import Keys
-    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.support import expected_conditions as EC
 
-    nombre = re.sub(
-        r"\s+",
-        " ",
-        str(nombre or "")
-    ).strip().upper()
+    def limpiar(valor) -> str:
+        valor = str(valor or "").strip()
+        valor = re.sub(r"\s+", " ", valor)
+        return valor
 
-    apellido_paterno = re.sub(
-        r"\s+",
-        " ",
-        str(apellido_paterno or "")
-    ).strip().upper()
+    def normalizar_nombre(valor) -> str:
+        valor = limpiar(valor).upper()
 
-    apellido_materno = re.sub(
-        r"\s+",
-        " ",
-        str(apellido_materno or "")
-    ).strip().upper()
+        # Conserva Ñ, pero elimina otros acentos.
+        valor = valor.replace("Ñ", "__ENIE__")
+        valor = unicodedata.normalize("NFD", valor)
+        valor = "".join(
+            caracter
+            for caracter in valor
+            if unicodedata.category(caracter) != "Mn"
+        )
+        valor = valor.replace("__ENIE__", "Ñ")
 
-    # Persona con un solo apellido:
+        return valor
+
+    nombre = normalizar_nombre(nombre)
+    apellido_paterno = normalizar_nombre(apellido_paterno)
+    apellido_materno = normalizar_nombre(apellido_materno)
+    fecha_nacimiento = limpiar(fecha_nacimiento)
+
+    if not nombre:
+        raise RuntimeError("MOFFIN_FALTA_NOMBRE")
+
     if not apellido_paterno and apellido_materno:
         apellido_paterno, apellido_materno = (
             apellido_materno,
-            ""
+            "",
         )
 
-    fecha_str = _fecha_moffin_yyyy_mm_dd(
-        fecha_nac
-    )
+    if not apellido_paterno:
+        raise RuntimeError("MOFFIN_FALTA_APELLIDO_PATERNO")
 
-    if not nombre or not apellido_paterno:
-        raise ValueError(
-            "MOFFIN_DATOS_INCOMPLETOS"
+    # El input type=date requiere YYYY-MM-DD.
+    fecha_iso = ""
+
+    for formato in (
+        "%Y-%m-%d",
+        "%d-%m-%Y",
+        "%d/%m/%Y",
+    ):
+        try:
+            fecha_iso = datetime.strptime(
+                fecha_nacimiento[:10],
+                formato,
+            ).strftime("%Y-%m-%d")
+            break
+
+        except ValueError:
+            continue
+
+    if not fecha_iso:
+        raise RuntimeError(
+            f"MOFFIN_FECHA_INVALIDA:{fecha_nacimiento}"
         )
 
     fecha_rfc_esperada = datetime.strptime(
-        fecha_str,
-        "%Y-%m-%d"
+        fecha_iso,
+        "%Y-%m-%d",
     ).strftime("%y%m%d")
 
-    patron_rfc = re.compile(
-        r"^[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}$"
-    )
+    url = "https://moffin.mx/calculadora-rfc"
 
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument(
-        "--disable-dev-shm-usage"
-    )
-    options.add_argument(
-        "--window-size=1440,1200"
-    )
-    options.add_argument("--lang=es-MX")
+    ultimo_error = None
 
-    chrome_bin = (
-        os.environ.get("CHROME_BIN") or ""
-    ).strip()
+    for intento in range(1, 4):
+        driver = None
 
-    if chrome_bin:
-        options.binary_location = chrome_bin
+        try:
+            opciones = Options()
 
-    chromedriver_bin = (
-        os.environ.get("CHROMEDRIVER_BIN")
-        or ""
-    ).strip()
-    
-    if not chromedriver_bin:
-        raise RuntimeError(
-            "MOFFIN_CHROMEDRIVER_BIN_NO_CONFIGURADO"
-        )
-    
-    if not os.path.isfile(chromedriver_bin):
-        raise RuntimeError(
-            "MOFFIN_CHROMEDRIVER_NO_EXISTE:"
-            f"{chromedriver_bin}"
-        )
-    
-    service = Service(
-        executable_path=chromedriver_bin
-    )
+            opciones.add_argument("--headless=new")
+            opciones.add_argument("--no-sandbox")
+            opciones.add_argument("--disable-dev-shm-usage")
+            opciones.add_argument("--disable-gpu")
+            opciones.add_argument("--window-size=1440,1200")
+            opciones.add_argument("--lang=es-MX")
+            opciones.add_argument("--disable-extensions")
+            opciones.add_argument("--disable-notifications")
+            opciones.add_argument("--disable-popup-blocking")
+            opciones.add_argument("--disable-background-networking")
+            opciones.add_argument("--disable-default-apps")
+            opciones.add_argument("--disable-sync")
+            opciones.add_argument("--metrics-recording-only")
+            opciones.add_argument("--no-first-run")
+            opciones.add_argument("--no-default-browser-check")
 
-    driver = None
+            driver = webdriver.Chrome(options=opciones)
 
-    try:
-        driver = webdriver.Chrome(
-            service=service,
-            options=options
-        )
+            driver.set_page_load_timeout(45)
+            driver.set_script_timeout(30)
 
-        driver.set_page_load_timeout(
-            timeout_s
-        )
-        driver.set_script_timeout(
-            timeout_s
-        )
-
-        wait = WebDriverWait(
-            driver,
-            timeout_s
-        )
-
-        driver.get(URL_RFC_MOFFIN)
-
-        wait.until(
-            lambda d: d.execute_script(
-                "return document.readyState"
-            ) == "complete"
-        )
-
-        txt_nombre = wait.until(
-            lambda d: d.find_element(
-                By.CSS_SELECTOR,
-                'input[placeholder='
-                '"Escribe tu(s) nombre(s)"]'
-            )
-        )
-
-        txt_apellido_paterno = wait.until(
-            lambda d: d.find_element(
-                By.CSS_SELECTOR,
-                'input[placeholder='
-                '"Escribe tu primer apellido"]'
-            )
-        )
-
-        txt_apellido_materno = wait.until(
-            lambda d: d.find_element(
-                By.CSS_SELECTOR,
-                'input[placeholder='
-                '"Escribe tu segundo apellido"]'
-            )
-        )
-
-        input_fecha = wait.until(
-            lambda d: d.find_element(
-                By.CSS_SELECTOR,
-                'input[type="date"]'
-            )
-        )
-
-        def llenar_texto(
-            elemento,
-            valor
-        ):
-            driver.execute_script(
-                """
-                arguments[0].scrollIntoView({
-                    block: 'center'
-                });
-                """,
-                elemento
+            print(
+                "[MOFFIN_RFC_TRY]",
+                {
+                    "attempt": intento,
+                    "nombre": nombre,
+                    "apellido_paterno": apellido_paterno,
+                    "apellido_materno": apellido_materno,
+                    "fecha": fecha_iso,
+                },
+                flush=True,
             )
 
-            elemento.click()
-            elemento.send_keys(
-                Keys.CONTROL,
-                "a"
-            )
-            elemento.send_keys(valor)
+            driver.get(url)
 
-            driver.execute_script(
-                """
-                arguments[0].dispatchEvent(
-                    new Event(
-                        'input',
-                        {bubbles: true}
+            espera = WebDriverWait(driver, 25)
+
+            campo_nombre = espera.until(
+                EC.presence_of_element_located(
+                    (By.ID, "nombre")
+                )
+            )
+
+            campo_paterno = espera.until(
+                EC.presence_of_element_located(
+                    (By.ID, "apellidoPaterno")
+                )
+            )
+
+            campo_materno = espera.until(
+                EC.presence_of_element_located(
+                    (By.ID, "apellidoMaterno")
+                )
+            )
+
+            campo_fecha = espera.until(
+                EC.presence_of_element_located(
+                    (By.ID, "fecha")
+                )
+            )
+
+            boton = espera.until(
+                EC.element_to_be_clickable(
+                    (
+                        By.CSS_SELECTOR,
+                        'button[type="submit"][data-cta="Calcular RFC"]',
                     )
-                );
-
-                arguments[0].dispatchEvent(
-                    new Event(
-                        'change',
-                        {bubbles: true}
-                    )
-                );
-                """,
-                elemento
+                )
             )
 
-        llenar_texto(
-            txt_nombre,
-            nombre
-        )
+            # React puede ignorar send_keys o asignaciones simples.
+            # Este setter nativo actualiza el valor y dispara eventos.
+            script_set_value = """
+                const element = arguments[0];
+                const value = arguments[1];
 
-        llenar_texto(
-            txt_apellido_paterno,
-            apellido_paterno
-        )
-
-        llenar_texto(
-            txt_apellido_materno,
-            apellido_materno
-        )
-
-        driver.execute_script(
-            """
-            const input = arguments[0];
-            const nuevoValor = arguments[1];
-
-            input.scrollIntoView({
-                block: 'center'
-            });
-
-            const descriptor =
-                Object.getOwnPropertyDescriptor(
+                const descriptor = Object.getOwnPropertyDescriptor(
                     HTMLInputElement.prototype,
                     'value'
                 );
 
-            if (
-                !descriptor
-                || !descriptor.set
-            ) {
-                throw new Error(
-                    'MOFFIN_DATE_NATIVE_'
-                    + 'SETTER_NOT_FOUND'
+                descriptor.set.call(element, value);
+
+                element.dispatchEvent(
+                    new Event('input', {
+                        bubbles: true
+                    })
                 );
-            }
 
-            descriptor.set.call(
-                input,
-                nuevoValor
-            );
+                element.dispatchEvent(
+                    new Event('change', {
+                        bubbles: true
+                    })
+                );
 
-            input.dispatchEvent(
-                new Event(
-                    'input',
-                    {bubbles: true}
-                )
-            );
-
-            input.dispatchEvent(
-                new Event(
-                    'change',
-                    {bubbles: true}
-                )
-            );
-
-            input.dispatchEvent(
-                new Event(
-                    'blur',
-                    {bubbles: true}
-                )
-            );
-            """,
-            input_fecha,
-            fecha_str
-        )
-
-        input_fecha.send_keys(Keys.TAB)
-
-        fecha_dom = (
-            input_fecha.get_attribute(
-                "value"
-            )
-            or ""
-        ).strip()
-
-        if fecha_dom != fecha_str:
-            raise RuntimeError(
-                "MOFFIN_FECHA_NO_ASIGNADA:"
-                f"esperada={fecha_str}:"
-                f"dom={fecha_dom}"
-            )
-
-        try:
-            boton = wait.until(
-                lambda d: next(
-                    (
-                        elemento
-                        for elemento
-                        in d.find_elements(
-                            By.CSS_SELECTOR,
-                            'a[text='
-                            '"Calcular RFC"]'
-                        )
-                        if (
-                            elemento.is_displayed()
-                            and elemento.is_enabled()
-                        )
-                    ),
-                    False
-                )
-            )
-
-        except Exception:
-            boton = wait.until(
-                lambda d: next(
-                    (
-                        elemento
-                        for elemento
-                        in d.find_elements(
-                            By.XPATH,
-                            "//a[.//p["
-                            "normalize-space()="
-                            "'Calcular RFC']]"
-                        )
-                        if (
-                            elemento.is_displayed()
-                            and elemento.is_enabled()
-                        )
-                    ),
-                    False
-                )
-            )
-
-        driver.execute_script(
+                element.dispatchEvent(
+                    new Event('blur', {
+                        bubbles: true
+                    })
+                );
             """
-            arguments[0].scrollIntoView({
-                block: 'center'
-            });
-            """,
-            boton
-        )
 
-        driver.execute_script(
-            "arguments[0].click();",
-            boton
-        )
+            driver.execute_script(
+                script_set_value,
+                campo_nombre,
+                nombre,
+            )
 
-        def leer_resultado(
-            driver_actual
-        ):
-            candidatos = (
-                driver_actual.find_elements(
-                    By.CSS_SELECTOR,
-                    '[data-framer-name='
-                    '"Symbol / Wide"] h6'
+            driver.execute_script(
+                script_set_value,
+                campo_paterno,
+                apellido_paterno,
+            )
+
+            driver.execute_script(
+                script_set_value,
+                campo_materno,
+                apellido_materno,
+            )
+
+            driver.execute_script(
+                script_set_value,
+                campo_fecha,
+                fecha_iso,
+            )
+
+            # Verifica que realmente quedaron los valores.
+            valores = driver.execute_script(
+                """
+                return {
+                    nombre:
+                        document.getElementById('nombre')?.value || '',
+                    paterno:
+                        document.getElementById('apellidoPaterno')?.value || '',
+                    materno:
+                        document.getElementById('apellidoMaterno')?.value || '',
+                    fecha:
+                        document.getElementById('fecha')?.value || ''
+                };
+                """
+            )
+
+            print(
+                "[MOFFIN_FORM_VALUES]",
+                valores,
+                flush=True,
+            )
+
+            if (
+                valores.get("nombre") != nombre
+                or valores.get("paterno") != apellido_paterno
+                or valores.get("fecha") != fecha_iso
+            ):
+                raise RuntimeError(
+                    f"MOFFIN_FORM_VALUES_NOT_SET:{valores}"
                 )
+
+            driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center'});",
+                boton,
             )
 
-            for elemento in candidatos:
-                try:
-                    if not elemento.is_displayed():
-                        continue
+            driver.execute_script(
+                "arguments[0].click();",
+                boton,
+            )
 
-                    texto_original = (
-                        elemento.text
-                        or elemento.get_attribute(
-                            "textContent"
-                        )
-                        or ""
-                    ).strip().upper()
+            patron_rfc = re.compile(
+                r"\b[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}\b"
+            )
 
-                    rfc_encontrado = re.sub(
-                        r"[^A-Z0-9Ñ&]",
-                        "",
-                        texto_original
+            inicio = time.monotonic()
+            rfc_encontrado = ""
+
+            while time.monotonic() - inicio < 20:
+                texto_visible = driver.execute_script(
+                    """
+                    return document.body
+                        ? document.body.innerText
+                        : '';
+                    """
+                ) or ""
+
+                candidatos = patron_rfc.findall(
+                    texto_visible.upper()
+                )
+
+                candidatos_validos = [
+                    candidato
+                    for candidato in candidatos
+                    if candidato[4:10]
+                    == arguments_fecha
+                ] if False else []
+
+                # Validación escrita sin depender de variables JS.
+                for candidato in candidatos:
+                    candidato = candidato.strip().upper()
+
+                    if candidato[4:10] == fecha_rfc_esperada:
+                        rfc_encontrado = candidato
+                        break
+
+                if rfc_encontrado:
+                    break
+
+                time.sleep(0.25)
+
+            if not rfc_encontrado:
+                texto_final = (
+                    driver.execute_script(
+                        """
+                        return document.body
+                            ? document.body.innerText
+                            : '';
+                        """
                     )
+                    or ""
+                )
 
-                    if not patron_rfc.fullmatch(
-                        rfc_encontrado
-                    ):
-                        continue
+                print(
+                    "[MOFFIN_RESULT_NOT_FOUND]",
+                    {
+                        "attempt": intento,
+                        "url": driver.current_url,
+                        "title": driver.title,
+                        "body": texto_final[:3000],
+                    },
+                    flush=True,
+                )
 
-                    if (
-                        rfc_encontrado[4:10]
-                        != fecha_rfc_esperada
-                    ):
-                        continue
+                raise TimeoutException(
+                    "MOFFIN_RFC_RESULT_TIMEOUT"
+                )
 
-                    return rfc_encontrado
+            if not re.fullmatch(
+                r"[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}",
+                rfc_encontrado,
+            ):
+                raise RuntimeError(
+                    f"MOFFIN_RFC_INVALIDO:{rfc_encontrado}"
+                )
 
+            if rfc_encontrado[4:10] != fecha_rfc_esperada:
+                raise RuntimeError(
+                    "MOFFIN_RFC_FECHA_NO_COINCIDE:"
+                    f"rfc={rfc_encontrado}:"
+                    f"fecha={fecha_rfc_esperada}"
+                )
+
+            print(
+                "[MOFFIN_RFC_OK]",
+                {
+                    "attempt": intento,
+                    "rfc": rfc_encontrado,
+                },
+                flush=True,
+            )
+
+            return rfc_encontrado
+
+        except Exception as error:
+            ultimo_error = error
+
+            print(
+                "[MOFFIN_RFC_ATTEMPT_FAIL]",
+                {
+                    "attempt": intento,
+                    "error_type": type(error).__name__,
+                    "error": repr(error),
+                },
+                flush=True,
+            )
+
+            if intento < 3:
+                time.sleep(intento)
+
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
                 except Exception:
-                    continue
+                    pass
 
-            return False
-
-        rfc = wait.until(
-            leer_resultado
-        )
-
-        if not patron_rfc.fullmatch(
-            rfc or ""
-        ):
-            raise RuntimeError(
-                f"MOFFIN_RFC_INVALIDO:{rfc}"
-            )
-
-        if (
-            rfc[4:10]
-            != fecha_rfc_esperada
-        ):
-            raise RuntimeError(
-                "MOFFIN_RFC_FECHA_NO_COINCIDE:"
-                f"rfc={rfc}:"
-                f"esperado="
-                f"{fecha_rfc_esperada}"
-            )
-
-        print(
-            f"[MOFFIN_RFC_OK] rfc={rfc}",
-            flush=True
-        )
-
-        return rfc
-
-    except Exception as error:
-        print(
-            "[MOFFIN_RFC_FAIL] "
-            f"{type(error).__name__}:"
-            f"{error}",
-            flush=True
-        )
-        raise
-
-    finally:
-        if driver is not None:
-            try:
-                driver.quit()
-            except Exception:
-                pass
+    raise RuntimeError(
+        "MOFFIN_RFC_FAILED_AFTER_RETRIES:"
+        f"{type(ultimo_error).__name__}:"
+        f"{ultimo_error}"
+    ) from ultimo_error
                 
 # ============================================================
 #  SEPOMEX: índices para colonia/CP por estado y municipio
