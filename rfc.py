@@ -2437,6 +2437,73 @@ def sat_session_wa():
         _SAT_SESSION_WA = _make_sat_session("WA")
     return _SAT_SESSION_WA
 
+def _sat_text_norm(value: str) -> str:
+    value = str(value or "").upper()
+
+    value = unicodedata.normalize(
+        "NFD",
+        value,
+    )
+
+    value = "".join(
+        char
+        for char in value
+        if unicodedata.category(char)
+        != "Mn"
+    )
+
+    return re.sub(
+        r"\s+",
+        " ",
+        value,
+    ).strip()
+
+
+def _classify_sat_invalid_status(
+    *,
+    estatus: str,
+    regimen: str,
+) -> str:
+    estatus_norm = _sat_text_norm(
+        estatus
+    )
+
+    regimen_norm = _sat_text_norm(
+        regimen
+    )
+
+    suspended_terms = {
+        "SUSPENDIDO",
+        "SUSPENDIDA",
+        "SUSPENSION",
+        "CANCELADO",
+        "CANCELADA",
+        "BAJA",
+    }
+
+    if any(
+        term in estatus_norm
+        for term in suspended_terms
+    ):
+        return "SAT_STATUS_SUSPENDED"
+
+    if (
+        not regimen_norm
+        or "SIN REGIMEN" in regimen_norm
+        or (
+            "NO TIENE" in regimen_norm
+            and "REGIMEN" in regimen_norm
+        )
+        or (
+            "REGIMEN" in regimen_norm
+            and "VIGENTE" in regimen_norm
+            and "NO" in regimen_norm
+        )
+    ):
+        return "SAT_NO_ACTIVE_REGIME"
+
+    return ""
+
 def extraer_datos_desde_sat(rfc, idcif, mode="WEB"):
     d3 = f"{idcif}_{rfc}"
 
@@ -2514,6 +2581,30 @@ def extraer_datos_desde_sat(rfc, idcif, mode="WEB"):
     entidad = get_val("Entidad Federativa:", "Nombre de la Entidad Federativa:")
 
     regimen = get_val("Régimen:")
+    
+    sat_invalid_reason = (
+        _classify_sat_invalid_status(
+            estatus=estatus,
+            regimen=regimen,
+        )
+    )
+    
+    if sat_invalid_reason:
+        print(
+            "[SAT_OFFICIAL_INVALID_STATUS]",
+            {
+                "rfc": rfc,
+                "idcif": idcif,
+                "estatus": estatus,
+                "regimen": regimen,
+                "reason": sat_invalid_reason,
+            },
+            flush=True,
+        )
+    
+        raise ValueError(
+            sat_invalid_reason
+        )
     fecha_alta_raw = get_val("Fecha de alta:")
     fecha_alta = fecha_alta_raw.replace("-", "/") if fecha_alta_raw else ""
 
@@ -5906,10 +5997,49 @@ def internal_generate_pdf_from_media():
             "source_detected": fuente,
         }), 200
 
+    except ValueError as e:
+        error_code = str(e).strip().upper()
+    
+        if error_code in {
+            "SIN_DATOS_SAT",
+            "SAT_NO_ACTIVE_REGIME",
+            "SAT_STATUS_SUSPENDED",
+        }:
+            print(
+                "internal_generate_pdf "
+                "SAT rejection:",
+                error_code,
+                flush=True,
+            )
+    
+            return jsonify({
+                "ok": False,
+                "error": error_code,
+            }), 422
+    
+        print(
+            "internal_generate_pdf "
+            "ValueError:",
+            repr(e),
+            flush=True,
+        )
+    
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+        }), 400
+    
     except Exception as e:
-        print("internal_generate_pdf_from_media error:", repr(e), flush=True)
-        traceback.print_exc()
-        return jsonify({"ok": False, "error": str(e)}), 500
+        print(
+            "internal_generate_pdf error:",
+            repr(e),
+            flush=True,
+        )
+    
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+        }), 500
 
 @app.post("/internal/store-download")
 def internal_store_download():
@@ -8573,7 +8703,11 @@ def _process_wa_message(job: dict):
                         # casos tipo "SIN_DATOS_SAT"
                         last_exc = e
                         # no reintentes si es "sin datos" (no va a cambiar)
-                        if str(e) == "SIN_DATOS_SAT":
+                        if str(e) in {
+                            "SIN_DATOS_SAT",
+                            "SAT_NO_ACTIVE_REGIME",
+                            "SAT_STATUS_SUSPENDED",
+                        }:
                             raise
                     except Exception as e:
                         last_exc = e
@@ -8658,10 +8792,39 @@ def _process_wa_message(job: dict):
                                 fail_streak += 1
         
                                 reason = str(e)
-                                if reason == "SIN_DATOS_SAT":
-                                    failed_rows.append((rfc, idcif, "SIN_DATOS_SAT"))
+                                if reason in {
+                                    "SIN_DATOS_SAT",
+                                    "SAT_NO_ACTIVE_REGIME",
+                                    "SAT_STATUS_SUSPENDED",
+                                }:
+                                    failed_rows.append(
+                                        (
+                                            rfc,
+                                            idcif,
+                                            reason,
+                                        )
+                                    )
+                                
                                     if not use_zip:
-                                        wa_send_text(from_wa_id, f"❌ {rfc} {idcif}: sin datos en SAT.")
+                                        reason_text = {
+                                            "SIN_DATOS_SAT": (
+                                                "sin datos en SAT"
+                                            ),
+                                            "SAT_NO_ACTIVE_REGIME": (
+                                                "sin régimen fiscal vigente"
+                                            ),
+                                            "SAT_STATUS_SUSPENDED": (
+                                                "RFC suspendido o no activo"
+                                            ),
+                                        }[reason]
+                                
+                                        wa_send_text(
+                                            from_wa_id,
+                                            (
+                                                f"❌ {rfc} {idcif}: "
+                                                f"{reason_text}."
+                                            ),
+                                        )
                                 else:
                                     failed_rows.append((rfc, idcif, f"VALUE_ERROR:{reason}"))
                                     if not use_zip:
@@ -10640,9 +10803,33 @@ def _process_wa_message(job: dict):
             try:
                 datos = extraer_datos_desde_sat(rfc, idcif, mode="WA")
             except ValueError as e:
-                if str(e) == "SIN_DATOS_SAT":
-                    wa_send_text(from_wa_id, ERR_SAT_NO_DATA)
+                error_code = str(e).strip().upper()
+            
+                sat_rejection_messages = {
+                    "SIN_DATOS_SAT": (
+                        "⚠️ El IDCIF/QR se leyó, pero la "
+                        "página oficial del SAT no arrojó "
+                        "información."
+                    ),
+                    "SAT_NO_ACTIVE_REGIME": (
+                        "⚠️ El RFC aparece sin régimen fiscal "
+                        "vigente en la página oficial del SAT."
+                    ),
+                    "SAT_STATUS_SUSPENDED": (
+                        "⚠️ El RFC aparece suspendido o no "
+                        "activo en la página oficial del SAT."
+                    ),
+                }
+            
+                if error_code in sat_rejection_messages:
+                    wa_send_text(
+                        from_wa_id,
+                        sat_rejection_messages[
+                            error_code
+                        ],
+                    )
                     return
+            
                 raise
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.RequestException):
                 wa_send_text(from_wa_id, ERR_SERVICE_DOWN)
@@ -11610,8 +11797,34 @@ def generar_constancia():
             try:
                 datos = extraer_datos_desde_sat(rfc, idcif, mode="WEB")
             except ValueError as e:
-                if str(e) == "SIN_DATOS_SAT":
-                    return jsonify({"ok": False, "message": ERR_SAT_NO_DATA}), 404
+                error_code = str(e).strip().upper()
+            
+                sat_rejection_messages = {
+                    "SIN_DATOS_SAT": (
+                        "El IDCIF/QR se leyó, pero SAT "
+                        "no devolvió información."
+                    ),
+                    "SAT_NO_ACTIVE_REGIME": (
+                        "El RFC aparece sin régimen fiscal "
+                        "vigente en SAT."
+                    ),
+                    "SAT_STATUS_SUSPENDED": (
+                        "El RFC aparece suspendido o no "
+                        "activo en SAT."
+                    ),
+                }
+            
+                if error_code in sat_rejection_messages:
+                    return jsonify({
+                        "ok": False,
+                        "error": error_code,
+                        "message": (
+                            sat_rejection_messages[
+                                error_code
+                            ]
+                        ),
+                    }), 422
+            
                 raise
             except (requests.exceptions.Timeout,
                     requests.exceptions.ConnectionError,
