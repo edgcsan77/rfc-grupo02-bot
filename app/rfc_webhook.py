@@ -40,6 +40,8 @@ from app.verifiable_flow import (
     find_pending_request_by_provider_rfc,
     load_verifiable_providers,
     verifiable_provider_by_group,
+    _near_curp_rfc_match,
+    _near_rfc_match,
 )
 
 router = APIRouter()
@@ -666,6 +668,289 @@ def _choose_verifiable_provider(
     )[0]
 
 
+def _queue_verifiable_pair_for_pending(
+    *,
+    verifiable_key: str,
+    pending: dict,
+    provider_rfc: str,
+    provider_idcif: str,
+    remote_jid: str,
+    instance_name: str,
+    provider_response_msg_id: str,
+    quoted_message_id: str = "",
+    matched_by: str = "",
+    fanout_index: int = 0,
+) -> dict:
+    """
+    Encola un resultado para una solicitud pendiente
+    ya seleccionada.
+
+    Se utiliza tanto para una coincidencia normal como
+    para entregar a varias solicitudes idénticas.
+    """
+    verifiable_key = (
+        verifiable_key or ""
+    ).strip()
+
+    pending = pending or {}
+
+    if not verifiable_key or not pending:
+        return {
+            "ok": False,
+            "queued": False,
+            "request_key": verifiable_key,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "reason": "pending_missing",
+        }
+
+    if not claim_provider_result(
+        verifiable_key
+    ):
+        return {
+            "ok": False,
+            "queued": False,
+            "request_key": verifiable_key,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "reason": "result_already_claimed",
+        }
+
+    original_type = (
+        pending.get(
+            "original_query_type"
+        )
+        or ""
+    ).strip().upper()
+
+    original_identifier = (
+        pending.get(
+            "original_identifier"
+        )
+        or ""
+    ).strip().upper()
+
+    client_instance = (
+        pending.get(
+            "client_instance"
+        )
+        or MAIN_PANEL_INSTANCE
+    ).strip()
+
+    client_group_jid = (
+        pending.get(
+            "client_group_jid"
+        )
+        or ""
+    ).strip()
+
+    requester_number = (
+        pending.get(
+            "requester_number"
+        )
+        or ""
+    ).strip()
+
+    requester_name = (
+        pending.get(
+            "requester_name"
+        )
+        or ""
+    ).strip()
+
+    requester_label = (
+        pending.get(
+            "requester_label"
+        )
+        or requester_name
+        or "Usuario"
+    ).strip()
+
+    original_msg_id = (
+        pending.get(
+            "client_msg_id"
+        )
+        or ""
+    ).strip()
+
+    normal_request_key = (
+        pending.get(
+            "normal_request_key"
+        )
+        or verifiable_key
+    ).strip()
+
+    inflight_key = (
+        pending.get(
+            "inflight_key"
+        )
+        or ""
+    ).strip()
+
+    generated_query = (
+        f"RFC: {provider_rfc}\n"
+        f"IDCIF: {provider_idcif}"
+    )
+
+    correction_detected = (
+        matched_by
+        in {
+            "curp_rfc_near_correction",
+            "rfc_near_correction",
+        }
+    )
+
+    job_data = {
+        "requester_number": requester_number,
+        "requester_name": requester_name,
+        "requester_label": requester_label,
+        "group_jid": client_group_jid,
+        "group_name": client_group_jid,
+        "original_text": generated_query,
+        "query": generated_query,
+        "query_type": "RFC_VERIFICABLE",
+        "forced_success_kind": (
+            "RFC_VERIFICABLE"
+        ),
+        "msg_type": "",
+        "media_id": "",
+        "msg_id": original_msg_id,
+        "mime_type": "",
+        "evolution_instance": (
+            client_instance
+        ),
+        "request_key": normal_request_key,
+        "inflight_key": inflight_key,
+        "execution_key": (
+            original_msg_id
+            or verifiable_key
+        ),
+        "request_started_at_epoch": float(
+            pending.get(
+                "request_started_at_epoch"
+            )
+            or time.time()
+        ),
+        "is_verifiable": True,
+        "verifiable_price": float(
+            pending.get(
+                "verifiable_price"
+            )
+            or 0
+        ),
+        "verifiable_request_key": (
+            verifiable_key
+        ),
+        "verifiable_original_type": (
+            original_type
+        ),
+        "verifiable_original_identifier": (
+            original_identifier
+        ),
+        "provider_rfc": provider_rfc,
+        "provider_idcif": provider_idcif,
+        "provider_response_msg_id": (
+            provider_response_msg_id
+        ),
+        "provider_quoted_msg_id": (
+            quoted_message_id
+        ),
+        "provider_match_method": (
+            matched_by
+        ),
+        "verifiable_identifier_corrected": (
+            correction_detected
+        ),
+        "verifiable_fanout_index": (
+            int(fanout_index or 0)
+        ),
+        "verifiable_count_provider_success": (
+            int(fanout_index or 0)
+            in (0, 1)
+        ),
+        "verifiable_provider_code": (
+            pending.get(
+                "provider_code"
+            )
+            or ""
+        ),
+        "verifiable_provider_db_name": (
+            pending.get(
+                "provider_db_name"
+            )
+            or ""
+        ),
+        "verifiable_provider_name": (
+            pending.get(
+                "provider_name"
+            )
+            or ""
+        ),
+        "verifiable_provider_group": (
+            pending.get(
+                "provider_group_jid"
+            )
+            or remote_jid
+        ),
+        "verifiable_provider_instance": (
+            pending.get(
+                "provider_instance"
+            )
+            or instance_name
+        ),
+    }
+
+    final_rq_job_id = (
+        "rfc-verifiable-result:"
+        f"{verifiable_key}"
+    )
+
+    try:
+        request_queue.enqueue(
+            "worker_jobs."
+            "process_group_request_job",
+            job_data,
+            job_id=final_rq_job_id,
+            job_timeout=900,
+            result_ttl=0,
+            failure_ttl=1200,
+        )
+
+    except Exception:
+        release_provider_result_claim(
+            verifiable_key
+        )
+        raise
+
+    print(
+        "RFC_VERIFIABLE_PAIR_QUEUED =",
+        {
+            "job_id": final_rq_job_id,
+            "request_key": verifiable_key,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "client_group": client_group_jid,
+            "provider_group": remote_jid,
+            "matched_by": matched_by,
+            "fanout_index": fanout_index,
+            "corrected": correction_detected,
+        },
+        flush=True,
+    )
+
+    return {
+        "ok": True,
+        "queued": True,
+        "job_id": final_rq_job_id,
+        "request_key": verifiable_key,
+        "rfc": provider_rfc,
+        "idcif": provider_idcif,
+        "matched_by": matched_by,
+        "fanout_index": fanout_index,
+        "corrected": correction_detected,
+    }
+
+
 def _queue_one_verifiable_provider_pair(
     *,
     provider_rfc: str,
@@ -727,6 +1012,81 @@ def _queue_one_verifiable_provider_pair(
         )
 
         if not fallback_match.get("ok"):
+            matches = (
+                fallback_match.get("matches")
+                or []
+            )
+        
+            same_original_request = bool(
+                fallback_match.get(
+                    "same_original_request"
+                )
+            )
+        
+            if (
+                fallback_match.get("reason")
+                == "ambiguous_pending_match"
+                and same_original_request
+                and len(matches) > 1
+            ):
+                fanout_results = []
+        
+                for fanout_index, match in enumerate(
+                    matches,
+                    start=1,
+                ):
+                    request_key = (
+                        match.get("request_key")
+                        or ""
+                    ).strip()
+        
+                    match_pending = (
+                        match.get("pending")
+                        or {}
+                    )
+        
+                    result = (
+                        _queue_verifiable_pair_for_pending(
+                            verifiable_key=request_key,
+                            pending=match_pending,
+                            provider_rfc=provider_rfc,
+                            provider_idcif=(
+                                provider_idcif
+                            ),
+                            remote_jid=remote_jid,
+                            instance_name=instance_name,
+                            provider_response_msg_id=(
+                                provider_response_msg_id
+                            ),
+                            quoted_message_id="",
+                            matched_by=(
+                                "identical_pending_fanout"
+                            ),
+                            fanout_index=fanout_index,
+                        )
+                    )
+        
+                    fanout_results.append(result)
+        
+                queued_results = [
+                    item
+                    for item in fanout_results
+                    if item.get("queued")
+                ]
+        
+                return {
+                    "ok": bool(queued_results),
+                    "queued": bool(queued_results),
+                    "fanout": True,
+                    "fanout_total": len(matches),
+                    "fanout_queued": len(
+                        queued_results
+                    ),
+                    "rfc": provider_rfc,
+                    "idcif": provider_idcif,
+                    "results": fanout_results,
+                }
+        
             return {
                 "ok": False,
                 "rfc": provider_rfc,
@@ -735,10 +1095,7 @@ def _queue_one_verifiable_provider_pair(
                     fallback_match.get("reason")
                     or "pending_not_found"
                 ),
-                "matches": (
-                    fallback_match.get("matches")
-                    or []
-                ),
+                "matches": matches,
             }
 
         verifiable_key = (
@@ -847,283 +1204,192 @@ def _queue_one_verifiable_provider_pair(
         or ""
     ).strip().upper()
 
-    if (
-        original_type == "RFC_ONLY"
-        and provider_rfc
-        != original_identifier
-    ):
-        return {
-            "ok": False,
-            "rfc": provider_rfc,
-            "idcif": provider_idcif,
-            "request_key": verifiable_key,
-            "reason": "rfc_mismatch",
-            "expected_rfc": (
-                original_identifier
-            ),
-        }
-
-    if not claim_provider_result(
-        verifiable_key
-    ):
-        return {
-            "ok": False,
-            "rfc": provider_rfc,
-            "idcif": provider_idcif,
-            "request_key": verifiable_key,
-            "reason": (
-                "result_already_claimed"
-            ),
-        }
-
-    client_instance = (
-        pending.get(
-            "client_instance"
-        )
-        or MAIN_PANEL_INSTANCE
+    effective_match_method = (
+        matched_by or ""
     ).strip()
-
-    client_group_jid = (
-        pending.get(
-            "client_group_jid"
-        )
-        or ""
-    ).strip()
-
-    requester_number = (
-        pending.get(
-            "requester_number"
-        )
-        or ""
-    ).strip()
-
-    requester_name = (
-        pending.get(
-            "requester_name"
-        )
-        or ""
-    ).strip()
-
-    requester_label = (
-        pending.get(
-            "requester_label"
-        )
-        or requester_name
-        or "Usuario"
-    ).strip()
-
-    original_msg_id = (
-        pending.get(
-            "client_msg_id"
-        )
-        or ""
-    ).strip()
-
-    normal_request_key = (
-        pending.get(
-            "normal_request_key"
-        )
-        or verifiable_key
-    ).strip()
-
-    inflight_key = (
-        pending.get(
-            "inflight_key"
-        )
-        or ""
-    ).strip()
-
-    generated_query = (
-        f"RFC: {provider_rfc}\n"
-        f"IDCIF: {provider_idcif}"
-    )
-
-    job_data = {
-        "requester_number": (
-            requester_number
-        ),
-        "requester_name": (
-            requester_name
-        ),
-        "requester_label": (
-            requester_label
-        ),
-        "group_jid": (
-            client_group_jid
-        ),
-        "group_name": (
-            client_group_jid
-        ),
-        "original_text": (
-            generated_query
-        ),
-        "query": generated_query,
-        "query_type": (
-            "RFC_VERIFICABLE"
-        ),
-        "forced_success_kind": (
-            "RFC_VERIFICABLE"
-        ),
-        "msg_type": "",
-        "media_id": "",
-        "msg_id": original_msg_id,
-        "mime_type": "",
-        "evolution_instance": (
-            client_instance
-        ),
-        "request_key": (
-            normal_request_key
-        ),
-        "inflight_key": (
-            inflight_key
-        ),
-        "execution_key": (
-            original_msg_id
-            or verifiable_key
-        ),
-        "request_started_at_epoch": float(
-            pending.get(
-                "request_started_at_epoch"
-            )
-            or time.time()
-        ),
-        "is_verifiable": True,
-        "verifiable_price": float(
-            pending.get(
-                "verifiable_price"
-            )
-            or 0
-        ),
-        "verifiable_request_key": (
-            verifiable_key
-        ),
-        "verifiable_original_type": (
-            original_type
-        ),
-        "verifiable_original_identifier": (
-            original_identifier
-        ),
-        "provider_rfc": provider_rfc,
-        "provider_idcif": (
-            provider_idcif
-        ),
-        "provider_response_msg_id": (
-            provider_response_msg_id
-        ),
-        "provider_quoted_msg_id": (
-            quoted_message_id
-        ),
-        "provider_matched_without_quote": (
-            matched_without_quote
-        ),
-        "provider_match_method": (
-            matched_by
-            or (
-                "quoted_message"
-                if quoted_message_id
+    
+    if quoted_message_id:
+        if original_type == "CURP":
+            physical_rfc_prefix = (
+                provider_rfc[:10]
+                if len(provider_rfc) == 13
                 else ""
             )
-        ),
-        "verifiable_provider_code": (
-            pending.get(
-                "provider_code"
-            )
-            or ""
-        ),
-        "verifiable_provider_db_name": (
-            pending.get(
-                "provider_db_name"
-            )
-            or ""
-        ),
-        "verifiable_provider_name": (
-            pending.get(
-                "provider_name"
-            )
-            or ""
-        ),
-        "verifiable_provider_group": (
-            pending.get(
-                "provider_group_jid"
-            )
-            or remote_jid
-        ),
-        "verifiable_provider_instance": (
-            pending.get(
-                "provider_instance"
-            )
-            or instance_name
-        ),
-    }
-
-    final_rq_job_id = (
-        "rfc-verifiable-result:"
-        f"{verifiable_key}"
-    )
-
-    try:
-        job = request_queue.enqueue(
-            "worker_jobs."
-            "process_group_request_job",
-            job_data,
-            job_id=final_rq_job_id,
-            job_timeout=900,
-            result_ttl=0,
-            failure_ttl=1200,
+    
+            if (
+                physical_rfc_prefix
+                and original_identifier[:10]
+                == physical_rfc_prefix
+            ):
+                effective_match_method = (
+                    "quoted_curp_rfc_prefix"
+                )
+    
+            elif _near_curp_rfc_match(
+                original_identifier,
+                provider_rfc,
+            ):
+                effective_match_method = (
+                    "curp_rfc_near_correction"
+                )
+    
+            else:
+                return {
+                    "ok": False,
+                    "rfc": provider_rfc,
+                    "idcif": provider_idcif,
+                    "request_key": verifiable_key,
+                    "reason": (
+                        "quoted_curp_rfc_mismatch"
+                    ),
+                    "original_identifier": (
+                        original_identifier
+                    ),
+                }
+    
+        elif original_type == "RFC_ONLY":
+            if provider_rfc == original_identifier:
+                effective_match_method = (
+                    "quoted_exact_rfc"
+                )
+    
+            elif _near_rfc_match(
+                original_identifier,
+                provider_rfc,
+            ):
+                effective_match_method = (
+                    "rfc_near_correction"
+                )
+    
+            else:
+                return {
+                    "ok": False,
+                    "rfc": provider_rfc,
+                    "idcif": provider_idcif,
+                    "request_key": verifiable_key,
+                    "reason": (
+                        "quoted_rfc_mismatch"
+                    ),
+                    "expected_rfc": (
+                        original_identifier
+                    ),
+                }
+    
+    elif not effective_match_method:
+        effective_match_method = (
+            "unquoted_pending_match"
         )
 
-    except Exception:
-        release_provider_result_claim(
-            verifiable_key
+    # Una respuesta citada también puede corresponder a
+    # varias solicitudes pendientes exactamente iguales.
+    #
+    # Solo se hace fanout si:
+    # - la cita ya identificó una solicitud válida;
+    # - existen varios pendientes;
+    # - todos tienen exactamente el mismo tipo e identificador.
+    if quoted_message_id:
+        sibling_match = (
+            find_pending_request_by_provider_rfc(
+                provider_rfc,
+                provider_group_jid=remote_jid,
+                provider_instance=instance_name,
+            )
         )
-        raise
 
-    stored_provider_message_id = (
-        pending.get(
-            "provider_message_id"
+        sibling_matches = (
+            sibling_match.get("matches")
+            or []
         )
-        or quoted_message_id
-        or ""
-    ).strip()
 
-    finish_pending(
-        verifiable_key,
-        provider_message_id=(
-            stored_provider_message_id
+        if (
+            not sibling_match.get("ok")
+            and sibling_match.get("reason")
+            == "ambiguous_pending_match"
+            and bool(
+                sibling_match.get(
+                    "same_original_request"
+                )
+            )
+            and len(sibling_matches) > 1
+        ):
+            fanout_results = []
+
+            for fanout_index, match in enumerate(
+                sibling_matches,
+                start=1,
+            ):
+                sibling_request_key = (
+                    match.get("request_key")
+                    or ""
+                ).strip()
+
+                sibling_pending = (
+                    match.get("pending")
+                    or {}
+                )
+
+                result = (
+                    _queue_verifiable_pair_for_pending(
+                        verifiable_key=(
+                            sibling_request_key
+                        ),
+                        pending=sibling_pending,
+                        provider_rfc=provider_rfc,
+                        provider_idcif=provider_idcif,
+                        remote_jid=remote_jid,
+                        instance_name=instance_name,
+                        provider_response_msg_id=(
+                            provider_response_msg_id
+                        ),
+                        quoted_message_id=(
+                            quoted_message_id
+                        ),
+                        matched_by=(
+                            "quoted_identical_pending_fanout"
+                        ),
+                        fanout_index=fanout_index,
+                    )
+                )
+
+                fanout_results.append(result)
+
+            queued_results = [
+                item
+                for item in fanout_results
+                if item.get("queued")
+            ]
+
+            return {
+                "ok": bool(queued_results),
+                "queued": bool(queued_results),
+                "fanout": True,
+                "quoted_fanout": True,
+                "fanout_total": len(
+                    sibling_matches
+                ),
+                "fanout_queued": len(
+                    queued_results
+                ),
+                "rfc": provider_rfc,
+                "idcif": provider_idcif,
+                "results": fanout_results,
+            }
+
+    return _queue_verifiable_pair_for_pending(
+        verifiable_key=verifiable_key,
+        pending=pending,
+        provider_rfc=provider_rfc,
+        provider_idcif=provider_idcif,
+        remote_jid=remote_jid,
+        instance_name=instance_name,
+        provider_response_msg_id=(
+            provider_response_msg_id
         ),
+        quoted_message_id=(
+            quoted_message_id
+        ),
+        matched_by=effective_match_method,
     )
-
-    print(
-        "RFC_VERIFIABLE_PAIR_QUEUED =",
-        {
-            "job_id": job.id,
-            "request_key": (
-                verifiable_key
-            ),
-            "rfc": provider_rfc,
-            "idcif": provider_idcif,
-            "client_group": (
-                client_group_jid
-            ),
-            "provider_group": (
-                remote_jid
-            ),
-            "matched_by": (
-                matched_by
-                or "quoted_message"
-            ),
-        },
-        flush=True,
-    )
-
-    return {
-        "ok": True,
-        "queued": True,
-        "job_id": job.id,
-        "request_key": verifiable_key,
-        "rfc": provider_rfc,
-        "idcif": provider_idcif,
-    }
 
 
 def _extract_verifiable_no_id_items(
