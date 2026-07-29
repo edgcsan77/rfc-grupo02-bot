@@ -251,6 +251,125 @@ def normalize_token(value: str) -> str:
     )
 
 
+def _hamming_distance(
+    left: str,
+    right: str,
+) -> int:
+    left = normalize_token(left)
+    right = normalize_token(right)
+
+    if len(left) != len(right):
+        return max(len(left), len(right))
+
+    return sum(
+        1
+        for a, b in zip(left, right)
+        if a != b
+    )
+
+
+def _near_curp_rfc_match(
+    original_curp: str,
+    provider_rfc: str,
+) -> bool:
+    """
+    Permite una corrección limitada cuando el cliente
+    escribió mal letras de la CURP y el proveedor regresó
+    el RFC correcto.
+
+    Requisitos:
+    - CURP de 18 caracteres.
+    - RFC de persona física de 13 caracteres.
+    - Misma fecha YYMMDD.
+    - Máximo 1 diferencia en las primeras 4 letras.
+    """
+    original_curp = normalize_token(
+        original_curp
+    )
+
+    provider_rfc = normalize_token(
+        provider_rfc
+    )
+
+    if not CURP_FULL_RE.fullmatch(
+        original_curp
+    ):
+        return False
+
+    if not re.fullmatch(
+        r"[A-ZÑ&]{4}\d{6}[A-Z0-9]{3}",
+        provider_rfc,
+        re.I,
+    ):
+        return False
+
+    # CURP y RFC deben conservar la misma fecha.
+    if original_curp[4:10] != provider_rfc[4:10]:
+        return False
+
+    return (
+        _hamming_distance(
+            original_curp[:4],
+            provider_rfc[:4],
+        )
+        <= 1
+    )
+
+
+def _near_rfc_match(
+    original_rfc: str,
+    provider_rfc: str,
+) -> bool:
+    """
+    Corrección limitada para una solicitud RFC_ONLY.
+
+    Solo permite:
+    - misma longitud;
+    - misma fecha YYMMDD;
+    - máximo 2 caracteres distintos en todo el RFC.
+    """
+    original_rfc = normalize_token(
+        original_rfc
+    )
+
+    provider_rfc = normalize_token(
+        provider_rfc
+    )
+
+    if not RFC_FULL_RE.fullmatch(
+        original_rfc
+    ):
+        return False
+
+    if not RFC_FULL_RE.fullmatch(
+        provider_rfc
+    ):
+        return False
+
+    if len(original_rfc) != len(provider_rfc):
+        return False
+
+    prefix_len = 4 if len(original_rfc) == 13 else 3
+
+    if (
+        original_rfc[
+            prefix_len:prefix_len + 6
+        ]
+        != provider_rfc[
+            prefix_len:prefix_len + 6
+        ]
+    ):
+        return False
+
+    return (
+        _hamming_distance(
+            original_rfc,
+            provider_rfc,
+        )
+        <= 2
+    )
+
+
 def parse_verifiable_request(text: str) -> dict[str, Any]:
     """
     Formatos admitidos:
@@ -809,6 +928,28 @@ def find_pending_request_by_provider_rfc(
             ):
                 matched_by = "curp_rfc_prefix"
 
+            elif (
+                original_type == "CURP"
+                and _near_curp_rfc_match(
+                    original_identifier,
+                    provider_rfc,
+                )
+            ):
+                matched_by = (
+                    "curp_rfc_near_correction"
+                )
+            
+            elif (
+                original_type == "RFC_ONLY"
+                and _near_rfc_match(
+                    original_identifier,
+                    provider_rfc,
+                )
+            ):
+                matched_by = (
+                    "rfc_near_correction"
+                )
+
             if not matched_by:
                 continue
 
@@ -852,10 +993,30 @@ def find_pending_request_by_provider_rfc(
             "matches": [],
         }
 
+    normalized_identifiers = {
+        (
+            item.get(
+                "original_type"
+            )
+            or ""
+        ).strip().upper()
+        + ":"
+        + normalize_token(
+            item.get(
+                "original_identifier"
+            )
+            or ""
+        )
+        for item in matches
+    }
+    
     return {
         "ok": False,
         "unique": False,
         "reason": "ambiguous_pending_match",
+        "same_original_request": (
+            len(normalized_identifiers) == 1
+        ),
         "matches": matches,
     }
 
