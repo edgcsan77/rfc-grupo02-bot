@@ -1126,6 +1126,408 @@ def _queue_one_verifiable_provider_pair(
     }
 
 
+def _extract_verifiable_no_id_items(
+    provider_text: str,
+) -> list[dict]:
+    """
+    Extrae respuestas negativas individuales y de listas mixtas.
+
+    Admite:
+    - NO ID
+    - CURP NO ID
+    - SIN ID
+    - S/ID
+    - RFC NO ID
+    - CURP NO ID
+    """
+
+    results: list[dict] = []
+
+    bare_no_id_re = re.compile(
+        r"^(?:"
+        r"(?:CURP\s+)?NO\s*ID"
+        r"|(?:CURP\s+)?SIN\s*ID"
+        r"|(?:CURP\s+)?NO\s+HAY\s+ID"
+        r"|(?:CURP\s+)?S\s*/\s*ID"
+        r")$",
+        re.I,
+    )
+
+    identifier_no_id_re = re.compile(
+        r"^(?P<identifier>"
+        r"(?:[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})"
+        r"|(?:[A-Z][AEIOUX][A-Z]{2}\d{6}"
+        r"[HM][A-Z]{5}[A-Z0-9]\d)"
+        r")"
+        r"\s*(?:[-:|]\s*)?"
+        r"(?P<status>"
+        r"S\s*/\s*ID"
+        r"|SIN\s+ID"
+        r"|NO\s+ID"
+        r"|NO\s+HAY\s+ID"
+        r")$",
+        re.I,
+    )
+
+    for line_number, raw_line in enumerate(
+        (provider_text or "").splitlines(),
+        start=1,
+    ):
+        normalized_line = re.sub(
+            r"\s+",
+            " ",
+            (raw_line or "").strip().upper(),
+        )
+
+        if not normalized_line:
+            continue
+
+        identifier_match = (
+            identifier_no_id_re.fullmatch(
+                normalized_line
+            )
+        )
+
+        if identifier_match:
+            results.append(
+                {
+                    "identifier": (
+                        identifier_match.group(
+                            "identifier"
+                        )
+                        or ""
+                    ).strip().upper(),
+                    "status": (
+                        identifier_match.group(
+                            "status"
+                        )
+                        or ""
+                    ).strip().upper(),
+                    "line_number": line_number,
+                    "raw_line": raw_line,
+                }
+            )
+            continue
+
+        if bare_no_id_re.fullmatch(
+            normalized_line
+        ):
+            results.append(
+                {
+                    "identifier": "",
+                    "status": normalized_line,
+                    "line_number": line_number,
+                    "raw_line": raw_line,
+                }
+            )
+
+    return results
+
+
+def _find_verifiable_no_id_pending(
+    *,
+    identifier: str,
+    quoted_message_id: str,
+    remote_jid: str,
+    instance_name: str,
+    allow_quote: bool,
+) -> dict:
+    """
+    Busca la solicitud pendiente.
+
+    - Usa cita para una respuesta individual.
+    - Usa el RFC/CURP incluido en la línea para listas.
+    """
+
+    identifier = (
+        identifier or ""
+    ).strip().upper()
+
+    quoted_message_id = (
+        quoted_message_id or ""
+    ).strip()
+
+    request_key = ""
+    pending = {}
+    matched_by = ""
+
+    if allow_quote and quoted_message_id:
+        request_key = (
+            request_key_from_provider_message(
+                quoted_message_id
+            )
+            or ""
+        ).strip()
+
+        if request_key:
+            pending = (
+                load_pending(request_key)
+                or {}
+            )
+            matched_by = "quoted_message"
+
+    if not request_key and identifier:
+        fallback_match = (
+            find_pending_request_by_provider_rfc(
+                identifier,
+                provider_group_jid=remote_jid,
+                provider_instance=instance_name,
+            )
+            or {}
+        )
+
+        if fallback_match.get("ok"):
+            request_key = (
+                fallback_match.get(
+                    "request_key"
+                )
+                or ""
+            ).strip()
+
+            pending = (
+                fallback_match.get("pending")
+                or {}
+            )
+
+            matched_by = (
+                fallback_match.get("matched_by")
+                or "provider_identifier"
+            )
+
+    if request_key and not pending:
+        pending = (
+            load_pending(request_key)
+            or {}
+        )
+
+    if not request_key:
+        return {
+            "ok": False,
+            "identifier": identifier,
+            "reason": (
+                "pending_not_found"
+                if identifier
+                else "missing_identifier_and_quote"
+            ),
+        }
+
+    if not pending:
+        return {
+            "ok": False,
+            "identifier": identifier,
+            "request_key": request_key,
+            "reason": (
+                "pending_expired_or_missing"
+            ),
+        }
+
+    return {
+        "ok": True,
+        "request_key": request_key,
+        "pending": pending,
+        "identifier": identifier,
+        "matched_by": matched_by,
+    }
+
+
+def _send_verifiable_no_id_to_client(
+    *,
+    request_key: str,
+    pending: dict,
+    remote_jid: str,
+    instance_name: str,
+    quoted_message_id: str = "",
+    provider_response_msg_id: str = "",
+    matched_identifier: str = "",
+    matched_by: str = "",
+) -> dict:
+    request_key = (
+        request_key or ""
+    ).strip()
+
+    pending = pending or {}
+
+    expected_group = (
+        pending.get("provider_group_jid")
+        or ""
+    ).strip()
+
+    expected_instance = (
+        pending.get("provider_instance")
+        or ""
+    ).strip()
+
+    if (
+        expected_group
+        and expected_group != remote_jid
+    ):
+        return {
+            "ok": False,
+            "sent": False,
+            "request_key": request_key,
+            "reason": "provider_group_mismatch",
+        }
+
+    if (
+        expected_instance
+        and expected_instance != instance_name
+    ):
+        return {
+            "ok": False,
+            "sent": False,
+            "request_key": request_key,
+            "reason": "provider_instance_mismatch",
+        }
+
+    if not claim_provider_result(request_key):
+        return {
+            "ok": False,
+            "sent": False,
+            "request_key": request_key,
+            "reason": "result_already_claimed",
+        }
+
+    client_group = (
+        pending.get("client_group_jid")
+        or ""
+    ).strip()
+
+    client_instance = (
+        pending.get("client_instance")
+        or MAIN_PANEL_INSTANCE
+    ).strip()
+
+    requester_label = (
+        pending.get("requester_label")
+        or pending.get("requester_name")
+        or "Usuario"
+    ).strip()
+
+    inflight_key = (
+        pending.get("inflight_key")
+        or ""
+    ).strip()
+
+    original_identifier = (
+        pending.get("original_identifier")
+        or matched_identifier
+        or "dato solicitado"
+    ).strip().upper()
+
+    original_type = (
+        pending.get("original_query_type")
+        or ""
+    ).strip().upper()
+
+    stored_provider_message_id = (
+        pending.get("provider_message_id")
+        or quoted_message_id
+        or ""
+    ).strip()
+
+    if original_type == "CURP":
+        identifier_label = (
+            f"la CURP {original_identifier}"
+        )
+    elif original_type == "RFC_ONLY":
+        identifier_label = (
+            f"el RFC {original_identifier}"
+        )
+    else:
+        identifier_label = original_identifier
+
+    try:
+        send_text(
+            client_group,
+            (
+                f"⚠️ {requester_label}, "
+                "el proveedor informó que no hay "
+                "ID disponible para "
+                f"{identifier_label}."
+            ),
+            instance_name=client_instance,
+            fast=True,
+        )
+
+        print(
+            "RFC_VERIFIABLE_NO_ID_SENT =",
+            {
+                "request_key": request_key,
+                "client_group": client_group,
+                "client_instance": client_instance,
+                "original_identifier": (
+                    original_identifier
+                ),
+                "matched_identifier": (
+                    matched_identifier
+                ),
+                "matched_by": matched_by,
+                "provider_response_msg_id": (
+                    provider_response_msg_id
+                ),
+            },
+            flush=True,
+        )
+
+    except Exception as send_exc:
+        release_provider_result_claim(
+            request_key
+        )
+
+        print(
+            "RFC_VERIFIABLE_NO_ID_"
+            "CLIENT_SEND_ERROR =",
+            {
+                "request_key": request_key,
+                "client_group": client_group,
+                "error": repr(send_exc),
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": False,
+            "sent": False,
+            "request_key": request_key,
+            "reason": "client_send_error",
+            "error": repr(send_exc),
+        }
+
+    if inflight_key:
+        try:
+            request_queue.connection.delete(
+                inflight_key
+            )
+        except Exception as inflight_exc:
+            print(
+                "RFC_VERIFIABLE_NO_ID_"
+                "INFLIGHT_RELEASE_ERROR =",
+                {
+                    "request_key": request_key,
+                    "inflight_key": inflight_key,
+                    "error": repr(inflight_exc),
+                },
+                flush=True,
+            )
+
+    finish_pending(
+        request_key,
+        provider_message_id=(
+            stored_provider_message_id
+        ),
+    )
+
+    return {
+        "ok": True,
+        "sent": True,
+        "request_key": request_key,
+        "client_group": client_group,
+        "original_identifier": (
+            original_identifier
+        ),
+    }
+
+
 @router.post("/webhook/evolution-rfc")
 async def evolution_rfc_webhook(request: Request):
     try:
@@ -1258,354 +1660,14 @@ async def evolution_rfc_webhook(request: Request):
             )
 
             # ==================================================
-            # RESPUESTA NEGATIVA DEL PROVEEDOR:
-            # "NO ID" citando la solicitud original
+            # RESPUESTAS DEL PROVEEDOR:
+            # INDIVIDUALES, CITADAS Y LISTAS MIXTAS
             # ==================================================
-            provider_response_normalized = re.sub(
-                r"\s+",
-                " ",
-                (text or "").strip().upper(),
-            )
-
-            provider_no_record = bool(
-                re.fullmatch(
-                    r"(?:NO\s*ID|SIN\s*ID|NO\s+HAY\s+ID)",
-                    provider_response_normalized,
-                    flags=re.I,
+            provider_no_id_items = (
+                _extract_verifiable_no_id_items(
+                    text
                 )
             )
-
-            if provider_no_record:
-                # Para evitar asociar un "NO ID" al cliente
-                # incorrecto, obligatoriamente debe venir citado.
-                if not quoted_message_id:
-                    print(
-                        "RFC_VERIFICABLE_NO_ID_IGNORED =",
-                        {
-                            "reason": (
-                                "missing_quoted_message_id"
-                            ),
-                            "text": text,
-                            "msg_id": msg_id,
-                        },
-                        flush=True,
-                    )
-
-                    return {
-                        "ok": True,
-                        "ignored": (
-                            "verifiable_no_id_"
-                            "missing_quote"
-                        ),
-                    }
-
-                no_record_request_key = (
-                    request_key_from_provider_message(
-                        quoted_message_id
-                    )
-                )
-
-                if not no_record_request_key:
-                    print(
-                        "RFC_VERIFICABLE_NO_ID_IGNORED =",
-                        {
-                            "reason": (
-                                "quoted_message_not_found"
-                            ),
-                            "quoted_message_id": (
-                                quoted_message_id
-                            ),
-                            "text": text,
-                        },
-                        flush=True,
-                    )
-
-                    return {
-                        "ok": True,
-                        "ignored": (
-                            "verifiable_no_id_"
-                            "message_not_found"
-                        ),
-                    }
-
-                no_record_pending = load_pending(
-                    no_record_request_key
-                )
-
-                if not no_record_pending:
-                    print(
-                        "RFC_VERIFICABLE_NO_ID_IGNORED =",
-                        {
-                            "reason": (
-                                "pending_expired_or_missing"
-                            ),
-                            "request_key": (
-                                no_record_request_key
-                            ),
-                        },
-                        flush=True,
-                    )
-
-                    return {
-                        "ok": True,
-                        "ignored": (
-                            "verifiable_no_id_"
-                            "pending_missing"
-                        ),
-                    }
-
-                no_record_expected_group = (
-                    no_record_pending.get(
-                        "provider_group_jid"
-                    )
-                    or ""
-                ).strip()
-
-                no_record_expected_instance = (
-                    no_record_pending.get(
-                        "provider_instance"
-                    )
-                    or ""
-                ).strip()
-
-                if (
-                    no_record_expected_group
-                    and no_record_expected_group
-                    != remote_jid
-                ):
-                    print(
-                        "RFC_VERIFIABLE_NO_ID_"
-                        "PROVIDER_GROUP_MISMATCH =",
-                        {
-                            "request_key": (
-                                no_record_request_key
-                            ),
-                            "expected_group": (
-                                no_record_expected_group
-                            ),
-                            "received_group": (
-                                remote_jid
-                            ),
-                        },
-                        flush=True,
-                    )
-
-                    return {
-                        "ok": True,
-                        "ignored": (
-                            "verifiable_no_id_"
-                            "provider_group_mismatch"
-                        ),
-                    }
-
-                if (
-                    no_record_expected_instance
-                    and no_record_expected_instance
-                    != instance_name
-                ):
-                    print(
-                        "RFC_VERIFIABLE_NO_ID_"
-                        "PROVIDER_INSTANCE_MISMATCH =",
-                        {
-                            "request_key": (
-                                no_record_request_key
-                            ),
-                            "expected_instance": (
-                                no_record_expected_instance
-                            ),
-                            "received_instance": (
-                                instance_name
-                            ),
-                        },
-                        flush=True,
-                    )
-
-                    return {
-                        "ok": True,
-                        "ignored": (
-                            "verifiable_no_id_"
-                            "provider_instance_mismatch"
-                        ),
-                    }
-
-                # Impide procesar dos veces la misma
-                # respuesta negativa del proveedor.
-                if not claim_provider_result(
-                    no_record_request_key
-                ):
-                    print(
-                        "RFC_VERIFICABLE_NO_ID_DUPLICATE =",
-                        {
-                            "request_key": (
-                                no_record_request_key
-                            ),
-                            "quoted_message_id": (
-                                quoted_message_id
-                            ),
-                        },
-                        flush=True,
-                    )
-
-                    return {
-                        "ok": True,
-                        "ignored": (
-                            "verifiable_no_id_"
-                            "already_claimed"
-                        ),
-                    }
-
-                no_record_client_group = (
-                    no_record_pending.get(
-                        "client_group_jid"
-                    )
-                    or ""
-                ).strip()
-
-                no_record_client_instance = (
-                    no_record_pending.get(
-                        "client_instance"
-                    )
-                    or MAIN_PANEL_INSTANCE
-                ).strip()
-
-                no_record_requester_label = (
-                    no_record_pending.get(
-                        "requester_label"
-                    )
-                    or no_record_pending.get(
-                        "requester_name"
-                    )
-                    or "Usuario"
-                ).strip()
-
-                no_record_inflight_key = (
-                    no_record_pending.get(
-                        "inflight_key"
-                    )
-                    or ""
-                ).strip()
-
-                stored_provider_message_id = (
-                    no_record_pending.get(
-                        "provider_message_id"
-                    )
-                    or quoted_message_id
-                    or ""
-                ).strip()
-
-                try:
-                    no_record_identifier = (
-                        no_record_pending.get(
-                            "original_identifier"
-                        )
-                        or "dato solicitado"
-                    ).strip().upper()
-                    
-                    no_record_original_type = (
-                        no_record_pending.get(
-                            "original_query_type"
-                        )
-                        or ""
-                    ).strip().upper()
-                    
-                    if no_record_original_type == "CURP":
-                        no_record_identifier_label = (
-                            f"la CURP {no_record_identifier}"
-                        )
-                    elif no_record_original_type == "RFC_ONLY":
-                        no_record_identifier_label = (
-                            f"el RFC {no_record_identifier}"
-                        )
-                    else:
-                        no_record_identifier_label = (
-                            no_record_identifier
-                        )
-                    
-                    send_text(
-                        no_record_client_group,
-                        (
-                            f"⚠️ {no_record_requester_label}, "
-                            "no hay registro disponible para "
-                            f"{no_record_identifier_label}."
-                        ),
-                        instance_name=(
-                            no_record_client_instance
-                        ),
-                        fast=True,
-                    )
-
-                    print(
-                        "RFC_VERIFICABLE_NO_ID_SENT =",
-                        {
-                            "request_key": (
-                                no_record_request_key
-                            ),
-                            "client_group": (
-                                no_record_client_group
-                            ),
-                            "client_instance": (
-                                no_record_client_instance
-                            ),
-                            "original_identifier": (
-                                no_record_pending.get(
-                                    "original_identifier"
-                                )
-                            ),
-                        },
-                        flush=True,
-                    )
-
-                except Exception as no_record_send_exc:
-                    print(
-                        "RFC_VERIFICABLE_NO_ID_"
-                        "CLIENT_SEND_ERROR =",
-                        {
-                            "request_key": (
-                                no_record_request_key
-                            ),
-                            "client_group": (
-                                no_record_client_group
-                            ),
-                            "error": repr(
-                                no_record_send_exc
-                            ),
-                        },
-                        flush=True,
-                    )
-
-                finally:
-                    # Libera el bloqueo de la solicitud para que
-                    # el cliente pueda mandarla nuevamente.
-                    if no_record_inflight_key:
-                        try:
-                            request_queue.connection.delete(
-                                no_record_inflight_key
-                            )
-                        except Exception as inflight_exc:
-                            print(
-                                "RFC_VERIFICABLE_NO_ID_"
-                                "INFLIGHT_RELEASE_ERROR =",
-                                repr(inflight_exc),
-                                flush=True,
-                            )
-
-                    # Elimina el pendiente y la asociación con
-                    # el mensaje enviado al proveedor.
-                    finish_pending(
-                        no_record_request_key,
-                        provider_message_id=(
-                            stored_provider_message_id
-                        ),
-                    )
-
-                return {
-                    "ok": True,
-                    "no_record": True,
-                    "flow": "RFC_VERIFICABLE",
-                    "request_key": (
-                        no_record_request_key
-                    ),
-                }
 
             provider_pairs = (
                 extract_rfc_idcif_pairs(
@@ -1613,12 +1675,17 @@ async def evolution_rfc_webhook(request: Request):
                 )
             )
 
-            if not provider_pairs:
+            total_provider_results = (
+                len(provider_no_id_items)
+                + len(provider_pairs)
+            )
+
+            if total_provider_results == 0:
                 print(
                     "RFC_VERIFIABLE_PROVIDER_INVALID =",
                     {
                         "reason": (
-                            "no_rfc_idcif_pairs"
+                            "no_valid_provider_results"
                         ),
                         "quoted_message_id": (
                             quoted_message_id
@@ -1636,18 +1703,106 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                 }
 
-            is_batch_provider_response = (
-                len(provider_pairs) > 1
+            is_single_result = (
+                total_provider_results == 1
             )
 
-            results = []
+            no_id_results = []
 
-            for (
-                pair_index,
-                (
-                    provider_rfc,
-                    provider_idcif,
-                ),
+            for no_id_index, no_id_item in enumerate(
+                provider_no_id_items,
+                start=1,
+            ):
+                identifier = (
+                    no_id_item.get("identifier")
+                    or ""
+                ).strip().upper()
+
+                pending_match = (
+                    _find_verifiable_no_id_pending(
+                        identifier=identifier,
+                        quoted_message_id=(
+                            quoted_message_id
+                        ),
+                        remote_jid=remote_jid,
+                        instance_name=instance_name,
+
+                        # Una cita solo puede representar
+                        # un resultado individual.
+                        allow_quote=is_single_result,
+                    )
+                )
+
+                if not pending_match.get("ok"):
+                    result = {
+                        "ok": False,
+                        "sent": False,
+                        "identifier": identifier,
+                        "reason": (
+                            pending_match.get("reason")
+                            or "pending_not_found"
+                        ),
+                        "line_number": (
+                            no_id_item.get(
+                                "line_number"
+                            )
+                        ),
+                    }
+
+                    no_id_results.append(result)
+
+                    print(
+                        "RFC_VERIFIABLE_NO_ID_"
+                        "MATCH_FAILED =",
+                        result,
+                        flush=True,
+                    )
+
+                    continue
+
+                result = (
+                    _send_verifiable_no_id_to_client(
+                        request_key=(
+                            pending_match[
+                                "request_key"
+                            ]
+                        ),
+                        pending=(
+                            pending_match["pending"]
+                        ),
+                        remote_jid=remote_jid,
+                        instance_name=instance_name,
+                        quoted_message_id=(
+                            quoted_message_id
+                            if is_single_result
+                            else ""
+                        ),
+                        provider_response_msg_id=(
+                            msg_id
+                        ),
+                        matched_identifier=identifier,
+                        matched_by=(
+                            pending_match.get(
+                                "matched_by"
+                            )
+                            or ""
+                        ),
+                    )
+                )
+
+                result["line_number"] = (
+                    no_id_item.get("line_number")
+                )
+
+                result["no_id_index"] = no_id_index
+
+                no_id_results.append(result)
+
+            pair_results = []
+
+            for pair_index, (
+                provider_rfc,
+                provider_idcif,
             ) in enumerate(
                 provider_pairs,
                 start=1,
@@ -1655,29 +1810,22 @@ async def evolution_rfc_webhook(request: Request):
                 try:
                     result = (
                         _queue_one_verifiable_provider_pair(
-                            provider_rfc=(
-                                provider_rfc
-                            ),
+                            provider_rfc=provider_rfc,
                             provider_idcif=(
                                 provider_idcif
                             ),
-                            remote_jid=(
-                                remote_jid
-                            ),
-                            instance_name=(
-                                instance_name
-                            ),
+                            remote_jid=remote_jid,
+                            instance_name=instance_name,
                             provider_response_msg_id=(
                                 msg_id
                             ),
 
-                            # Una cita sirve únicamente cuando
-                            # la respuesta contiene una pareja.
-                            # En listas cada RFC se relaciona
-                            # contra su pendiente individual.
+                            # La cita se usa únicamente
+                            # cuando todo el mensaje contiene
+                            # un solo resultado.
                             quoted_message_id=(
                                 quoted_message_id
-                                if not is_batch_provider_response
+                                if is_single_result
                                 else ""
                             ),
                         )
@@ -1688,57 +1836,77 @@ async def evolution_rfc_webhook(request: Request):
                         "ok": False,
                         "queued": False,
                         "rfc": provider_rfc,
-                        "idcif": (
-                            provider_idcif
-                        ),
+                        "idcif": provider_idcif,
                         "reason": (
                             "pair_processing_exception"
                         ),
-                        "error": repr(
-                            pair_exc
-                        ),
+                        "error": repr(pair_exc),
                     }
 
-                result["pair_index"] = (
-                    pair_index
-                )
+                result["pair_index"] = pair_index
 
-                results.append(result)
+                pair_results.append(result)
 
-            queued_results = [
+            sent_no_id_results = [
                 item
-                for item in results
+                for item in no_id_results
+                if item.get("sent")
+            ]
+
+            failed_no_id_results = [
+                item
+                for item in no_id_results
+                if not item.get("sent")
+            ]
+
+            queued_pair_results = [
+                item
+                for item in pair_results
                 if item.get("queued")
             ]
 
-            failed_results = [
+            failed_pair_results = [
                 item
-                for item in results
+                for item in pair_results
                 if not item.get("queued")
             ]
 
             print(
-                "RFC_VERIFIABLE_BATCH_RESULT =",
+                "RFC_VERIFIABLE_PROVIDER_RESULT =",
                 {
-                    "provider_group": (
-                        remote_jid
-                    ),
+                    "provider_group": remote_jid,
                     "provider_instance": (
                         instance_name
                     ),
-                    "provider_message_id": (
-                        msg_id
+                    "provider_message_id": msg_id,
+                    "quoted_message_id": (
+                        quoted_message_id
+                    ),
+                    "is_single_result": (
+                        is_single_result
+                    ),
+                    "no_id_detected": len(
+                        provider_no_id_items
+                    ),
+                    "no_id_sent": len(
+                        sent_no_id_results
+                    ),
+                    "no_id_failed": len(
+                        failed_no_id_results
                     ),
                     "pairs_detected": len(
                         provider_pairs
                     ),
                     "pairs_queued": len(
-                        queued_results
+                        queued_pair_results
                     ),
                     "pairs_failed": len(
-                        failed_results
+                        failed_pair_results
                     ),
-                    "results": results,
+                    "no_id_results": (
+                        no_id_results
+                    ),
+                    "pair_results": pair_results,
                 },
                 flush=True,
             )
@@ -1746,19 +1914,27 @@ async def evolution_rfc_webhook(request: Request):
             return {
                 "ok": True,
                 "flow": "RFC_VERIFICABLE",
-                "batch": (
-                    is_batch_provider_response
+                "batch": not is_single_result,
+                "no_id_detected": len(
+                    provider_no_id_items
+                ),
+                "no_id_sent": len(
+                    sent_no_id_results
+                ),
+                "no_id_failed": len(
+                    failed_no_id_results
                 ),
                 "pairs_detected": len(
                     provider_pairs
                 ),
                 "pairs_queued": len(
-                    queued_results
+                    queued_pair_results
                 ),
                 "pairs_failed": len(
-                    failed_results
+                    failed_pair_results
                 ),
-                "results": results,
+                "no_id_results": no_id_results,
+                "pair_results": pair_results,
             }
 
         # Ignorar mensajes propios, EXCEPTO comandos administrativos en grupos.
