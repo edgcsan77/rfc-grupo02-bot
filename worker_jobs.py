@@ -609,6 +609,140 @@ def evolution_send_text_to_group(group_jid: str, text: str, instance_name=None):
     r.raise_for_status()
     return r.json()
 
+def notify_verifiable_provider_sat_rejection(
+    *,
+    job_data: dict,
+    error_code: str,
+) -> bool:
+    if not bool(
+        job_data.get("is_verifiable")
+    ):
+        return False
+
+    provider_group = (
+        job_data.get(
+            "verifiable_provider_group"
+        )
+        or ""
+    ).strip()
+
+    provider_instance = (
+        job_data.get(
+            "verifiable_provider_instance"
+        )
+        or EVOLUTION_INSTANCE
+        or "grupo02"
+    ).strip()
+
+    provider_name = (
+        job_data.get(
+            "verifiable_provider_name"
+        )
+        or "Proveedor verificable"
+    ).strip()
+
+    original_identifier = (
+        job_data.get(
+            "verifiable_original_identifier"
+        )
+        or ""
+    ).strip().upper()
+
+    provider_rfc = (
+        job_data.get("provider_rfc")
+        or ""
+    ).strip().upper()
+
+    provider_idcif = (
+        job_data.get("provider_idcif")
+        or ""
+    ).strip()
+
+    if not provider_group:
+        print(
+            "VERIFIABLE_PROVIDER_ALERT_SKIPPED =",
+            {
+                "reason": "provider_group_empty",
+                "error_code": error_code,
+                "provider_rfc": provider_rfc,
+            },
+            flush=True,
+        )
+        return False
+
+    reason_map = {
+        "SIN_DATOS_SAT": (
+            "el IDCIF fue leído, pero la página "
+            "oficial del SAT no devolvió información"
+        ),
+        "SAT_NO_ACTIVE_REGIME": (
+            "el RFC aparece sin régimen fiscal "
+            "vigente en la página oficial del SAT"
+        ),
+        "SAT_STATUS_SUSPENDED": (
+            "el RFC aparece suspendido o no activo "
+            "en la página oficial del SAT"
+        ),
+    }
+
+    reason_text = (
+        reason_map.get(error_code)
+        or "el resultado no pudo validarse en SAT"
+    )
+
+    message = (
+        "⚠️ Resultado verificable no procesable\n\n"
+        f"Solicitud original: "
+        f"{original_identifier or 'N/D'}\n"
+        f"RFC entregado: "
+        f"{provider_rfc or 'N/D'}\n"
+        f"IDCIF: "
+        f"{provider_idcif or 'N/D'}\n\n"
+        f"Motivo: {reason_text}.\n\n"
+        "No se generó constancia y el resultado "
+        "no fue contabilizado."
+    )
+
+    try:
+        evolution_send_text_to_group(
+            provider_group,
+            message,
+            instance_name=provider_instance,
+        )
+
+        print(
+            "VERIFIABLE_PROVIDER_SAT_ALERT_SENT =",
+            {
+                "provider_name": provider_name,
+                "provider_group": provider_group,
+                "provider_instance": (
+                    provider_instance
+                ),
+                "error_code": error_code,
+                "provider_rfc": provider_rfc,
+                "provider_idcif": provider_idcif,
+            },
+            flush=True,
+        )
+
+        return True
+
+    except Exception as alert_exc:
+        print(
+            "VERIFIABLE_PROVIDER_SAT_ALERT_ERROR =",
+            {
+                "provider_group": provider_group,
+                "provider_instance": (
+                    provider_instance
+                ),
+                "error_code": error_code,
+                "error": repr(alert_exc),
+            },
+            flush=True,
+        )
+
+        return False
+
 def evolution_send_media_to_group(
     group_jid: str,
     media_url: str,
@@ -1500,10 +1634,18 @@ def process_group_request_job(job_data: dict):
                         )
                     )
             
-                    if success_recorded:
+                    if (
+                        success_recorded
+                        and bool(
+                            job_data.get(
+                                "verifiable_count_provider_success",
+                                True,
+                            )
+                        )
+                    ):
                         record_verifiable_provider_success(
                             job_data,
-                            count=ok_count,
+                            count=1,
                         )
             
                 mark_delivery_done(
@@ -1751,6 +1893,81 @@ def process_group_request_job(job_data: dict):
         
             return
 
+        if bool(
+            job_data.get(
+                "verifiable_identifier_corrected"
+            )
+        ):
+            original_identifier = (
+                job_data.get(
+                    "verifiable_original_identifier"
+                )
+                or ""
+            ).strip().upper()
+        
+            corrected_rfc = (
+                job_data.get("provider_rfc")
+                or ""
+            ).strip().upper()
+        
+            match_method = (
+                job_data.get(
+                    "provider_match_method"
+                )
+                or ""
+            ).strip()
+        
+            try:
+                evolution_send_text_to_group(
+                    group_jid,
+                    (
+                        "ℹ️ Se detectó una corrección "
+                        "en el dato solicitado.\n\n"
+                        f"Dato enviado: "
+                        f"{original_identifier}\n"
+                        f"RFC localizado: "
+                        f"{corrected_rfc}\n\n"
+                        "La constancia fue generada con "
+                        "el RFC localizado."
+                    ),
+                    instance_name=instance_name,
+                )
+        
+                print(
+                    "RFC_VERIFIABLE_IDENTIFIER_"
+                    "CORRECTION_NOTIFIED =",
+                    {
+                        "request_key": (
+                            job_data.get(
+                                "verifiable_request_key"
+                            )
+                        ),
+                        "original_identifier": (
+                            original_identifier
+                        ),
+                        "provider_rfc": corrected_rfc,
+                        "match_method": match_method,
+                    },
+                    flush=True,
+                )
+        
+            except Exception as correction_exc:
+                print(
+                    "RFC_VERIFIABLE_IDENTIFIER_"
+                    "CORRECTION_NOTICE_ERROR =",
+                    {
+                        "request_key": (
+                            job_data.get(
+                                "verifiable_request_key"
+                            )
+                        ),
+                        "error": repr(
+                            correction_exc
+                        ),
+                    },
+                    flush=True,
+                )
+
         try:
             success_recorded = record_success_once(
                 job_data=job_data,
@@ -1761,7 +1978,15 @@ def process_group_request_job(job_data: dict):
                 item_key=delivery_item_key,
             )
         
-            if success_recorded:
+            if (
+                success_recorded
+                and bool(
+                    job_data.get(
+                        "verifiable_count_provider_success",
+                        True,
+                    )
+                )
+            ):
                 record_verifiable_provider_success(
                     job_data,
                     count=1,
@@ -1831,11 +2056,68 @@ def process_group_request_job(job_data: dict):
                     f"⚠️ {requester_label} ese tipo de archivo aún no es compatible. Envíalo como imagen.",
                     instance_name=instance_name
                 )
-            elif "SIN_DATOS_SAT" in resp_text or err_code == "SIN_DATOS_SAT":
+            elif err_code in {
+                "SIN_DATOS_SAT",
+                "SAT_NO_ACTIVE_REGIME",
+                "SAT_STATUS_SUSPENDED",
+            }:
+                client_reason_map = {
+                    "SIN_DATOS_SAT": (
+                        "el IDCIF/QR se leyó, pero la página "
+                        "oficial del SAT no arrojó información"
+                    ),
+                    "SAT_NO_ACTIVE_REGIME": (
+                        "el RFC aparece sin régimen fiscal "
+                        "vigente en la página oficial del SAT"
+                    ),
+                    "SAT_STATUS_SUSPENDED": (
+                        "el RFC aparece suspendido o no activo "
+                        "en la página oficial del SAT"
+                    ),
+                }
+            
+                client_reason = (
+                    client_reason_map[err_code]
+                )
+            
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} el IDCIF/QR se leyó, pero no arrojó información en SAT.",
-                    instance_name=instance_name
+                    (
+                        f"⚠️ {requester_label}, "
+                        f"{client_reason}. "
+                        "No se generó la constancia."
+                    ),
+                    instance_name=instance_name,
+                )
+            
+                notify_verifiable_provider_sat_rejection(
+                    job_data=job_data,
+                    error_code=err_code,
+                )
+            
+                print(
+                    "RFC_VERIFIABLE_SAT_REJECTED =",
+                    {
+                        "request_key": (
+                            job_data.get(
+                                "verifiable_request_key"
+                            )
+                        ),
+                        "error_code": err_code,
+                        "client_group": group_jid,
+                        "provider_group": (
+                            job_data.get(
+                                "verifiable_provider_group"
+                            )
+                        ),
+                        "provider_rfc": (
+                            job_data.get("provider_rfc")
+                        ),
+                        "provider_idcif": (
+                            job_data.get("provider_idcif")
+                        ),
+                    },
+                    flush=True,
                 )
             elif "CLIENT_CURP_NOT_FOUND_OR_WRONG" in resp_text or err_code == "CLIENT_CURP_NOT_FOUND_OR_WRONG":
                 evolution_send_text_to_group(
