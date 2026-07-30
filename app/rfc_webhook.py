@@ -18,6 +18,7 @@ from app.models import (
 )
 from core_sat import (
     consultar_curp_bot,
+    consultar_curp_nuevo_leon,
     calcular_rfc_moffin,
 )
 
@@ -152,10 +153,38 @@ def _curp_to_moffin_rfc_cached(
             flush=True,
         )
 
-    datos_curp = (
-        consultar_curp_bot(curp)
-        or {}
-    )
+    try:
+        datos_curp = (
+            consultar_curp_nuevo_leon(
+                curp
+            )
+            or {}
+        )
+    
+        print(
+            "[VERIFIABLE_NL_CURP_OK]",
+            {
+                "curp": curp,
+            },
+            flush=True,
+        )
+    
+    except Exception as nl_error:
+        print(
+            "[VERIFIABLE_NL_CURP_FAIL]",
+            {
+                "curp": curp,
+                "error": repr(nl_error),
+            },
+            flush=True,
+        )
+    
+        datos_curp = (
+            consultar_curp_bot(
+                curp
+            )
+            or {}
+        )
 
     nombre = (
         datos_curp.get("NOMBRE")
