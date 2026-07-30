@@ -690,6 +690,18 @@ def notify_verifiable_provider_sat_rejection(
             "el RFC aparece suspendido o no activo "
             "en la página oficial del SAT"
         ),
+        "CLIENT_RFC_CANCELLED": (
+            "CheckID indica que el RFC aparece "
+            "cancelado o dado de baja"
+        ),
+        "CLIENT_RFC_SUSPENDED": (
+            "CheckID indica que el RFC aparece "
+            "suspendido"
+        ),
+        "CLIENT_RFC_INACTIVE": (
+            "CheckID indica que el RFC aparece "
+            "como no activo o no vigente"
+        ),
     }
 
     reason_text = (
@@ -2068,6 +2080,9 @@ def process_group_request_job(job_data: dict):
                 "SAT_CIF_NOT_ISSUED",
                 "SAT_NO_ACTIVE_REGIME",
                 "SAT_STATUS_SUSPENDED",
+                "CLIENT_RFC_CANCELLED",
+                "CLIENT_RFC_SUSPENDED",
+                "CLIENT_RFC_INACTIVE",
             }:
                 client_reason_map = {
                     "SIN_DATOS_SAT": (
@@ -2087,6 +2102,18 @@ def process_group_request_job(job_data: dict):
                     "SAT_STATUS_SUSPENDED": (
                         "el RFC aparece suspendido o no activo "
                         "en la página oficial del SAT"
+                    ),
+                    "CLIENT_RFC_CANCELLED": (
+                        "el RFC aparece cancelado "
+                        "en la consulta oficial"
+                    ),
+                    "CLIENT_RFC_SUSPENDED": (
+                        "el RFC aparece suspendido "
+                        "en la consulta oficial"
+                    ),
+                    "CLIENT_RFC_INACTIVE": (
+                        "el RFC aparece como no activo "
+                        "en la consulta oficial"
                     ),
                 }
             
@@ -2147,12 +2174,55 @@ def process_group_request_job(job_data: dict):
                     "Verifica que esté escrito correctamente y vuelve a enviarlo.",
                     instance_name=instance_name
                 )
-            elif "CLIENT_RFC_SUSPENDED" in resp_text or err_code == "CLIENT_RFC_SUSPENDED":
+            elif (
+                "CLIENT_RFC_CANCELLED"
+                in resp_text
+                or err_code
+                == "CLIENT_RFC_CANCELLED"
+            ):
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} el RFC aparece como suspendido.\n\n"
-                    "Verifica la situación fiscal o envía otro RFC.",
-                    instance_name=instance_name
+                    (
+                        f"⚠️ {requester_label} "
+                        "el RFC aparece como cancelado "
+                        "en la consulta oficial.\n\n"
+                        "No se generó la constancia."
+                    ),
+                    instance_name=instance_name,
+                )
+
+            elif (
+                "CLIENT_RFC_SUSPENDED"
+                in resp_text
+                or err_code
+                == "CLIENT_RFC_SUSPENDED"
+            ):
+                evolution_send_text_to_group(
+                    group_jid,
+                    (
+                        f"⚠️ {requester_label} "
+                        "el RFC aparece como suspendido "
+                        "en la consulta oficial.\n\n"
+                        "No se generó la constancia."
+                    ),
+                    instance_name=instance_name,
+                )
+
+            elif (
+                "CLIENT_RFC_INACTIVE"
+                in resp_text
+                or err_code
+                == "CLIENT_RFC_INACTIVE"
+            ):
+                evolution_send_text_to_group(
+                    group_jid,
+                    (
+                        f"⚠️ {requester_label} "
+                        "el RFC aparece como no activo "
+                        "en la consulta oficial.\n\n"
+                        "No se generó la constancia."
+                    ),
+                    instance_name=instance_name,
                 )
             elif (
                 "CLIENT_CHECKID_INCOMPLETE_DATA_CLON_REQUIRED" in resp_text
