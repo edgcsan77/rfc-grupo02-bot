@@ -10083,38 +10083,65 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 """
                 <div
                   style="
-                    color:#b91c1c;
-                    font-weight:800;
-                    margin-bottom:6px;
-                  "
-                >
-                  ⛔ CLON / IDCIF bloqueado
-                </div>
-                """
-                if group_blocked
-                else
-                """
-                <div
-                  style="
+                    display:inline-flex;
+                    align-items:center;
+                    gap:5px;
+                    padding:4px 8px;
+                    border-radius:999px;
+                    background:#dcfce7;
                     color:#166534;
-                    font-weight:800;
+                    font-size:12px;
+                    font-weight:700;
+                    line-height:1.2;
                     margin-bottom:6px;
+                    white-space:nowrap;
                   "
                 >
                   ✅ CLON / IDCIF activo
                 </div>
                 """
+                if not group_blocked
+                else
+                """
+                <div
+                  style="
+                    display:inline-flex;
+                    align-items:center;
+                    gap:5px;
+                    padding:4px 8px;
+                    border-radius:999px;
+                    background:#fee2e2;
+                    color:#b91c1c;
+                    font-size:12px;
+                    font-weight:700;
+                    line-height:1.2;
+                    margin-bottom:6px;
+                    white-space:nowrap;
+                  "
+                >
+                  ⛔ CLON / IDCIF bloqueado
+                </div>
+                """
             )
-
+            
             verifiable_status = (
                 """
                 <div
                   style="
+                    display:inline-flex;
+                    align-items:center;
+                    gap:5px;
+                    padding:4px 8px;
+                    border-radius:999px;
+                    background:#dcfce7;
                     color:#166534;
-                    font-weight:800;
+                    font-size:12px;
+                    font-weight:700;
+                    line-height:1.2;
+                    white-space:nowrap;
                   "
                 >
-                  ✅ Verificables activos
+                  Verificables activos
                 </div>
                 """
                 if verifiable_enabled
@@ -10122,11 +10149,20 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 """
                 <div
                   style="
-                    color:#b45309;
-                    font-weight:800;
+                    display:inline-flex;
+                    align-items:center;
+                    gap:5px;
+                    padding:4px 8px;
+                    border-radius:999px;
+                    background:#ffedd5;
+                    color:#c2410c;
+                    font-size:12px;
+                    font-weight:700;
+                    line-height:1.2;
+                    white-space:nowrap;
                   "
                 >
-                  🚫 Verificables desactivados
+                  Verificables desactivados
                 </div>
                 """
             )
@@ -10155,8 +10191,11 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   <td>
                     <div
                       style="
-                        min-width:190px;
-                        line-height:1.4;
+                        display:flex;
+                        flex-direction:column;
+                        align-items:flex-start;
+                        gap:4px;
+                        min-width:175px;
                       "
                     >
                       {clon_idcif_status}
