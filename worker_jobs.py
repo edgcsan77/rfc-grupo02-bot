@@ -675,6 +675,13 @@ def notify_verifiable_provider_sat_rejection(
             "el IDCIF fue leído, pero la página "
             "oficial del SAT no devolvió información"
         ),
+        "SAT_CIF_NOT_ISSUED": (
+            "la página oficial del SAT indica que "
+            "a este RFC no se le ha emitido una "
+            "Cédula de Identificación Fiscal; el "
+            "IDCIF entregado no pudo validarse "
+            "para ese RFC"
+        ),
         "SAT_NO_ACTIVE_REGIME": (
             "el RFC aparece sin régimen fiscal "
             "vigente en la página oficial del SAT"
@@ -2058,6 +2065,7 @@ def process_group_request_job(job_data: dict):
                 )
             elif err_code in {
                 "SIN_DATOS_SAT",
+                "SAT_CIF_NOT_ISSUED",
                 "SAT_NO_ACTIVE_REGIME",
                 "SAT_STATUS_SUSPENDED",
             }:
@@ -2065,6 +2073,12 @@ def process_group_request_job(job_data: dict):
                     "SIN_DATOS_SAT": (
                         "el IDCIF/QR se leyó, pero la página "
                         "oficial del SAT no arrojó información"
+                    ),
+                    "SAT_CIF_NOT_ISSUED": (
+                        "el SAT indica que a este RFC no se le "
+                        "ha emitido una Cédula de Identificación "
+                        "Fiscal. El IDCIF entregado no pudo "
+                        "validarse para ese RFC"
                     ),
                     "SAT_NO_ACTIVE_REGIME": (
                         "el RFC aparece sin régimen fiscal "
