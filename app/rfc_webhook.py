@@ -680,6 +680,7 @@ def _queue_verifiable_pair_for_pending(
     quoted_message_id: str = "",
     matched_by: str = "",
     fanout_index: int = 0,
+    identifier_corrected: bool | None = None,
 ) -> dict:
     """
     Encola un resultado para una solicitud pendiente
@@ -792,13 +793,18 @@ def _queue_verifiable_pair_for_pending(
         f"IDCIF: {provider_idcif}"
     )
 
-    correction_detected = (
-        matched_by
-        in {
-            "curp_rfc_near_correction",
-            "rfc_near_correction",
-        }
-    )
+    if identifier_corrected is None:
+        correction_detected = (
+            matched_by
+            in {
+                "curp_rfc_near_correction",
+                "rfc_near_correction",
+            }
+        )
+    else:
+        correction_detected = bool(
+            identifier_corrected
+        )
 
     job_data = {
         "requester_number": requester_number,
@@ -1029,6 +1035,16 @@ def _queue_one_verifiable_provider_pair(
                 and same_original_request
                 and len(matches) > 1
             ):
+                fanout_identifier_corrected = any(
+                    (
+                        match.get("matched_by")
+                        in {
+                            "curp_rfc_near_correction",
+                            "rfc_near_correction",
+                        }
+                    )
+                    for match in matches
+                )
                 fanout_results = []
         
                 for fanout_index, match in enumerate(
@@ -1063,6 +1079,9 @@ def _queue_one_verifiable_provider_pair(
                                 "identical_pending_fanout"
                             ),
                             fanout_index=fanout_index,
+                            identifier_corrected=(
+                                fanout_identifier_corrected
+                            ),
                         )
                     )
         
@@ -1312,6 +1331,16 @@ def _queue_one_verifiable_provider_pair(
             )
             and len(sibling_matches) > 1
         ):
+            fanout_identifier_corrected = any(
+                (
+                    match.get("matched_by")
+                    in {
+                        "curp_rfc_near_correction",
+                        "rfc_near_correction",
+                    }
+                )
+                for match in sibling_matches
+            )
             fanout_results = []
 
             for fanout_index, match in enumerate(
@@ -1348,6 +1377,9 @@ def _queue_one_verifiable_provider_pair(
                             "quoted_identical_pending_fanout"
                         ),
                         fanout_index=fanout_index,
+                        identifier_corrected=(
+                            fanout_identifier_corrected
+                        ),
                     )
                 )
 
