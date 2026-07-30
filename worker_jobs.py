@@ -2307,8 +2307,10 @@ def process_group_request_job(job_data: dict):
             ):
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} no se encontró información para esta CURP.\n"
-                    "Verifica que esté escrita correctamente o que se encuentre certificada.",
+                    f"⚠️ {requester_label}, el servicio de consulta de CURP "
+                    "no respondió a tiempo.\n"
+                    "La CURP no fue marcada como inexistente. "
+                    "Intenta nuevamente en unos momentos.",
                     instance_name=instance_name
                 )
 
