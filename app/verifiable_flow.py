@@ -281,7 +281,7 @@ def _near_curp_rfc_match(
     - CURP de 18 caracteres.
     - RFC de persona física de 13 caracteres.
     - Misma fecha YYMMDD.
-    - Máximo 1 diferencia en las primeras 4 letras.
+    - Máximo 2 diferencias en las primeras 4 letras.
     """
     original_curp = normalize_token(
         original_curp
@@ -312,7 +312,7 @@ def _near_curp_rfc_match(
             original_curp[:4],
             provider_rfc[:4],
         )
-        <= 1
+        <= 2
     )
 
 
