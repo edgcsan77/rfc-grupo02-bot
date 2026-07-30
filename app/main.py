@@ -10078,31 +10078,16 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     False,
                 )
             )
-
-            clon_idcif_status = (
-                """
-                <div
-                  style="
-                    display:inline-flex;
-                    align-items:center;
-                    gap:5px;
-                    padding:4px 8px;
-                    border-radius:999px;
-                    background:#dcfce7;
-                    color:#166534;
-                    font-size:12px;
-                    font-weight:700;
-                    line-height:1.2;
-                    margin-bottom:6px;
-                    white-space:nowrap;
-                  "
-                >
-                  CLON/IDCIF activos
-                </div>
-                """
-                if not group_blocked
-                else
-                """
+            
+            verifiable_enabled = bool(
+                g.get(
+                    "verifiable_enabled",
+                    False,
+                )
+            )
+            
+            if group_blocked:
+                clon_idcif_status = """
                 <div
                   style="
                     display:inline-flex;
@@ -10115,17 +10100,35 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     font-size:12px;
                     font-weight:700;
                     line-height:1.2;
-                    margin-bottom:6px;
                     white-space:nowrap;
                   "
                 >
-                  CLON/IDCIF bloqueados
+                  Grupo bloqueado
                 </div>
                 """
-            )
             
-            verifiable_status = (
+                verifiable_status = """
+                <div
+                  style="
+                    display:inline-flex;
+                    align-items:center;
+                    gap:5px;
+                    padding:4px 8px;
+                    border-radius:999px;
+                    background:#fee2e2;
+                    color:#b91c1c;
+                    font-size:11px;
+                    font-weight:700;
+                    line-height:1.2;
+                    white-space:nowrap;
+                  "
+                >
+                  CLON, IDCIF y verificables detenidos
+                </div>
                 """
+            
+            else:
+                clon_idcif_status = """
                 <div
                   style="
                     display:inline-flex;
@@ -10141,31 +10144,51 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     white-space:nowrap;
                   "
                 >
-                  Verificables activos
+                  CLON / IDCIF activos
                 </div>
                 """
-                if verifiable_enabled
-                else
-                """
-                <div
-                  style="
-                    display:inline-flex;
-                    align-items:center;
-                    gap:5px;
-                    padding:4px 8px;
-                    border-radius:999px;
-                    background:#ffedd5;
-                    color:#c2410c;
-                    font-size:12px;
-                    font-weight:700;
-                    line-height:1.2;
-                    white-space:nowrap;
-                  "
-                >
-                  Verificables desactivados
-                </div>
-                """
-            )
+            
+                if verifiable_enabled:
+                    verifiable_status = """
+                    <div
+                      style="
+                        display:inline-flex;
+                        align-items:center;
+                        gap:5px;
+                        padding:4px 8px;
+                        border-radius:999px;
+                        background:#dcfce7;
+                        color:#166534;
+                        font-size:12px;
+                        font-weight:700;
+                        line-height:1.2;
+                        white-space:nowrap;
+                      "
+                    >
+                      Verificables activos
+                    </div>
+                    """
+            
+                else:
+                    verifiable_status = """
+                    <div
+                      style="
+                        display:inline-flex;
+                        align-items:center;
+                        gap:5px;
+                        padding:4px 8px;
+                        border-radius:999px;
+                        background:#ffedd5;
+                        color:#c2410c;
+                        font-size:12px;
+                        font-weight:700;
+                        line-height:1.2;
+                        white-space:nowrap;
+                      "
+                    >
+                      Verificables desactivados
+                    </div>
+                    """
 
             search_text = f'{g["group_name"]} {g["group_jid"]}'.lower()
 
