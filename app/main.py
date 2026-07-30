@@ -10142,7 +10142,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     white-space:nowrap;
                   "
                 >
-                  CLON / IDCIF activos
+                  CLON/IDCIF activos
                 </div>
                 """
             
