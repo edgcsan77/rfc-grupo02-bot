@@ -292,6 +292,68 @@ def _is_group_blocked(group_jid: str) -> bool:
         raise
 
 
+def _verifiable_group_config(
+    db,
+    group_jid: str,
+    instance_name: str,
+) -> dict:
+    group_jid = str(
+        group_jid or ""
+    ).strip()
+
+    instance_name = str(
+        instance_name or ""
+    ).strip()
+
+    if not group_jid:
+        return {
+            "exists": False,
+            "owned": False,
+            "enabled": False,
+            "owner_instance": "",
+        }
+
+    row = (
+        db.query(AuthorizedGroup)
+        .filter(
+            AuthorizedGroup.group_jid
+            == group_jid
+        )
+        .first()
+    )
+
+    if not row:
+        return {
+            "exists": False,
+            "owned": False,
+            "enabled": False,
+            "owner_instance": "",
+        }
+
+    owner_instance = str(
+        row.owner_instance or ""
+    ).strip()
+
+    owned = bool(
+        owner_instance
+        and instance_name
+        and owner_instance == instance_name
+    )
+
+    return {
+        "exists": True,
+        "owned": owned,
+        "enabled": bool(
+            getattr(
+                row,
+                "verifiable_enabled",
+                False,
+            )
+        ),
+        "owner_instance": owner_instance,
+    }
+
+
 def _extract_text(message: dict, data: dict) -> str:
     if not isinstance(message, dict):
         message = {}
@@ -2491,6 +2553,7 @@ async def evolution_rfc_webhook(request: Request):
                         instance_name=instance_name,
                         fast=True,
                     )
+                    
                 except Exception:
                     pass
 
@@ -2533,6 +2596,114 @@ async def evolution_rfc_webhook(request: Request):
                     "ignored": (
                         "verifiable_disabled"
                     ),
+                }
+
+            verifiable_group_config = (
+                _verifiable_group_config(
+                    db,
+                    remote_jid,
+                    instance_name,
+                )
+            )
+
+            if not verifiable_group_config[
+                "exists"
+            ]:
+                print(
+                    "RFC_VERIFIABLE_GROUP_NOT_FOUND =",
+                    {
+                        "instance":
+                            instance_name,
+                        "group_jid":
+                            remote_jid,
+                        "identifier":
+                            original_identifier,
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "este grupo no está configurado "
+                            "para RFC verificable."
+                        ),
+                        instance_name=
+                            instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": True,
+                    "ignored":
+                        "verifiable_group_not_found",
+                }
+
+            if not verifiable_group_config[
+                "owned"
+            ]:
+                print(
+                    "RFC_VERIFIABLE_GROUP_OWNER_MISMATCH =",
+                    {
+                        "instance":
+                            instance_name,
+                        "owner_instance":
+                            verifiable_group_config[
+                                "owner_instance"
+                            ],
+                        "group_jid":
+                            remote_jid,
+                        "identifier":
+                            original_identifier,
+                    },
+                    flush=True,
+                )
+
+                return {
+                    "ok": True,
+                    "ignored":
+                        "verifiable_group_owner_mismatch",
+                }
+
+            if not verifiable_group_config[
+                "enabled"
+            ]:
+                print(
+                    "RFC_VERIFIABLE_GROUP_DISABLED =",
+                    {
+                        "instance":
+                            instance_name,
+                        "group_jid":
+                            remote_jid,
+                        "identifier":
+                            original_identifier,
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "RFC verificable no está activo "
+                            "para este grupo."
+                        ),
+                        instance_name=
+                            instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": True,
+                    "ignored":
+                        "verifiable_group_disabled",
                 }
 
             if not verifiable_config.get(
