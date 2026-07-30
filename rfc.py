@@ -4030,17 +4030,65 @@ def checkid_lookup(curp_or_rfc: str) -> dict:
                     raise RuntimeError("CHECKID_E101_BAD_TERM")
 
                 if code == "E200":
-                    if "suspendido" in msg_l:
-                        raise RuntimeError("CHECKID_E200_SUSPENDIDO")
-
+                    if any(
+                        term in msg_l
+                        for term in (
+                            "cancelado",
+                            "cancelada",
+                            "cancelación",
+                            "cancelacion",
+                            "dado de baja",
+                            "dada de baja",
+                            "baja definitiva",
+                        )
+                    ):
+                        raise RuntimeError(
+                            "CHECKID_RFC_CANCELLED"
+                        )
+                
+                    if any(
+                        term in msg_l
+                        for term in (
+                            "suspendido",
+                            "suspendida",
+                            "suspensión",
+                            "suspension",
+                        )
+                    ):
+                        raise RuntimeError(
+                            "CHECKID_RFC_SUSPENDED"
+                        )
+                
+                    if any(
+                        term in msg_l
+                        for term in (
+                            "no activo",
+                            "no activa",
+                            "inactivo",
+                            "inactiva",
+                            "no vigente",
+                            "sin actividad",
+                        )
+                    ):
+                        raise RuntimeError(
+                            "CHECKID_RFC_INACTIVE"
+                        )
+                
                     if (
                         "no se encontró" in msg_l
                         or "no se encontro" in msg_l
-                        or "verifica que escribiste correctamente" in msg_l
+                        or (
+                            "verifica que escribiste "
+                            "correctamente"
+                        ) in msg_l
                     ):
-                        raise RuntimeError("CHECKID_E200_NOT_FOUND")
-
-                    raise RuntimeError("CHECKID_E200_UNKNOWN")
+                        raise RuntimeError(
+                            "CHECKID_E200_NOT_FOUND"
+                        )
+                
+                    raise RuntimeError(
+                        "CHECKID_E200_UNKNOWN"
+                    )
 
                 raise RuntimeError(f"CHECKID_{code}")
 
@@ -4290,6 +4338,199 @@ def regimenes_to_list(reg_val) -> list[str]:
             seen.add(x)
             uniq.append(x)
     return uniq
+
+def _normalize_checkid_status_text(
+    value,
+) -> str:
+    """
+    Normaliza textos de estado procedentes de CheckID.
+    """
+    value = str(value or "").strip().upper()
+
+    if not value:
+        return ""
+
+    value = unicodedata.normalize(
+        "NFKD",
+        value,
+    )
+
+    value = "".join(
+        char
+        for char in value
+        if not unicodedata.combining(char)
+    )
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        value,
+    ).strip()
+
+    return value
+
+
+def _collect_checkid_status_texts(
+    value,
+    *,
+    path: str = "",
+) -> list[str]:
+    """
+    Recorre la respuesta completa de CheckID y recoge
+    únicamente campos que pueden describir el estado
+    fiscal o la situación del contribuyente.
+
+    Esto permite cubrir variaciones en los nombres:
+    estatus, estadoRFC, situacionContribuyente, etc.
+    """
+    status_key_terms = (
+        "estatus",
+        "status",
+        "situacion",
+        "estado",
+        "condicion",
+        "suspend",
+        "cancel",
+        "activo",
+        "baja",
+    )
+
+    collected = []
+
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_text = str(
+                key or ""
+            ).strip()
+
+            child_path = (
+                f"{path}.{key_text}"
+                if path
+                else key_text
+            )
+
+            key_norm = (
+                _normalize_checkid_status_text(
+                    key_text
+                )
+            )
+
+            if isinstance(
+                child,
+                (dict, list, tuple),
+            ):
+                collected.extend(
+                    _collect_checkid_status_texts(
+                        child,
+                        path=child_path,
+                    )
+                )
+                continue
+
+            if any(
+                term in key_norm
+                for term in status_key_terms
+            ):
+                child_text = (
+                    _normalize_checkid_status_text(
+                        child
+                    )
+                )
+
+                if child_text:
+                    collected.append(
+                        f"{key_norm}: {child_text}"
+                    )
+
+        return collected
+
+    if isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            collected.extend(
+                _collect_checkid_status_texts(
+                    child,
+                    path=f"{path}[{index}]",
+                )
+            )
+
+    return collected
+
+
+def _classify_checkid_tax_status(
+    ci_raw: dict,
+) -> str:
+    """
+    Regresa:
+      CHECKID_RFC_CANCELLED
+      CHECKID_RFC_SUSPENDED
+      CHECKID_RFC_INACTIVE
+      ""
+
+    Solo clasifica cuando CheckID expresa explícitamente
+    un estado negativo. No supone que la falta de régimen
+    equivale a cancelación o suspensión.
+    """
+    if not isinstance(ci_raw, dict):
+        return ""
+
+    status_texts = (
+        _collect_checkid_status_texts(
+            ci_raw
+        )
+    )
+
+    combined = " | ".join(
+        status_texts
+    )
+
+    if not combined:
+        return ""
+
+    cancelled_terms = (
+        "CANCELADO",
+        "CANCELADA",
+        "CANCELACION",
+        "CANCELACIÓN",
+        "DADO DE BAJA",
+        "DADA DE BAJA",
+        "BAJA DEFINITIVA",
+    )
+
+    suspended_terms = (
+        "SUSPENDIDO",
+        "SUSPENDIDA",
+        "SUSPENSION",
+        "SUSPENSIÓN",
+    )
+
+    inactive_terms = (
+        "NO ACTIVO",
+        "NO ACTIVA",
+        "INACTIVO",
+        "INACTIVA",
+        "NO VIGENTE",
+        "SIN ACTIVIDAD",
+    )
+
+    if any(
+        term in combined
+        for term in cancelled_terms
+    ):
+        return "CHECKID_RFC_CANCELLED"
+
+    if any(
+        term in combined
+        for term in suspended_terms
+    ):
+        return "CHECKID_RFC_SUSPENDED"
+
+    if any(
+        term in combined
+        for term in inactive_terms
+    ):
+        return "CHECKID_RFC_INACTIVE"
+
+    return ""
 
 def _norm_checkid_fields(ci_raw: dict) -> dict:
     ci_raw = ci_raw or {}
@@ -5328,9 +5569,49 @@ def construir_datos_desde_apis(term: str) -> dict:
     print("[CHECKID] CACHE_MISS", key, "term=", term_norm, flush=True)
 
     # ---------- 1) CheckID ----------
-    ci_raw = checkid_lookup(term_norm)
-    print("[CHECKID] LOOKUP_RETURNED", "term=", term_norm, "keys=", list((ci_raw or {}).keys())[:6], flush=True)
-    ci = _norm_checkid_fields(ci_raw)
+    ci_raw = checkid_lookup(
+        term_norm
+    )
+    
+    print(
+        "[CHECKID] LOOKUP_RETURNED",
+        "term=",
+        term_norm,
+        "keys=",
+        list(
+            (ci_raw or {}).keys()
+        )[:6],
+        flush=True,
+    )
+    
+    checkid_status_error = (
+        _classify_checkid_tax_status(
+            ci_raw
+        )
+    )
+    
+    if checkid_status_error:
+        print(
+            "[CHECKID RFC INVALID STATUS]",
+            {
+                "term": term_norm,
+                "error": checkid_status_error,
+                "status_fields": (
+                    _collect_checkid_status_texts(
+                        ci_raw
+                    )
+                ),
+            },
+            flush=True,
+        )
+    
+        raise RuntimeError(
+            checkid_status_error
+        )
+    
+    ci = _norm_checkid_fields(
+        ci_raw
+    )
     
     def _is_curp_pf(curp: str) -> bool:
         c = (curp or "").strip().upper()
@@ -6092,6 +6373,23 @@ def internal_generate_pdf_from_media():
             "ok": False,
             "error": str(e),
         }), 400
+
+    except RuntimeError as e:
+        error_code = str(
+            e
+        ).strip()
+
+        if error_code in {
+            "CLIENT_RFC_CANCELLED",
+            "CLIENT_RFC_SUSPENDED",
+            "CLIENT_RFC_INACTIVE",
+        }:
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": error_code,
+                }
+            ), 422
     
     except Exception as e:
         print(
@@ -6254,6 +6552,44 @@ def internal_generate_pdf():
             "pdf_url": pdf_url,
             "filename": filename,
         }), 200
+
+    except RuntimeError as e:
+        error_code = str(
+            e
+        ).strip()
+
+        if error_code in {
+            "CLIENT_RFC_CANCELLED",
+            "CLIENT_RFC_SUSPENDED",
+            "CLIENT_RFC_INACTIVE",
+        }:
+            print(
+                "[INTERNAL CHECKID RFC STATUS REJECTION]",
+                {
+                    "error": error_code,
+                },
+                flush=True,
+            )
+
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": error_code,
+                }
+            ), 422
+
+        print(
+            "internal_generate_pdf RuntimeError:",
+            repr(e),
+            flush=True,
+        )
+
+        return jsonify(
+            {
+                "ok": False,
+                "error": error_code,
+            }
+        ), 500
 
     except Exception as e:
         print("internal_generate_pdf error:", repr(e), flush=True)
@@ -8124,6 +8460,34 @@ def procesar_solicitud_interna_para_pdf(
 
             group_now = (group_jid or "").strip()
 
+            # Los estados fiscales negativos confirmados
+            # por CheckID nunca deben continuar a fallback.
+            if (
+                "CHECKID_RFC_CANCELLED"
+                in se
+            ):
+                raise RuntimeError(
+                    "CLIENT_RFC_CANCELLED"
+                )
+
+            if (
+                "CHECKID_RFC_SUSPENDED"
+                in se
+                or "CHECKID_E200_SUSPENDIDO"
+                in se
+            ):
+                raise RuntimeError(
+                    "CLIENT_RFC_SUSPENDED"
+                )
+
+            if (
+                "CHECKID_RFC_INACTIVE"
+                in se
+            ):
+                raise RuntimeError(
+                    "CLIENT_RFC_INACTIVE"
+                )
+
             # 🔒 Grupos restringidos: si CheckID no validó correctamente,
             # NO permitir fallback SATPI/GOBMX ni generación de constancia.
             if strict_checkid_group:
@@ -8160,7 +8524,6 @@ def procesar_solicitud_interna_para_pdf(
                     or "CHECKID_RFC_INCOMPLETE" in se
                     or "CHECKID_ALL_TERMS_FAILED" in se
                     or "SKIP_PRIMARY_INTERNAL" in se
-                    or "CHECKID_E200_SUSPENDIDO" in se
                 ):
                     raise RuntimeError(f"CLIENT_CHECKID_INCOMPLETE_DATA_CLON_REQUIRED:{query}")
             
@@ -8180,9 +8543,6 @@ def procesar_solicitud_interna_para_pdf(
 
             if "CHECKID_INCOMPLETE_DATA" in se or "CHECKID_RFC_INCOMPLETE" in se:
                 print("[INTERNAL CHECKID INCOMPLETE] continúa fallback", flush=True)
-
-            if "CHECKID_E200_SUSPENDIDO" in se:
-                print("[INTERNAL RFC SUSPENDED] grupo permitido, continúa fallback", flush=True)
 
             if input_type == "CURP":
                 try:
