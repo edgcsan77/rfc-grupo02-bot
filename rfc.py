@@ -73,6 +73,7 @@ from rfc_cli_pf_solo_completo_pro import rfc_pf_13, rfc_pf_13_candidates
 
 from core_sat import (
     consultar_curp_bot,
+    consultar_curp_nuevo_leon,
     calcular_rfc_moffin,
 )
 
@@ -613,7 +614,47 @@ def fecha_nacimiento_from_curp(curp: str) -> str:
 # ===== GOB CURP SCRAPER (usa tu core_sat.py) =====
 def gobmx_curp_scrape(term: str) -> dict:
     curp = (term or "").strip().upper()
-    d = consultar_curp_bot(curp)
+
+    try:
+        d = consultar_curp_nuevo_leon(
+            curp
+        )
+
+        print(
+            "[NL_CURP_PRIMARY_OK]",
+            {
+                "curp": curp,
+                "entidad": d.get(
+                    "ENTIDAD_REGISTRO"
+                ),
+                "municipio": d.get(
+                    "MUNICIPIO_REGISTRO"
+                ),
+            },
+            flush=True,
+        )
+
+    except Exception as nl_error:
+        print(
+            "[NL_CURP_PRIMARY_FAIL]",
+            {
+                "curp": curp,
+                "error": repr(nl_error),
+            },
+            flush=True,
+        )
+
+        d = consultar_curp_bot(
+            curp
+        )
+
+        print(
+            "[GOB_CURP_SECONDARY_OK]",
+            {
+                "curp": curp,
+            },
+            flush=True,
+        )
 
     print("[GOB KEYS]", sorted(list((d or {}).keys()))[:60])
     print(
