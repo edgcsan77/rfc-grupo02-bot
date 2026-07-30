@@ -616,29 +616,236 @@ def consultar_curp(curp: str, *, allow_manual: bool = True, timeout_s: int = 30)
         if not clicked:
             raise RuntimeError("CURP_BTN_NO_ENCONTRADO")
 
+        # Esperar a que aparezca la tabla de resultados.
         wait.until(
             EC.presence_of_element_located(
-                (By.XPATH, "//td[contains(normalize-space(.), 'Nombre(s)')]")
+                (
+                    By.XPATH,
+                    "//td[contains("
+                    "normalize-space(.), "
+                    "'Nombre(s)'"
+                    ")]",
+                )
             )
         )
 
-        def get_valor_por_label(texto_label_parcial):
-            xpath = (
-                f"//tr[td[contains(normalize-space(.), '{texto_label_parcial}')]]"
-                f"/td[position()=2]"
-            )
-            elem = driver.find_element(By.XPATH, xpath)
-            return elem.text.strip()
+        # Algunas CURP muestran un modal de aviso:
+        # "Tu CURP debe certificarse..."
+        # El aviso NO significa que la CURP no exista.
+        # Se intenta cerrar para evitar interferencias.
+        posibles_cierres_modal = [
+            (
+                By.XPATH,
+                "//button[contains("
+                "normalize-space(.), "
+                "'Cerrar'"
+                ")]",
+            ),
+            (
+                By.XPATH,
+                "//*[contains(@class, 'modal')]"
+                "//*[contains(@class, 'close')]",
+            ),
+            (
+                By.XPATH,
+                "//*[contains(@class, 'modal')]"
+                "//*[@aria-label='Close']",
+            ),
+        ]
 
-        nombre = get_valor_por_label("Nombre(s)")
-        apellido_paterno = get_valor_por_label("Primer apellido")
-        apellido_materno = get_valor_por_label("Segundo apellido")
-        fecha_nac_str = get_valor_por_label("Fecha de nacimiento")
-        entidad_registro_raw = get_valor_por_label("Entidad de registro")
-        municipio_registro_raw = get_valor_por_label("Municipio de registro")
+        for by, selector in posibles_cierres_modal:
+            try:
+                elementos = driver.find_elements(
+                    by,
+                    selector,
+                )
+
+                for elemento in elementos:
+                    if not elemento.is_displayed():
+                        continue
+
+                    try:
+                        driver.execute_script(
+                            "arguments[0].click();",
+                            elemento,
+                        )
+                    except Exception:
+                        elemento.click()
+
+                    time.sleep(0.3)
+                    break
+
+            except Exception:
+                continue
+
+        def get_valor_por_label(
+            texto_label_parcial: str,
+        ) -> str:
+            """
+            Gob.mx puede tener filas duplicadas:
+            una visible y otra oculta/vacía.
+
+            Se recorren todas las coincidencias y se
+            devuelve el primer valor realmente no vacío.
+            """
+            xpath = (
+                "//tr["
+                "td[contains("
+                "normalize-space(.), "
+                f"'{texto_label_parcial}'"
+                ")]"
+                "]"
+                "/td[1]"
+                "/following-sibling::td[1]"
+            )
+
+            def buscar_valor(driver_actual):
+                elementos = (
+                    driver_actual.find_elements(
+                        By.XPATH,
+                        xpath,
+                    )
+                )
+
+                valores_encontrados = []
+
+                for elemento in elementos:
+                    valor = str(
+                        driver_actual.execute_script(
+                            """
+                            return (
+                                arguments[0].innerText
+                                || arguments[0].textContent
+                                || ''
+                            );
+                            """,
+                            elemento,
+                        )
+                        or ""
+                    )
+
+                    valor = re.sub(
+                        r"\s+",
+                        " ",
+                        valor,
+                    ).strip()
+
+                    if valor:
+                        valores_encontrados.append(
+                            valor
+                        )
+
+                        if elemento.is_displayed():
+                            return valor
+
+                if valores_encontrados:
+                    return valores_encontrados[0]
+
+                return False
+
+            try:
+                return WebDriverWait(
+                    driver,
+                    timeout_s,
+                ).until(
+                    buscar_valor
+                )
+
+            except TimeoutException as error:
+                print(
+                    "[GOB_CURP_FIELD_EMPTY]",
+                    {
+                        "curp": curp,
+                        "label":
+                            texto_label_parcial,
+                        "matches": len(
+                            driver.find_elements(
+                                By.XPATH,
+                                xpath,
+                            )
+                        ),
+                    },
+                    flush=True,
+                )
+
+                raise RuntimeError(
+                    "GOB_CURP_FIELD_EMPTY:"
+                    f"{texto_label_parcial}"
+                ) from error
+
+        nombre = get_valor_por_label(
+            "Nombre(s)"
+        )
+
+        apellido_paterno = (
+            get_valor_por_label(
+                "Primer apellido"
+            )
+        )
+
+        apellido_materno = (
+            get_valor_por_label(
+                "Segundo apellido"
+            )
+        )
+
+        fecha_nac_str = (
+            get_valor_por_label(
+                "Fecha de nacimiento"
+            )
+        )
+
+        entidad_registro_raw = (
+            get_valor_por_label(
+                "Entidad de registro"
+            )
+        )
+
+        municipio_registro_raw = (
+            get_valor_por_label(
+                "Municipio de registro"
+            )
+        )
 
         entidad_registro = solo_letras(entidad_registro_raw)
         municipio_registro = solo_letras(municipio_registro_raw)
+
+        if not nombre.strip():
+            raise RuntimeError(
+                "GOB_CURP_NOMBRE_EMPTY"
+            )
+
+        if not (
+            apellido_paterno.strip()
+            or apellido_materno.strip()
+        ):
+            raise RuntimeError(
+                "GOB_CURP_APELLIDOS_EMPTY"
+            )
+
+        if not fecha_nac_str.strip():
+            raise RuntimeError(
+                "GOB_CURP_FECHA_EMPTY"
+            )
+
+        print(
+            "[GOB_CURP_PARSED_OK]",
+            {
+                "curp": curp,
+                "nombre": nombre,
+                "apellido_paterno":
+                    apellido_paterno,
+                "apellido_materno":
+                    apellido_materno,
+                "fecha_nacimiento":
+                    fecha_nac_str,
+                "entidad":
+                    entidad_registro,
+                "municipio":
+                    municipio_registro,
+            },
+            flush=True,
+        )
 
         return {
             "nombre": nombre.strip().upper(),
@@ -669,6 +876,31 @@ def consultar_curp(curp: str, *, allow_manual: bool = True, timeout_s: int = 30)
 def consultar_curp_bot(curp: str, timeout_s: int = 30) -> dict:
     d = consultar_curp(curp, allow_manual=False, timeout_s=timeout_s)
 
+    nombre = str(
+        d.get("nombre") or ""
+    ).strip()
+
+    apellido_paterno = str(
+        d.get("apellido_paterno") or ""
+    ).strip()
+
+    apellido_materno = str(
+        d.get("apellido_materno") or ""
+    ).strip()
+
+    if not nombre:
+        raise RuntimeError(
+            "GOB_CURP_NOMBRE_EMPTY"
+        )
+
+    if not (
+        apellido_paterno
+        or apellido_materno
+    ):
+        raise RuntimeError(
+            "GOB_CURP_APELLIDOS_EMPTY"
+        )
+
     # Fecha a dd-mm-aaaa
     fn = (d.get("fecha_nac_str") or "").strip()
     # gob suele dar DD/MM/AAAA
@@ -682,9 +914,9 @@ def consultar_curp_bot(curp: str, timeout_s: int = 30) -> dict:
     print(f"[GOB_CURP_OK] curp={curp} nombre={d.get('nombre')} ap1={d.get('apellido_paterno')} fn={d.get('fecha_nac_str')} ent={d.get('entidad_registro')} mun={d.get('municipio_registro')}")
     return {
         "CURP": curp.strip().upper(),
-        "NOMBRE": (d.get("nombre") or "").strip().upper(),
-        "PRIMER_APELLIDO": (d.get("apellido_paterno") or "").strip().upper(),
-        "SEGUNDO_APELLIDO": (d.get("apellido_materno") or "").strip().upper(),
+        "NOMBRE": nombre.upper(),
+        "PRIMER_APELLIDO": apellido_paterno.upper(),
+        "SEGUNDO_APELLIDO": apellido_materno.upper(),
         "FECHA_NACIMIENTO": fn_out,
         "ENTIDAD_REGISTRO": (d.get("entidad_registro") or "").strip().upper(),
         "MUNICIPIO_REGISTRO": (d.get("municipio_registro") or "").strip().upper(),
