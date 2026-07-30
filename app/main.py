@@ -10097,7 +10097,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     white-space:nowrap;
                   "
                 >
-                  ✅ CLON / IDCIF activo
+                  CLON/IDCIF activos
                 </div>
                 """
                 if not group_blocked
@@ -10119,7 +10119,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     white-space:nowrap;
                   "
                 >
-                  ⛔ CLON / IDCIF bloqueado
+                  CLON/IDCIF bloqueados
                 </div>
                 """
             )
