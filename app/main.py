@@ -10502,14 +10502,6 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
               return;
             }
 
-            alert(
-              enabled
-                ? "RFC verificable activado "
-                  + "para este grupo."
-                : "RFC verificable desactivado "
-                  + "para este grupo."
-            );
-
             location.reload();
 
           } catch (error) {
