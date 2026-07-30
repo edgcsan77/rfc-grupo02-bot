@@ -9965,9 +9965,6 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 <tr>
                   <th>Grupo</th>
                   <th>Hoy</th>
-                  <th>30 días</th>
-                  <th>Mes actual</th>
-                  <th>Mes anterior</th>
                   <th>Bolsa RFC</th>
                   <th>Estado</th>
                   <th>Solicitudes</th>
@@ -10208,9 +10205,6 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     <span class="small">{_esc(g["group_jid"])}</span>
                   </td>
                   <td>{g["today_done"]}</td>
-                  <td>{g["done_30d"]}</td>
-                  <td>{g["month_done"]}</td>
-                  <td>{g["prev_month_done"]}</td>
                   <td>{promo_text}</td>
                   <td>
                     <div
@@ -10304,7 +10298,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 </tr>
             """
     else:
-        html += '<tr><td colspan="11">Este bot aún no tiene grupos asignados.</td></tr>'
+        html += '<tr><td colspan="8">Este bot aún no tiene grupos asignados.</td></tr>'
 
     html += """
               </tbody>
