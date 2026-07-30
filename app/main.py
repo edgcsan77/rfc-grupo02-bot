@@ -10773,6 +10773,14 @@ def panel_RFC(
                     
                 row = db.query(AuthorizedGroup).filter_by(group_jid=gid).first()
                 owner = (row.owner_instance or "").strip() if row else ""
+
+                verifiable_enabled = bool(
+                    getattr(
+                        row,
+                        "verifiable_enabled",
+                        False,
+                    )
+                )
                 
                 if gid != "PRIVADO" and owner != MAIN_PANEL_INSTANCE:
                     continue
@@ -10780,6 +10788,9 @@ def panel_RFC(
                 group_map[gid] = {
                     "group_jid": gid,
                     "group_name": group_name,
+                    "owner_instance": owner,
+                    "verifiable_enabled":
+                        verifiable_enabled,
                     "total": 0,
                     "queued": 0,
                     "processing": 0,
@@ -10797,6 +10808,14 @@ def panel_RFC(
         
             row = db.query(AuthorizedGroup).filter_by(group_jid=gid).first()
             owner = (row.owner_instance or "").strip() if row else ""
+
+            verifiable_enabled = bool(
+                getattr(
+                    row,
+                    "verifiable_enabled",
+                    False,
+                )
+            )
             
             if gid != "PRIVADO" and owner not in ("", MAIN_PANEL_INSTANCE):
                 continue
@@ -10804,6 +10823,9 @@ def panel_RFC(
             item = group_map.setdefault(gid, {
                 "group_jid": gid,
                 "group_name": group_name,
+                "owner_instance": owner,
+                "verifiable_enabled":
+                    verifiable_enabled,
                 "total": 0,
                 "queued": 0,
                 "processing": 0,
@@ -10814,6 +10836,10 @@ def panel_RFC(
         
             cnt = int(cnt or 0)
             item["total"] += cnt
+            item["owner_instance"] = owner
+            item["verifiable_enabled"] = (
+                verifiable_enabled
+            )
         
             if st == "QUEUED":
                 item["queued"] += cnt
@@ -13057,6 +13083,7 @@ def panel_RFC(
                   <th class="right">Total</th>
                   <th class="right">HECHO</th>
                   <th>Bolsa RFC</th>
+                  <th>RFC verificable</th>
                   <th>Última actualización</th>
                   <th>Bloqueo</th>
                   <th>Solicitudes</th>
@@ -13069,7 +13096,40 @@ def panel_RFC(
         if by_group:
             for r in by_group:
                 blocked = is_group_blocked(r["group_jid"])
-                blocked_text = "BLOQUEADO" if blocked else "ACTIVO"
+                blocked_text = (
+                    "BLOQUEADO"
+                    if blocked
+                    else "ACTIVO"
+                )
+
+                group_verifiable_enabled = bool(
+                    r.get(
+                        "verifiable_enabled",
+                        False,
+                    )
+                )
+
+                group_verifiable_badge = (
+                    '<span class="badge '
+                    'badge-success">ACTIVO</span>'
+                    if group_verifiable_enabled
+                    else
+                    '<span class="badge '
+                    'badge-danger">'
+                    'DESACTIVADO</span>'
+                )
+
+                group_verifiable_button = (
+                    "Desactivar"
+                    if group_verifiable_enabled
+                    else "Activar"
+                )
+
+                group_verifiable_js = (
+                    "true"
+                    if group_verifiable_enabled
+                    else "false"
+                )
                 
                 block_btn = (
                     f'<button class="btn btn-success" onclick="toggleGroupBlock(\'{r["group_jid"]}\', \'unblock\')">Desbloquear</button>'
@@ -13129,6 +13189,21 @@ def panel_RFC(
                   <td class="right">{r["total"]}</td>
                   <td class="right">{r["done"]}</td>
                   <td>{promo_cell}</td>
+                  <td>
+                    {group_verifiable_badge}<br>
+                
+                    <button
+                      type="button"
+                      class="btn"
+                      style="margin-top:6px;"
+                      onclick="toggleGroupVerifiable(
+                        '{r["group_jid"]}',
+                        {group_verifiable_js}
+                      )"
+                    >
+                      {group_verifiable_button}
+                    </button>
+                  </td>
                   <td>{_esc(_fmt_dt(r["last_update"]))}</td>
                   <td>{blocked_text}</td>
                   <td>
@@ -13143,7 +13218,7 @@ def panel_RFC(
                 </tr>
                 """
         else:
-            html += '<tr><td colspan="7">Sin datos.</td></tr>'
+            html += '<tr><td colspan="9">Sin datos.</td></tr>'
     
         html += """
               </tbody>
@@ -13623,6 +13698,69 @@ def panel_RFC(
             }}
           }} catch (e) {{
             alert("Error de conexión al guardar el límite.");
+          }}
+        }}
+
+        async function toggleGroupVerifiable(
+          groupJid,
+          currentEnabled
+        ) {{
+          const newEnabled = !currentEnabled;
+        
+          const actionText = newEnabled
+            ? "activar"
+            : "desactivar";
+        
+          const ok = confirm(
+            `¿Confirmas ${{actionText}} RFC verificable `
+            + `para este grupo?`
+          );
+        
+          if (!ok) {{
+            return;
+          }}
+        
+          try {{
+            const url =
+              `/panel/group/`
+              + `${{encodeURIComponent(groupJid)}}`
+              + `/verifiable`
+              + `?token=`
+              + `${{encodeURIComponent(
+                  "{{_esc(settings.ADMIN_PANEL_TOKEN)}}"
+                )}}`;
+        
+            const response = await fetch(
+              url,
+              {{
+                method: "POST",
+                headers: {{
+                  "Content-Type":
+                    "application/json"
+                }},
+                body: JSON.stringify({{
+                  enabled: newEnabled
+                }})
+              }}
+            );
+        
+            const data = await response.json();
+        
+            if (!response.ok || !data.ok) {{
+              alert(
+                data.error
+                || "No se pudo actualizar el grupo."
+              );
+              return;
+            }}
+        
+            location.reload();
+        
+          }} catch (error) {{
+            alert(
+              "Error de conexión al actualizar "
+              + "RFC verificable."
+            );
           }}
         }}
 
@@ -17979,6 +18117,110 @@ def list_blocked_groups() -> list[str]:
             out.append(str(v))
     out.sort()
     return out
+
+
+@app.post(
+    "/panel/group/{group_jid}/verifiable"
+)
+def panel_set_group_verifiable(
+    group_jid: str,
+    payload: dict = Body(...),
+    token: str = "",
+    db: Session = Depends(get_db),
+):
+    if token != PANEL_TOKEN:
+        raise HTTPException(
+            status_code=403,
+            detail="UNAUTHORIZED",
+        )
+
+    group_jid = str(
+        group_jid or ""
+    ).strip()
+
+    if not group_jid:
+        raise HTTPException(
+            status_code=400,
+            detail="GROUP_JID_REQUIRED",
+        )
+
+    enabled_raw = payload.get(
+        "enabled",
+        False,
+    )
+
+    if isinstance(enabled_raw, bool):
+        enabled = enabled_raw
+    else:
+        enabled = str(
+            enabled_raw or ""
+        ).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "si",
+            "sí",
+        }
+
+    row = (
+        db.query(AuthorizedGroup)
+        .filter(
+            AuthorizedGroup.group_jid
+            == group_jid
+        )
+        .first()
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="GROUP_NOT_FOUND",
+        )
+
+    owner_instance = str(
+        row.owner_instance or ""
+    ).strip()
+
+    if (
+        owner_instance
+        and owner_instance
+        != MAIN_PANEL_INSTANCE
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "GROUP_OWNER_INSTANCE_MISMATCH"
+            ),
+        )
+
+    row.verifiable_enabled = enabled
+
+    db.commit()
+    db.refresh(row)
+
+    _clear_panel_cache()
+
+    print(
+        "PANEL_GROUP_VERIFIABLE_UPDATED =",
+        {
+            "group_jid": group_jid,
+            "instance":
+                owner_instance
+                or MAIN_PANEL_INSTANCE,
+            "enabled": enabled,
+        },
+        flush=True,
+    )
+
+    return {
+        "ok": True,
+        "group_jid": group_jid,
+        "instance":
+            owner_instance
+            or MAIN_PANEL_INSTANCE,
+        "verifiable_enabled": enabled,
+    }
     
 
 @app.post("/panel/group/{group_jid}/name")
