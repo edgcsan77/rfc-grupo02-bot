@@ -10,6 +10,7 @@ from datetime import datetime, date
 
 import requests
 import json
+import hashlib
 
 # ============================================================
 #  OSM: direcciones reales (calle + número + CP)
@@ -504,6 +505,276 @@ def generar_fechas(fecha_nac_str):
 
 def formatear_dd_mm_aaaa(fecha_obj):
     return fecha_obj.strftime("%d-%m-%Y")
+
+NUEVO_LEON_CURP_URL = (
+    "https://us-central1-os-gobierno-de-nuevo-leon."
+    "cloudfunctions.net/nuevoLeon-checkCurp"
+)
+
+ENTIDADES_CURP = {
+    "AS": "AGUASCALIENTES",
+    "BC": "BAJA CALIFORNIA",
+    "BS": "BAJA CALIFORNIA SUR",
+    "CC": "CAMPECHE",
+    "CL": "COAHUILA DE ZARAGOZA",
+    "CM": "COLIMA",
+    "CS": "CHIAPAS",
+    "CH": "CHIHUAHUA",
+    "DF": "CIUDAD DE MEXICO",
+    "DG": "DURANGO",
+    "GT": "GUANAJUATO",
+    "GR": "GUERRERO",
+    "HG": "HIDALGO",
+    "JC": "JALISCO",
+    "MC": "MEXICO",
+    "MN": "MICHOACAN DE OCAMPO",
+    "MS": "MORELOS",
+    "NT": "NAYARIT",
+    "NL": "NUEVO LEON",
+    "OC": "OAXACA",
+    "PL": "PUEBLA",
+    "QT": "QUERETARO",
+    "QR": "QUINTANA ROO",
+    "SP": "SAN LUIS POTOSI",
+    "SL": "SINALOA",
+    "SR": "SONORA",
+    "TC": "TABASCO",
+    "TS": "TAMAULIPAS",
+    "TL": "TLAXCALA",
+    "VZ": "VERACRUZ DE IGNACIO DE LA LLAVE",
+    "YN": "YUCATAN",
+    "ZS": "ZACATECAS",
+    "NE": "NACIDO EN EL EXTRANJERO",
+}
+
+
+def consultar_curp_nuevo_leon(
+    curp: str,
+    timeout_s: int = 20,
+    ruta_sepomex: str = "sepomex.csv",
+) -> dict:
+    curp = (
+        curp
+        or ""
+    ).strip().upper()
+
+    if not re.fullmatch(
+        r"[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d",
+        curp,
+    ):
+        raise RuntimeError(
+            "CURP_INVALIDA"
+        )
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 "
+            "(Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/146.0.0.0 Safari/537.36"
+        ),
+        "Content-Type":
+            "application/json; charset=utf-8",
+        "Accept":
+            "application/json",
+    }
+
+    try:
+        response = requests.post(
+            NUEVO_LEON_CURP_URL,
+            json={
+                "curp": curp,
+            },
+            headers=headers,
+            timeout=timeout_s,
+        )
+
+    except requests.Timeout as error:
+        raise RuntimeError(
+            "NL_CURP_TIMEOUT"
+        ) from error
+
+    except requests.RequestException as error:
+        raise RuntimeError(
+            "NL_CURP_REQUEST_ERROR:"
+            f"{type(error).__name__}"
+        ) from error
+
+    response_text = (
+        response.text
+        or ""
+    ).strip()
+
+    response_text_normalized = (
+        normalizar_clave(
+            response_text
+        )
+    )
+
+    if (
+        response.status_code == 502
+        and
+        "LA CURP NO SE ENCUENTRA EN LA BASE DE DATOS"
+        in response_text_normalized
+    ):
+        raise RuntimeError(
+            "NL_CURP_NOT_FOUND"
+        )
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            "NL_CURP_HTTP_ERROR:"
+            f"{response.status_code}:"
+            f"{response_text[:300]}"
+        )
+
+    try:
+        payload = response.json()
+
+    except ValueError as error:
+        raise RuntimeError(
+            "NL_CURP_INVALID_JSON"
+        ) from error
+
+    if not isinstance(
+        payload,
+        dict,
+    ):
+        raise RuntimeError(
+            "NL_CURP_INVALID_RESPONSE"
+        )
+
+    returned_curp = str(
+        payload.get("curp")
+        or ""
+    ).strip().upper()
+
+    if returned_curp != curp:
+        raise RuntimeError(
+            "NL_CURP_MISMATCH:"
+            f"requested={curp}:"
+            f"returned={returned_curp}"
+        )
+
+    nombre = str(
+        payload.get("nombres")
+        or ""
+    ).strip().upper()
+
+    apellido_paterno = str(
+        payload.get("apePat")
+        or ""
+    ).strip().upper()
+
+    apellido_materno = str(
+        payload.get("apeMat")
+        or ""
+    ).strip().upper()
+
+    fecha_nacimiento = str(
+        payload.get("fechaNac")
+        or ""
+    ).strip()
+
+    entidad_clave = str(
+        payload.get("entidadNac")
+        or ""
+    ).strip().upper()
+    
+    sexo = str(
+        payload.get("sexo")
+        or ""
+    ).strip().upper()
+
+    if not nombre:
+        raise RuntimeError(
+            "NL_CURP_NOMBRE_EMPTY"
+        )
+
+    if not (
+        apellido_paterno
+        or apellido_materno
+    ):
+        raise RuntimeError(
+            "NL_CURP_APELLIDOS_EMPTY"
+        )
+
+    try:
+        datetime.strptime(
+            fecha_nacimiento,
+            "%d/%m/%Y",
+        )
+    except ValueError as error:
+        raise RuntimeError(
+            "NL_CURP_FECHA_INVALIDA:"
+            f"{fecha_nacimiento}"
+        ) from error
+
+    entidad = ENTIDADES_CURP.get(
+        entidad_clave,
+        entidad_clave,
+    )
+    
+    municipio = (
+        obtener_municipio_sepomex_por_entidad(
+            entidad_registro=entidad,
+            curp=curp,
+            ruta_sepomex=ruta_sepomex,
+        )
+    )
+
+    print(
+        "[NL_CURP_OK]",
+        {
+            "curp": curp,
+            "nombre": nombre,
+            "apellido_paterno":
+                apellido_paterno,
+            "apellido_materno":
+                apellido_materno,
+            "fecha_nacimiento":
+                fecha_nacimiento,
+            "entidad_clave":
+                entidad_clave,
+            "entidad":
+                entidad,
+            "municipio":
+                municipio,
+            "sexo":
+                sexo,
+        },
+        flush=True,
+    )
+
+    return {
+        "CURP": curp,
+        "NOMBRE": nombre,
+        "PRIMER_APELLIDO":
+            apellido_paterno,
+        "SEGUNDO_APELLIDO":
+            apellido_materno,
+        "FECHA_NACIMIENTO":
+            fecha_nacimiento.replace(
+                "/",
+                "-",
+            ),
+        "ENTIDAD_REGISTRO":
+            entidad,
+        "MUNICIPIO_REGISTRO":
+            municipio,
+        "SEXO":
+            sexo,
+        "NACIONALIDAD":
+            str(
+                payload.get(
+                    "nacionalidad"
+                )
+                or ""
+            ).strip().upper(),
+        "SOURCE":
+            "NUEVO_LEON_CURP",
+    }
 
 def consultar_curp(curp: str, *, allow_manual: bool = True, timeout_s: int = 30) -> dict:
     from selenium import webdriver
@@ -1558,6 +1829,17 @@ def calcular_rfc_moffin(
 #  SEPOMEX: índices para colonia/CP por estado y municipio
 # ============================================================
 SEPOMEX_IDX = {}
+
+# Lista de municipios disponibles por entidad:
+#
+# SEPOMEX_MUNICIPIOS_IDX["NUEVO LEON"] = {
+#     "MONTERREY",
+#     "APODACA",
+#     "GUADALUPE",
+#     ...
+# }
+SEPOMEX_MUNICIPIOS_IDX = {}
+
 SEPOMEX_CARGADO = False
 
 def normalizar_estado_sepomex(nombre_estado):
@@ -1678,47 +1960,296 @@ def normalizar_estado_sepomex(nombre_estado):
 
 def cargar_sepomex(ruta_csv="sepomex.csv"):
     """
-    Carga el catálogo SEPOMEX desde un CSV y arma un índice:
-        SEPOMEX_IDX[(ESTADO, MUNICIPIO)] = [ {cp, colonia}, ... ]
-    Se carga solo una vez por ejecución.
+    Carga SEPOMEX una sola vez y construye dos índices:
+
+    1. Colonias y CP por estado/municipio:
+
+        SEPOMEX_IDX[
+            (ESTADO, MUNICIPIO)
+        ] = [
+            {
+                "cp": "64000",
+                "colonia": "CENTRO",
+            },
+            ...
+        ]
+
+    2. Municipios disponibles por estado:
+
+        SEPOMEX_MUNICIPIOS_IDX[
+            "NUEVO LEON"
+        ] = {
+            "MONTERREY",
+            "APODACA",
+            "GUADALUPE",
+            ...
+        }
     """
-    global SEPOMEX_IDX, SEPOMEX_CARGADO
+
+    global SEPOMEX_IDX
+    global SEPOMEX_MUNICIPIOS_IDX
+    global SEPOMEX_CARGADO
+
     if SEPOMEX_CARGADO:
         return
 
     SEPOMEX_IDX = {}
+    SEPOMEX_MUNICIPIOS_IDX = {}
 
-    with open(ruta_csv, "r", encoding="latin-1", newline="") as f:
-        reader = csv.DictReader(f)
+    if not os.path.isfile(ruta_csv):
+        raise RuntimeError(
+            "SEPOMEX_ARCHIVO_NO_EXISTE:"
+            f"{ruta_csv}"
+        )
+
+    filas_validas = 0
+
+    with open(
+        ruta_csv,
+        "r",
+        encoding="latin-1",
+        newline="",
+    ) as archivo:
+        reader = csv.DictReader(archivo)
+
+        columnas = set(
+            reader.fieldnames
+            or []
+        )
+
+        columnas_requeridas = {
+            "d_codigo",
+            "d_asenta",
+            "D_mnpio",
+            "d_estado",
+        }
+
+        columnas_faltantes = (
+            columnas_requeridas
+            - columnas
+        )
+
+        if columnas_faltantes:
+            raise RuntimeError(
+                "SEPOMEX_COLUMNAS_FALTANTES:"
+                + ",".join(
+                    sorted(columnas_faltantes)
+                )
+            )
+
         for row in reader:
-            estado_raw = row.get("d_estado", "")
-            mnpio_raw = row.get("D_mnpio", "")
-            colonia_raw = row.get("d_asenta", "")
-            cp_raw = row.get("d_codigo", "")
+            estado_raw = str(
+                row.get("d_estado")
+                or ""
+            ).strip()
 
-            if not (estado_raw and mnpio_raw and colonia_raw and cp_raw):
+            municipio_raw = str(
+                row.get("D_mnpio")
+                or ""
+            ).strip()
+
+            colonia_raw = str(
+                row.get("d_asenta")
+                or ""
+            ).strip()
+
+            cp_raw = str(
+                row.get("d_codigo")
+                or ""
+            ).strip()
+
+            # Las primeras filas del archivo SEPOMEX
+            # contienen notas informativas y vienen vacías.
+            if not (
+                estado_raw
+                and municipio_raw
+                and colonia_raw
+                and cp_raw
+            ):
                 continue
 
-            estado = normalizar_estado_sepomex(estado_raw)
-            mnpio = normalizar_clave(mnpio_raw)
-            colonia = colonia_raw.strip().upper()
+            estado = normalizar_estado_sepomex(
+                estado_raw
+            )
 
-            cp = cp_raw.strip()
-            if "." in cp:
-                cp = cp.split(".")[0]
-            cp = re.sub(r"\D", "", cp)
-            if cp:
-                cp = cp.zfill(5)
+            municipio = normalizar_clave(
+                municipio_raw
+            )
 
-            clave = (estado, mnpio)
-            SEPOMEX_IDX.setdefault(clave, []).append(
+            colonia = colonia_raw.upper()
+
+            # SEPOMEX puede venir exportado como:
+            # 64000.0
+            if "." in cp_raw:
+                cp_raw = cp_raw.split(
+                    ".",
+                    1,
+                )[0]
+
+            cp = re.sub(
+                r"\D",
+                "",
+                cp_raw,
+            )
+
+            if not cp:
+                continue
+
+            cp = cp.zfill(5)
+
+            clave = (
+                estado,
+                municipio,
+            )
+
+            SEPOMEX_IDX.setdefault(
+                clave,
+                [],
+            ).append(
                 {
                     "cp": cp,
                     "colonia": colonia,
                 }
             )
 
+            SEPOMEX_MUNICIPIOS_IDX.setdefault(
+                estado,
+                set(),
+            ).add(
+                municipio
+            )
+
+            filas_validas += 1
+
+    if not filas_validas:
+        raise RuntimeError(
+            "SEPOMEX_SIN_FILAS_VALIDAS"
+        )
+
     SEPOMEX_CARGADO = True
+
+    print(
+        "[SEPOMEX_CARGADO]",
+        {
+            "archivo": ruta_csv,
+            "filas_validas":
+                filas_validas,
+            "estados":
+                len(
+                    SEPOMEX_MUNICIPIOS_IDX
+                ),
+            "municipios":
+                sum(
+                    len(municipios)
+                    for municipios
+                    in SEPOMEX_MUNICIPIOS_IDX.values()
+                ),
+            "claves_estado_municipio":
+                len(SEPOMEX_IDX),
+        },
+        flush=True,
+    )
+
+def obtener_municipio_sepomex_por_entidad(
+    entidad_registro,
+    curp,
+    ruta_sepomex="sepomex.csv",
+):
+    """
+    Obtiene un municipio válido de SEPOMEX para la entidad.
+
+    IMPORTANTE:
+    La entidad de nacimiento de la CURP no contiene información
+    suficiente para conocer el municipio real.
+
+    Por ello se selecciona un municipio de manera determinista:
+
+    - La misma CURP siempre obtiene el mismo municipio.
+    - El municipio siempre existe dentro de la entidad en SEPOMEX.
+    - No cambia aleatoriamente entre ejecuciones.
+    """
+
+    cargar_sepomex(
+        ruta_sepomex
+    )
+
+    estado_clave = normalizar_estado_sepomex(
+        entidad_registro
+    )
+
+    municipios_set = (
+        SEPOMEX_MUNICIPIOS_IDX.get(
+            estado_clave
+        )
+        or set()
+    )
+
+    if not municipios_set:
+        raise RuntimeError(
+            "SEPOMEX_SIN_MUNICIPIOS_PARA_ENTIDAD:"
+            f"{estado_clave}"
+        )
+
+    municipios = sorted(
+        municipios_set
+    )
+
+    curp_normalizada = str(
+        curp
+        or ""
+    ).strip().upper()
+
+    if not curp_normalizada:
+        raise RuntimeError(
+            "SEPOMEX_CURP_VACIA_PARA_MUNICIPIO"
+        )
+
+    # Se crea un hash estable a partir de:
+    # ENTIDAD|CURP
+    #
+    # No utilizamos hash() de Python porque cambia
+    # entre procesos y reinicios.
+    semilla = (
+        f"{estado_clave}|"
+        f"{curp_normalizada}"
+    )
+
+    digest = hashlib.sha256(
+        semilla.encode("utf-8")
+    ).hexdigest()
+
+    numero = int(
+        digest,
+        16,
+    )
+
+    indice = (
+        numero
+        % len(municipios)
+    )
+
+    municipio = municipios[
+        indice
+    ]
+
+    print(
+        "[SEPOMEX_MUNICIPIO_INFERIDO]",
+        {
+            "curp":
+                curp_normalizada,
+            "entidad":
+                estado_clave,
+            "municipio":
+                municipio,
+            "cantidad_municipios_entidad":
+                len(municipios),
+            "metodo":
+                "SHA256_DETERMINISTICO",
+        },
+        flush=True,
+    )
+
+    return municipio
 
 # ============================================================
 #  OSM: COLONIA → CALLES REALES (OSMNX + NOMINATIM)
