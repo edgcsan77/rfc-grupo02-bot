@@ -2083,6 +2083,9 @@ def process_group_request_job(job_data: dict):
                 "CLIENT_RFC_CANCELLED",
                 "CLIENT_RFC_SUSPENDED",
                 "CLIENT_RFC_INACTIVE",
+                "CLIENT_RFC_CP_EMPTY",
+                "CLIENT_RFC_REGIME_EMPTY",
+                "CLIENT_RFC_CP_AND_REGIME_EMPTY",
             }:
                 client_reason_map = {
                     "SIN_DATOS_SAT": (
@@ -2114,6 +2117,19 @@ def process_group_request_job(job_data: dict):
                     "CLIENT_RFC_INACTIVE": (
                         "el RFC aparece como no activo "
                         "en la consulta oficial"
+                    ),
+                    "CLIENT_RFC_CP_EMPTY": (
+                        "se localizó el RFC, pero CheckID "
+                        "no devolvió un código postal válido"
+                    ),
+                    "CLIENT_RFC_REGIME_EMPTY": (
+                        "se localizó el RFC, pero CheckID "
+                        "no devolvió un régimen fiscal vigente"
+                    ),
+                    "CLIENT_RFC_CP_AND_REGIME_EMPTY": (
+                        "se localizó el RFC, pero CheckID "
+                        "no devolvió código postal ni régimen "
+                        "fiscal vigente"
                     ),
                 }
             
