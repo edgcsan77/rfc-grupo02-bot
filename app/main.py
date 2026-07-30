@@ -1075,14 +1075,58 @@ def _owned_group_ids_for_instance(db: Session, instance_name: str) -> list[str]:
     return [gid for (gid,) in rows if gid]
 
 
-def _bot_groups_for_instance(db: Session, instance_name: str):
-    owned_group_ids = _owned_group_ids_for_instance(db, instance_name)
+def _bot_groups_for_instance(
+    db: Session,
+    instance_name: str,
+):
+    instance_name = (
+        instance_name or ""
+    ).strip()
+
+    rows = (
+        db.query(AuthorizedGroup)
+        .filter(
+            AuthorizedGroup.owner_instance
+            == instance_name,
+            AuthorizedGroup.is_hidden
+            == False,
+        )
+        .all()
+    )
 
     groups = []
-    for group_jid in owned_group_ids:
-        groups.append(SimpleNamespace(group_jid=group_jid))
 
-    groups.sort(key=lambda x: (_get_bot_group_name(db, x.group_jid) or "").lower())
+    for row in rows:
+        group_jid = (
+            row.group_jid or ""
+        ).strip()
+
+        if not group_jid:
+            continue
+
+        groups.append(
+            SimpleNamespace(
+                group_jid=group_jid,
+                group_name=(
+                    row.group_name
+                    or group_jid
+                ),
+                verifiable_enabled=bool(
+                    row.verifiable_enabled
+                ),
+            )
+        )
+
+    groups.sort(
+        key=lambda item: (
+            _get_bot_group_name(
+                db,
+                item.group_jid,
+            )
+            or ""
+        ).lower()
+    )
+
     return groups
 
 
@@ -1298,6 +1342,13 @@ def _bot_group_stats(db: Session, instance_name: str):
         out.append({
             "group_jid": gid,
             "group_name": group_name,
+            "verifiable_enabled": bool(
+                getattr(
+                    g,
+                    "verifiable_enabled",
+                    False,
+                )
+            ),
             "today_done": today_map.get(gid, 0),
             "done_30d": d30_map.get(gid, 0),
             "month_done": month_map.get(gid, 0),
@@ -2416,6 +2467,102 @@ def panel_bot_hide_group(token: str, group_jid: str, db: Session = Depends(get_d
     except Exception as e:
         db.rollback()
         return {"ok": False, "error": str(e)}
+
+
+@app.post(
+    "/botpanel/{token}/group/"
+    "{group_jid}/verifiable"
+)
+def botpanel_set_group_verifiable(
+    token: str,
+    group_jid: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    instance_name = (
+        _bot_instance_from_token(
+            db,
+            token,
+        )
+    )
+
+    if not instance_name:
+        raise HTTPException(
+            status_code=404,
+            detail="PANEL_NOT_FOUND",
+        )
+
+    group_jid = (
+        group_jid or ""
+    ).strip()
+
+    if not group_jid:
+        raise HTTPException(
+            status_code=400,
+            detail="GROUP_JID_REQUIRED",
+        )
+
+    # Comprueba que el grupo pertenece
+    # precisamente al mini panel autenticado.
+    row = _assert_group_owned_by_bot(
+        db,
+        group_jid,
+        instance_name,
+    )
+
+    enabled_raw = payload.get(
+        "enabled",
+        False,
+    )
+
+    if isinstance(
+        enabled_raw,
+        bool,
+    ):
+        enabled = enabled_raw
+    else:
+        enabled = str(
+            enabled_raw or ""
+        ).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "si",
+            "sí",
+        }
+
+    row.verifiable_enabled = enabled
+
+    db.commit()
+    db.refresh(row)
+
+    _clear_panel_cache()
+
+    print(
+        "BOTPANEL_GROUP_VERIFIABLE_UPDATED =",
+        {
+            "instance":
+                instance_name,
+            "group_jid":
+                group_jid,
+            "enabled":
+                enabled,
+        },
+        flush=True,
+    )
+
+    return {
+        "ok": True,
+        "instance_name":
+            instance_name,
+        "group_jid":
+            group_jid,
+        "verifiable_enabled":
+            bool(
+                row.verifiable_enabled
+            ),
+    }
 
 
 @app.get("/botpanel/{token}/audit", response_class=HTMLResponse)
@@ -9889,6 +10036,101 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 f'<button class="btn btn-light" onclick="hideBotGroup(\'{_esc(g["group_jid"])}\')">Ocultar</button>'
             )
 
+            verifiable_enabled = bool(
+                g.get(
+                    "verifiable_enabled",
+                    False,
+                )
+            )
+
+            if verifiable_enabled:
+                verifiable_btn = f"""
+                    <button
+                      class="btn btn-danger"
+                      onclick="
+                        setBotGroupVerifiable(
+                          '{_esc(g["group_jid"])}',
+                          false
+                        )
+                      "
+                    >
+                      Desactivar verificable
+                    </button>
+                """
+            else:
+                verifiable_btn = f"""
+                    <button
+                      class="btn btn-success"
+                      onclick="
+                        setBotGroupVerifiable(
+                          '{_esc(g["group_jid"])}',
+                          true
+                        )
+                      "
+                    >
+                      Activar verificable
+                    </button>
+                """
+
+            group_blocked = bool(
+                g.get(
+                    "blocked",
+                    False,
+                )
+            )
+
+            clon_idcif_status = (
+                """
+                <div
+                  style="
+                    color:#b91c1c;
+                    font-weight:800;
+                    margin-bottom:6px;
+                  "
+                >
+                  ⛔ CLON / IDCIF bloqueado
+                </div>
+                """
+                if group_blocked
+                else
+                """
+                <div
+                  style="
+                    color:#166534;
+                    font-weight:800;
+                    margin-bottom:6px;
+                  "
+                >
+                  ✅ CLON / IDCIF activo
+                </div>
+                """
+            )
+
+            verifiable_status = (
+                """
+                <div
+                  style="
+                    color:#166534;
+                    font-weight:800;
+                  "
+                >
+                  ✅ Verificables activos
+                </div>
+                """
+                if verifiable_enabled
+                else
+                """
+                <div
+                  style="
+                    color:#b45309;
+                    font-weight:800;
+                  "
+                >
+                  🚫 Verificables desactivados
+                </div>
+                """
+            )
+
             search_text = f'{g["group_name"]} {g["group_jid"]}'.lower()
 
             promo_remove_btn = (
@@ -9910,7 +10152,17 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   <td>{g["month_done"]}</td>
                   <td>{g["prev_month_done"]}</td>
                   <td>{promo_text}</td>
-                  <td>{status_badge}</td>
+                  <td>
+                    <div
+                      style="
+                        min-width:190px;
+                        line-height:1.4;
+                      "
+                    >
+                      {clon_idcif_status}
+                      {verifiable_status}
+                    </div>
+                  </td>
 
                   <td>
                     <a target="_blank"
@@ -9975,7 +10227,16 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   </td>
 
                   <td>
-                    {block_btn}
+                    <div
+                      style="
+                        display:grid;
+                        gap:8px;
+                        min-width:190px;
+                      "
+                    >
+                      {verifiable_btn}
+                      {block_btn}
+                    </div>
                   </td>
                 </tr>
             """
@@ -10148,6 +10409,70 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             location.reload();
           } else {
             alert(data.error || "No se pudo quitar el grupo.");
+          }
+        }
+
+        async function setBotGroupVerifiable(
+          groupJid,
+          enabled
+        ) {
+          const actionText = enabled
+            ? "activar"
+            : "desactivar";
+
+          const ok = confirm(
+            `¿Seguro que deseas ${actionText} `
+            + "RFC verificable para este grupo?"
+          );
+
+          if (!ok) {
+            return;
+          }
+
+          try {
+            const res = await fetch(
+              `${BOT_PANEL_BASE}/group/${
+                encodeURIComponent(groupJid)
+              }/verifiable`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type":
+                    "application/json"
+                },
+                body: JSON.stringify({
+                  enabled: enabled
+                })
+              }
+            );
+
+            const data = await res.json();
+
+            if (!res.ok || !data.ok) {
+              alert(
+                data.detail
+                || data.error
+                || "No se pudo actualizar "
+                + "RFC verificable."
+              );
+              return;
+            }
+
+            alert(
+              enabled
+                ? "RFC verificable activado "
+                  + "para este grupo."
+                : "RFC verificable desactivado "
+                  + "para este grupo."
+            );
+
+            location.reload();
+
+          } catch (error) {
+            alert(
+              "No se pudo conectar "
+              + "con el servidor."
+            );
           }
         }
 
