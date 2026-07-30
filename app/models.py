@@ -23,6 +23,12 @@ class AuthorizedGroup(Base):
     owner_instance = Column(String(50), nullable=True, index=True)
     is_hidden = Column(Boolean, default=False, nullable=False)
     hidden_in_main = Column(Boolean, default=False, nullable=False)
+    verifiable_enabled = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+    )
 
 
 class ProviderSetting(Base):
