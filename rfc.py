@@ -705,7 +705,7 @@ def gobmx_curp_scrape(term: str) -> dict:
     mun = (mun or "").strip().upper()
     ent = (d.get("ENTIDAD_REGISTRO") or d.get("ENTIDAD") or "").strip().upper()
 
-    mun_lock = False
+    mun_lock = True
 
     ci = {
         "RFC": rfc,
@@ -729,7 +729,12 @@ def gobmx_curp_scrape(term: str) -> dict:
         "COLONIA": "",
 
         "_MUN_LOCK": mun_lock,
-        "_MUN_SOURCE": "GOBMX" if mun else "",
+        "_MUN_SOURCE": (
+            "NUEVO_LEON_SEPOMEX"
+            if mun
+            else ""
+        ),
+        "_ADDRESS_ATOMIC_REQUIRED": True,
     }
 
     seed_key = (ci["RFC"] or ci["CURP"] or curp).strip().upper()
@@ -4895,48 +4900,61 @@ def sepomex_load_once():
 
                 def _pick_cp_keys(d: dict) -> list:
                     """
-                    Devuelve lista de CPs por los que se debe indexar esta fila.
-                    - Prefiere d_CP como CP real
-                    - Si d_CP y d_codigo son distintos, indexa ambos (alias)
+                    Devuelve únicamente el código postal real del
+                    asentamiento.
+                
+                    En el catálogo SEPOMEX:
+                
+                    - d_codigo = código postal del asentamiento.
+                    - d_CP puede representar la administración postal
+                      que reparte el asentamiento.
+                
+                    No deben indexarse ambos como equivalentes porque
+                    eso puede mezclar CP, municipio y colonias.
                     """
-                    cp_main = ""
-                    cp_alt = ""
-
-                    # CP real (en tu CSV viene aquí)
-                    for key in ("d_CP", "D_CP", "d_cp", "dcp", "cp", "CP"):
-                        cp_try = _norm_cp(g(d, key))
+                
+                    cp_asentamiento = ""
+                
+                    for key in (
+                        "d_codigo",
+                        "D_codigo",
+                        "dCodigo",
+                        "dcodigo",
+                    ):
+                        cp_try = _norm_cp(
+                            g(d, key)
+                        )
+                
                         if len(cp_try) == 5:
-                            cp_main = cp_try
+                            cp_asentamiento = cp_try
                             break
-
-                    # CP alterno
-                    for key in ("d_codigo", "D_codigo", "dCodigo", "dcodigo"):
-                        cp_try = _norm_cp(g(d, key))
-                        if len(cp_try) == 5:
-                            cp_alt = cp_try
-                            break
-
-                    cps = []
-                    if len(cp_main) == 5:
-                        cps.append(cp_main)
-
-                    # si no hay main, usa alt
-                    if not cps and len(cp_alt) == 5:
-                        cps.append(cp_alt)
-
-                    # si hay ambos y son diferentes, indexa ambos (alias)
-                    if len(cp_main) == 5 and len(cp_alt) == 5 and cp_alt != cp_main:
-                        cps.append(cp_alt)
-
-                    # unique manteniendo orden
-                    out = []
-                    seen = set()
-                    for x in cps:
-                        if x not in seen:
-                            seen.add(x)
-                            out.append(x)
-                    return out
-
+                
+                    # Respaldo únicamente si el archivo realmente no
+                    # contiene un d_codigo válido.
+                    if not cp_asentamiento:
+                        for key in (
+                            "d_CP",
+                            "D_CP",
+                            "d_cp",
+                            "dcp",
+                            "cp",
+                            "CP",
+                        ):
+                            cp_try = _norm_cp(
+                                g(d, key)
+                            )
+                
+                            if len(cp_try) == 5:
+                                cp_asentamiento = cp_try
+                                break
+                
+                    if not cp_asentamiento:
+                        return []
+                
+                    return [
+                        cp_asentamiento
+                    ]
+                    
                 for d in dict_reader:
                     cps = _pick_cp_keys(d)
                     if not cps:
@@ -5244,6 +5262,226 @@ def sepomex_pick_colonia_by_cp(cp: str, seed_key: str = "") -> str:
     except Exception:
         return ""
 
+def sepomex_pick_domicilio_consistente(
+    entidad: str,
+    municipio: str = "",
+    seed_key: str = "",
+) -> dict:
+    """
+    Selecciona juntos:
+
+    - CP
+    - colonia
+    - municipio
+    - entidad
+
+    Todos proceden del mismo registro indexado de
+    SEPOMEX.
+
+    Prioridad:
+    1. Entidad + municipio exactos.
+    2. Si no existe ese municipio en SEPOMEX, toma un
+       registro válido de la misma entidad y adopta
+       también su municipio real.
+
+    Nunca conserva un municipio que no pertenezca al
+    CP seleccionado.
+    """
+
+    sepomex_load_once()
+
+    entidad_norm = _norm_cmp(
+        entidad
+    )
+
+    municipio_norm = _norm_cmp(
+        municipio
+    )
+
+    if not entidad_norm:
+        return {}
+
+    candidatos_exactos = []
+    candidatos_entidad = []
+
+    for cp, info in (
+        _SEPOMEX_BY_CP or {}
+    ).items():
+        if not isinstance(
+            info,
+            dict,
+        ):
+            continue
+
+        estado_real = str(
+            info.get("estado")
+            or ""
+        ).strip()
+
+        municipio_real = str(
+            info.get("municipio")
+            or ""
+        ).strip()
+
+        if (
+            not estado_real
+            or not municipio_real
+        ):
+            continue
+
+        if (
+            _norm_cmp(estado_real)
+            != entidad_norm
+        ):
+            continue
+
+        registro = {
+            "CP": str(
+                cp or ""
+            ).strip(),
+            "ENTIDAD": (
+                estado_real.strip().upper()
+            ),
+            "MUNICIPIO": (
+                municipio_real.strip().upper()
+            ),
+            "LOCALIDAD": (
+                municipio_real.strip().upper()
+            ),
+            "COLONIAS": (
+                info.get("colonias")
+                or []
+            ),
+        }
+
+        candidatos_entidad.append(
+            registro
+        )
+
+        if (
+            municipio_norm
+            and
+            _norm_cmp(municipio_real)
+            == municipio_norm
+        ):
+            candidatos_exactos.append(
+                registro
+            )
+
+    candidatos = (
+        candidatos_exactos
+        or candidatos_entidad
+    )
+
+    if not candidatos:
+        print(
+            "[SEPOMEX_DOMICILIO_NO_ENCONTRADO]",
+            {
+                "entidad": entidad,
+                "municipio_solicitado": (
+                    municipio
+                ),
+            },
+            flush=True,
+        )
+
+        return {}
+
+    indice = _det_rand_int(
+        (
+            "DOMICILIO_ATOMICO|"
+            f"{seed_key}|"
+            f"{entidad_norm}|"
+            f"{municipio_norm}"
+        ),
+        0,
+        len(candidatos) - 1,
+    )
+
+    elegido = dict(
+        candidatos[indice]
+    )
+
+    colonias = []
+
+    for item in (
+        elegido.get("COLONIAS")
+        or []
+    ):
+        if isinstance(
+            item,
+            dict,
+        ):
+            colonia = str(
+                item.get("colonia")
+                or ""
+            ).strip().upper()
+        else:
+            colonia = str(
+                item or ""
+            ).strip().upper()
+
+        if colonia:
+            colonias.append(
+                colonia
+            )
+
+    if colonias:
+        indice_colonia = _det_rand_int(
+            (
+                "COLONIA_ATOMICA|"
+                f"{seed_key}|"
+                f"{elegido['CP']}"
+            ),
+            0,
+            len(colonias) - 1,
+        )
+
+        elegido["COLONIA"] = (
+            colonias[indice_colonia]
+        )
+
+    else:
+        elegido["COLONIA"] = ""
+
+    elegido.pop(
+        "COLONIAS",
+        None,
+    )
+
+    elegido["_DOMICILIO_SOURCE"] = (
+        "SEPOMEX_ENTIDAD_MUNICIPIO"
+        if candidatos_exactos
+        else "SEPOMEX_ENTIDAD_FALLBACK"
+    )
+
+    print(
+        "[SEPOMEX_DOMICILIO_CONSISTENTE]",
+        {
+            "seed": seed_key,
+            "entidad_solicitada": entidad,
+            "municipio_solicitado": municipio,
+            "cp": elegido.get("CP"),
+            "colonia": (
+                elegido.get("COLONIA")
+            ),
+            "municipio": (
+                elegido.get("MUNICIPIO")
+            ),
+            "entidad": (
+                elegido.get("ENTIDAD")
+            ),
+            "source": (
+                elegido.get(
+                    "_DOMICILIO_SOURCE"
+                )
+            ),
+        },
+        flush=True,
+    )
+
+    return elegido
+
 def _pick_first_colonia(dip: dict) -> str:
     cols = dip.get("colonias") or []
     if isinstance(cols, list) and cols:
@@ -5430,52 +5668,237 @@ def build_datos_final_from_ci(ci: dict, seed_key: str = "") -> dict:
     seed_key = (seed_key or (ci.get("RFC") or ci.get("CURP") or "")).strip().upper()
 
     # -----------------------
-    # 1) Dirección base
+    # 1) Dirección consistente
     # -----------------------
-    cp_final = re.sub(r"\D+", "", (ci.get("CP") or "")).strip()
-    entidad = (ci.get("ENTIDAD") or "").strip().upper()
-    municipio_in = (ci.get("MUNICIPIO") or ci.get("LOCALIDAD") or "").strip().upper()
-    colonia = (ci.get("COLONIA") or "").strip().upper()
-
-    mun_locked = bool(ci.get("_MUN_LOCK"))
-    cp_picked = False
-
-    # 1A) Si CP no es válido: pick por ENTIDAD+MUNICIPIO; si no, por ENTIDAD
-    if len(cp_final) != 5 and entidad:
-        cp_pick = ""
-        if municipio_in:
-            cp_pick = sepomex_pick_cp_by_ent_mun(entidad, municipio_in, seed_key=seed_key)
-        if not cp_pick:
-            cp_pick = sepomex_pick_cp_by_entidad(entidad, seed_key=seed_key)
-        if cp_pick:
-            cp_final = cp_pick
-            cp_picked = True
-
-    # 1B) Reconciliar por CP (si existe CP válido)
-    municipio = municipio_in  # copia "original"
-    if len(cp_final) == 5:
-        cp_src = (ci.get("_CP_SOURCE") or "").strip().upper()
-
-        # CP manda si:
-        # - viene de SATPI/CHECKID, o
-        # - lo pickeamos nosotros (cp_picked=True)
-        force_mun = (cp_src in ("SATPI", "CHECKID", "SEPOMEX_PICK")) or cp_picked
-
-        tmp = {
-            "CP": cp_final,
-            "ENTIDAD": entidad,
-            "MUNICIPIO": municipio,
-            "LOCALIDAD": municipio,
-            "COLONIA": colonia,
-            "_MUN_LOCK": mun_locked,
-        }
-        tmp = reconcile_location_by_cp(tmp, seed_key=seed_key, force_mun=force_mun)
-
-        cp_final = re.sub(r"\D+", "", (tmp.get("CP") or cp_final)).strip()
-        entidad = (tmp.get("ENTIDAD") or entidad).strip().upper()
-        colonia = (tmp.get("COLONIA") or colonia).strip().upper()
-
-        municipio = (tmp.get("MUNICIPIO") or tmp.get("LOCALIDAD") or municipio).strip().upper()
+    cp_entrada = re.sub(
+        r"\D+",
+        "",
+        str(
+            ci.get("CP")
+            or ""
+        ),
+    ).strip()
+    
+    entidad_entrada = str(
+        ci.get("ENTIDAD")
+        or ""
+    ).strip().upper()
+    
+    municipio_entrada = str(
+        ci.get("MUNICIPIO")
+        or ci.get("LOCALIDAD")
+        or ""
+    ).strip().upper()
+    
+    colonia_entrada = str(
+        ci.get("COLONIA")
+        or ""
+    ).strip().upper()
+    
+    cp_final = ""
+    entidad = ""
+    municipio = ""
+    colonia = ""
+    
+    # Cuando un CP proviene de una fuente fiscal confiable,
+    # el propio CP manda y se obtiene todo el domicilio desde
+    # ese CP.
+    cp_source = str(
+        ci.get("_CP_SOURCE")
+        or ""
+    ).strip().upper()
+    
+    cp_confiable = (
+        len(cp_entrada) == 5
+        and cp_source
+        in (
+            "SATPI",
+            "CHECKID",
+            "SAT",
+        )
+    )
+    
+    if cp_confiable:
+        meta_cp = (
+            sepomex_by_cp(
+                cp_entrada
+            )
+            or {}
+        )
+    
+        estado_cp = str(
+            meta_cp.get("estado")
+            or ""
+        ).strip().upper()
+    
+        municipio_cp = str(
+            meta_cp.get("municipio")
+            or ""
+        ).strip().upper()
+    
+        if (
+            estado_cp
+            and municipio_cp
+        ):
+            cp_final = cp_entrada
+            entidad = estado_cp
+            municipio = municipio_cp
+    
+            colonia = (
+                sepomex_pick_colonia_by_cp(
+                    cp_final,
+                    seed_key=seed_key,
+                )
+                or colonia_entrada
+            ).strip().upper()
+    
+            print(
+                "[DOMICILIO_DESDE_CP_CONFIABLE]",
+                {
+                    "cp": cp_final,
+                    "colonia": colonia,
+                    "municipio": municipio,
+                    "entidad": entidad,
+                    "source": cp_source,
+                },
+                flush=True,
+            )
+    
+    # Para CURP Nuevo León o para registros sin CP fiscal,
+    # selecciona el bloque completo desde SEPOMEX.
+    if not (
+        cp_final
+        and entidad
+        and municipio
+    ):
+        domicilio = (
+            sepomex_pick_domicilio_consistente(
+                entidad=entidad_entrada,
+                municipio=municipio_entrada,
+                seed_key=seed_key,
+            )
+            or {}
+        )
+    
+        cp_final = str(
+            domicilio.get("CP")
+            or ""
+        ).strip()
+    
+        entidad = str(
+            domicilio.get("ENTIDAD")
+            or entidad_entrada
+        ).strip().upper()
+    
+        municipio = str(
+            domicilio.get("MUNICIPIO")
+            or municipio_entrada
+        ).strip().upper()
+    
+        colonia = str(
+            domicilio.get("COLONIA")
+            or colonia_entrada
+        ).strip().upper()
+    
+    if (
+        len(cp_final) != 5
+        or not entidad
+        or not municipio
+        or not colonia
+    ):
+        raise RuntimeError(
+            "SEPOMEX_DOMICILIO_INCOMPLETO:"
+            f"cp={cp_final}:"
+            f"colonia={colonia}:"
+            f"municipio={municipio}:"
+            f"entidad={entidad}"
+        )
+    
+    # Validación final: el CP debe apuntar exactamente
+    # al municipio y entidad que se enviarán al PDF.
+    meta_final = (
+        sepomex_by_cp(
+            cp_final
+        )
+        or {}
+    )
+    
+    estado_final = str(
+        meta_final.get("estado")
+        or ""
+    ).strip().upper()
+    
+    municipio_final = str(
+        meta_final.get("municipio")
+        or ""
+    ).strip().upper()
+    
+    colonias_finales = set()
+    
+    for item in (
+        meta_final.get("colonias")
+        or []
+    ):
+        if isinstance(
+            item,
+            dict,
+        ):
+            valor = str(
+                item.get("colonia")
+                or ""
+            ).strip().upper()
+        else:
+            valor = str(
+                item or ""
+            ).strip().upper()
+    
+        if valor:
+            colonias_finales.add(
+                valor
+            )
+    
+    if (
+        _norm_cmp(estado_final)
+        != _norm_cmp(entidad)
+    ):
+        raise RuntimeError(
+            "SEPOMEX_ENTIDAD_CP_MISMATCH:"
+            f"cp={cp_final}:"
+            f"esperada={entidad}:"
+            f"real={estado_final}"
+        )
+    
+    if (
+        _norm_cmp(municipio_final)
+        != _norm_cmp(municipio)
+    ):
+        raise RuntimeError(
+            "SEPOMEX_MUNICIPIO_CP_MISMATCH:"
+            f"cp={cp_final}:"
+            f"esperado={municipio}:"
+            f"real={municipio_final}"
+        )
+    
+    if (
+        colonias_finales
+        and colonia not in colonias_finales
+    ):
+        raise RuntimeError(
+            "SEPOMEX_COLONIA_CP_MISMATCH:"
+            f"cp={cp_final}:"
+            f"colonia={colonia}"
+        )
+    
+    print(
+        "[DOMICILIO_FINAL_VALIDADO]",
+        {
+            "cp": cp_final,
+            "colonia": colonia,
+            "municipio": municipio,
+            "entidad": entidad,
+        },
+        flush=True,
+    )
 
     # -----------------------
     # 2) Identidad / fakes
@@ -5587,6 +6010,25 @@ def build_datos_final_from_ci(ci: dict, seed_key: str = "") -> dict:
         datos["_MUN_LOCK"] = True
         if ci.get("_MUN_SOURCE"):
             datos["_MUN_SOURCE"] = ci.get("_MUN_SOURCE")
+
+    datos["_CP_SOURCE"] = (
+        cp_source
+        or "SEPOMEX_ATOMIC"
+    )
+    
+    datos["_ENT_SOURCE"] = (
+        "SEPOMEX_ATOMIC"
+    )
+    
+    datos["_MUN_SOURCE"] = (
+        "SEPOMEX_ATOMIC"
+    )
+    
+    datos["_COL_SOURCE"] = (
+        "SEPOMEX_ATOMIC"
+    )
+    
+    datos["_ADDRESS_VALIDATED"] = True
 
     if ci.get("_CP_SOURCE"):
         datos["_CP_SOURCE"] = ci.get("_CP_SOURCE")
