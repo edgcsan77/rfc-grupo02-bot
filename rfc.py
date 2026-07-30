@@ -6379,17 +6379,43 @@ def internal_generate_pdf_from_media():
             e
         ).strip()
 
-        if error_code in {
+        client_rejection_codes = {
             "CLIENT_RFC_CANCELLED",
             "CLIENT_RFC_SUSPENDED",
             "CLIENT_RFC_INACTIVE",
-        }:
+            "CLIENT_RFC_CP_EMPTY",
+            "CLIENT_RFC_REGIME_EMPTY",
+            "CLIENT_RFC_CP_AND_REGIME_EMPTY",
+        }
+
+        if error_code in client_rejection_codes:
+            print(
+                "[INTERNAL RFC_ONLY REJECTION]",
+                {
+                    "error": error_code,
+                },
+                flush=True,
+            )
+
             return jsonify(
                 {
                     "ok": False,
                     "error": error_code,
                 }
             ), 422
+
+        print(
+            "internal_generate_pdf RuntimeError:",
+            repr(e),
+            flush=True,
+        )
+
+        return jsonify(
+            {
+                "ok": False,
+                "error": error_code,
+            }
+        ), 500
     
     except Exception as e:
         print(
@@ -8435,22 +8461,79 @@ def procesar_solicitud_interna_para_pdf(
                 datos = normalize_regimen_fields(datos)
         
                 if not _checkid_datos_suficientes(datos):
-                    print(
-                        "[INTERNAL CHECKID RFC INCOMPLETE]",
-                        "RFC=", datos.get("RFC") or datos.get("rfc"),
-                        "CP=", datos.get("CP") or datos.get("cp"),
-                        "REGIMEN=", datos.get("REGIMEN") or datos.get("regimen"),
-                        flush=True
+                    rfc_checkid = str(
+                        datos.get("RFC")
+                        or datos.get("rfc")
+                        or query
+                        or ""
+                    ).strip().upper()
+                
+                    cp_checkid = re.sub(
+                        r"\D+",
+                        "",
+                        str(
+                            datos.get("CP")
+                            or datos.get("cp")
+                            or ""
+                        ),
+                    ).strip()
+                
+                    regimen_checkid = str(
+                        datos.get("REGIMEN")
+                        or datos.get("regimen")
+                        or ""
+                    ).strip()
+                
+                    cp_valido = (
+                        len(cp_checkid) == 5
+                        and cp_checkid.isdigit()
                     )
                 
-                    # ✅ Conserva datos parciales de CheckID para fallback en grupos NO restringidos.
-                    if isinstance(datos, dict) and datos:
-                        datos["RFC"] = (datos.get("RFC") or datos.get("rfc") or query).strip().upper()
-                        datos["RFC_ETIQUETA"] = datos["RFC"]
+                    regimen_valido = bool(
+                        regimen_checkid
+                    )
+                
+                    print(
+                        "[INTERNAL CHECKID RFC INCOMPLETE]",
+                        {
+                            "rfc": rfc_checkid,
+                            "cp": cp_checkid,
+                            "cp_valido": cp_valido,
+                            "regimen": regimen_checkid,
+                            "regimen_valido": regimen_valido,
+                            "input_type": input_type,
+                        },
+                        flush=True,
+                    )
+                
+                    if isinstance(datos, dict):
+                        datos["RFC"] = rfc_checkid
+                        datos["RFC_ETIQUETA"] = rfc_checkid
                         datos["_CHECKID_PARTIAL"] = True
                         datos["_CHECKID_TERM_USED"] = query
                 
-                    raise RuntimeError("CHECKID_RFC_INCOMPLETE")
+                    # Estas respuestas específicas se usan únicamente
+                    # cuando la solicitud original es SOLO RFC.
+                    if input_type == "RFC_ONLY":
+                        if not cp_valido and not regimen_valido:
+                            raise RuntimeError(
+                                "CHECKID_RFC_CP_AND_REGIME_EMPTY"
+                            )
+                
+                        if not cp_valido:
+                            raise RuntimeError(
+                                "CHECKID_RFC_CP_EMPTY"
+                            )
+                
+                        if not regimen_valido:
+                            raise RuntimeError(
+                                "CHECKID_RFC_REGIME_EMPTY"
+                            )
+                
+                    # Conserva la conducta anterior para otros flujos.
+                    raise RuntimeError(
+                        "CHECKID_RFC_INCOMPLETE"
+                    )
 
                 checkid_ok = True
             
@@ -8488,6 +8571,32 @@ def procesar_solicitud_interna_para_pdf(
                     "CLIENT_RFC_INACTIVE"
                 )
 
+            # Solo RFC_ONLY: CP/régimen incompletos.
+            if input_type == "RFC_ONLY":
+                if (
+                    "CHECKID_RFC_CP_AND_REGIME_EMPTY"
+                    in se
+                ):
+                    raise RuntimeError(
+                        "CLIENT_RFC_CP_AND_REGIME_EMPTY"
+                    )
+
+                if (
+                    "CHECKID_RFC_CP_EMPTY"
+                    in se
+                ):
+                    raise RuntimeError(
+                        "CLIENT_RFC_CP_EMPTY"
+                    )
+
+                if (
+                    "CHECKID_RFC_REGIME_EMPTY"
+                    in se
+                ):
+                    raise RuntimeError(
+                        "CLIENT_RFC_REGIME_EMPTY"
+                    )
+                    
             # 🔒 Grupos restringidos: si CheckID no validó correctamente,
             # NO permitir fallback SATPI/GOBMX ni generación de constancia.
             if strict_checkid_group:
