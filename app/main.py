@@ -9958,20 +9958,12 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                       <input id="promo_clon_total_{_esc(g["group_jid"])}" type="number" min="0" step="1" placeholder="Total CLON">
                       <input id="promo_idcif_total_{_esc(g["group_jid"])}" type="number" min="0" step="1" placeholder="Total IDCIF">
                       <input
-                        id="promo_verifiable_price_{_esc(g["group_jid"])}"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="Precio verificable"
-                      >
-                      <input
                         id="promo_verifiable_total_{_esc(g["group_jid"])}"
                         type="number"
                         min="0"
                         step="1"
                         placeholder="Total verificables"
                       >
-                      <input id="promo_price_{_esc(g["group_jid"])}" placeholder="Precio por RFC">
                 
                       <button class="btn btn-success"
                         onclick="assignBotPromo('{_esc(g["group_jid"])}')">
