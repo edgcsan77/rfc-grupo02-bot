@@ -2459,6 +2459,41 @@ def _sat_text_norm(value: str) -> str:
     ).strip()
 
 
+def _classify_sat_page_notice(
+    page_text: str,
+) -> str:
+    """
+    Clasifica avisos generales mostrados por la página
+    oficial del SAT cuando no existe una CIF consultable.
+
+    Debe ejecutarse antes de clasificar estatus o régimen,
+    porque estas páginas no contienen las tablas normales
+    y por eso estatus/regimen aparecen vacíos.
+    """
+    page_text_norm = _sat_text_norm(
+        page_text
+    )
+
+    cif_not_issued_patterns = (
+        "NO SE LE HA EMITIDO SU CEDULA "
+        "DE IDENTIFICACION FISCAL",
+        "NO SE LE HA EMITIDO LA CEDULA "
+        "DE IDENTIFICACION FISCAL",
+        "NO SE HA EMITIDO SU CEDULA "
+        "DE IDENTIFICACION FISCAL",
+        "NO CUENTA CON CEDULA "
+        "DE IDENTIFICACION FISCAL",
+    )
+
+    if any(
+        pattern in page_text_norm
+        for pattern in cif_not_issued_patterns
+    ):
+        return "SAT_CIF_NOT_ISSUED"
+
+    return ""
+
+
 def _classify_sat_invalid_status(
     *,
     estatus: str,
@@ -2488,8 +2523,7 @@ def _classify_sat_invalid_status(
         return "SAT_STATUS_SUSPENDED"
 
     if (
-        not regimen_norm
-        or "SIN REGIMEN" in regimen_norm
+        "SIN REGIMEN" in regimen_norm
         or (
             "NO TIENE" in regimen_norm
             and "REGIMEN" in regimen_norm
@@ -2544,6 +2578,35 @@ def extraer_datos_desde_sat(rfc, idcif, mode="WEB"):
 
     soup = BeautifulSoup(resp.text, "html.parser")
     mapa = obtener_mapa_trs(soup)
+
+    sat_page_text = soup.get_text(
+        " ",
+        strip=True,
+    )
+
+    sat_page_notice = (
+        _classify_sat_page_notice(
+            sat_page_text
+        )
+    )
+
+    if sat_page_notice:
+        print(
+            "[SAT_OFFICIAL_PAGE_NOTICE]",
+            {
+                "rfc": rfc,
+                "idcif": idcif,
+                "reason": sat_page_notice,
+                "page_text": (
+                    sat_page_text[:500]
+                ),
+            },
+            flush=True,
+        )
+
+        raise ValueError(
+            sat_page_notice
+        )
 
     def get_val(*keys_posibles):
         for k in keys_posibles:
@@ -6002,6 +6065,7 @@ def internal_generate_pdf_from_media():
     
         if error_code in {
             "SIN_DATOS_SAT",
+            "SAT_CIF_NOT_ISSUED",
             "SAT_NO_ACTIVE_REGIME",
             "SAT_STATUS_SUSPENDED",
         }:
@@ -8705,6 +8769,7 @@ def _process_wa_message(job: dict):
                         # no reintentes si es "sin datos" (no va a cambiar)
                         if str(e) in {
                             "SIN_DATOS_SAT",
+                            "SAT_CIF_NOT_ISSUED",
                             "SAT_NO_ACTIVE_REGIME",
                             "SAT_STATUS_SUSPENDED",
                         }:
@@ -8791,9 +8856,10 @@ def _process_wa_message(job: dict):
                                 fail += 1
                                 fail_streak += 1
         
-                                reason = str(e)
+                                reason = str(e).strip().upper()
                                 if reason in {
                                     "SIN_DATOS_SAT",
+                                    "SAT_CIF_NOT_ISSUED"
                                     "SAT_NO_ACTIVE_REGIME",
                                     "SAT_STATUS_SUSPENDED",
                                 }:
@@ -8809,6 +8875,11 @@ def _process_wa_message(job: dict):
                                         reason_text = {
                                             "SIN_DATOS_SAT": (
                                                 "sin datos en SAT"
+                                            ),
+                                            "SAT_CIF_NOT_ISSUED": (
+                                                "el SAT indica que no se ha emitido "
+                                                "una Cédula de Identificación Fiscal "
+                                                "para ese RFC"
                                             ),
                                             "SAT_NO_ACTIVE_REGIME": (
                                                 "sin régimen fiscal vigente"
@@ -10811,6 +10882,13 @@ def _process_wa_message(job: dict):
                         "página oficial del SAT no arrojó "
                         "información."
                     ),
+                    "SAT_CIF_NOT_ISSUED": (
+                        "⚠️ El SAT indica que a este RFC no se "
+                        "le ha emitido una Cédula de "
+                        "Identificación Fiscal.\n\n"
+                        "El IDCIF proporcionado no pudo "
+                        "validarse para ese RFC."
+                    ),
                     "SAT_NO_ACTIVE_REGIME": (
                         "⚠️ El RFC aparece sin régimen fiscal "
                         "vigente en la página oficial del SAT."
@@ -11803,6 +11881,12 @@ def generar_constancia():
                     "SIN_DATOS_SAT": (
                         "El IDCIF/QR se leyó, pero SAT "
                         "no devolvió información."
+                    ),
+                    "SAT_CIF_NOT_ISSUED": (
+                        "El SAT indica que a este RFC no se le "
+                        "ha emitido una Cédula de Identificación "
+                        "Fiscal. El IDCIF proporcionado no pudo "
+                        "validarse para ese RFC."
                     ),
                     "SAT_NO_ACTIVE_REGIME": (
                         "El RFC aparece sin régimen fiscal "
