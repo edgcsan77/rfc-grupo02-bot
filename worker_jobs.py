@@ -2119,15 +2119,15 @@ def process_group_request_job(job_data: dict):
                         "en la consulta oficial"
                     ),
                     "CLIENT_RFC_CP_EMPTY": (
-                        "se localizó el RFC, pero CheckID "
+                        "se localizó el RFC, pero el sistema "
                         "no devolvió un código postal válido"
                     ),
                     "CLIENT_RFC_REGIME_EMPTY": (
-                        "se localizó el RFC, pero CheckID "
+                        "se localizó el RFC, pero el sistema "
                         "no devolvió un régimen fiscal vigente"
                     ),
                     "CLIENT_RFC_CP_AND_REGIME_EMPTY": (
-                        "se localizó el RFC, pero CheckID "
+                        "se localizó el RFC, pero el sistema "
                         "no devolvió código postal ni régimen "
                         "fiscal vigente"
                     ),
