@@ -594,279 +594,40 @@ def consultar_curp(curp: str, *, allow_manual: bool = True, timeout_s: int = 30)
 
         wait.until(lambda d: d.execute_script("return document.readyState") == "complete")
 
-        curp_input = wait.until(
-            EC.element_to_be_clickable(
-                (
-                    By.ID,
-                    "curpinput",
-                )
-            )
-        )
+        curp_input = wait.until(EC.presence_of_element_located((By.ID, "curpinput")))
+        curp_input.clear()
+        curp_input.send_keys(curp)
 
-        # La página actual de gob.mx utiliza una aplicación
-        # JavaScript. Asignar el valor de forma simple puede
-        # no actualizar el estado interno del formulario.
-        script_set_input_value = """
-            const input = arguments[0];
-            const value = arguments[1];
-
-            const descriptor =
-                Object.getOwnPropertyDescriptor(
-                    HTMLInputElement.prototype,
-                    'value'
-                );
-
-            descriptor.set.call(
-                input,
-                value
-            );
-
-            input.dispatchEvent(
-                new Event(
-                    'input',
-                    {
-                        bubbles: true
-                    }
-                )
-            );
-
-            input.dispatchEvent(
-                new Event(
-                    'change',
-                    {
-                        bubbles: true
-                    }
-                )
-            );
-
-            input.dispatchEvent(
-                new Event(
-                    'blur',
-                    {
-                        bubbles: true
-                    }
-                )
-            );
-        """
-
-        driver.execute_script(
-            script_set_input_value,
-            curp_input,
-            curp,
-        )
-
-        valor_capturado = (
-            curp_input.get_attribute("value")
-            or ""
-        ).strip().upper()
-
-        print(
-            "[GOB_CURP_INPUT_VALUE]",
-            {
-                "curp": curp,
-                "value": valor_capturado,
-            },
-            flush=True,
-        )
-
-        if valor_capturado != curp:
-            raise RuntimeError(
-                "GOB_CURP_INPUT_NOT_SET:"
-                f"{valor_capturado}"
-            )
-
-        btn = wait.until(
-            EC.element_to_be_clickable(
-                (
-                    By.ID,
-                    "searchButton",
-                )
-            )
-        )
-
-        print(
-            "[GOB_CURP_SEARCH_BUTTON]",
-            {
-                "displayed":
-                    btn.is_displayed(),
-                "enabled":
-                    btn.is_enabled(),
-                "text":
-                    (btn.text or "").strip(),
-            },
-            flush=True,
-        )
-
-        driver.execute_script(
-            """
-            arguments[0].scrollIntoView(
-                {
-                    block: 'center'
-                }
-            );
-            """,
-            btn,
-        )
-
-        # requestSubmit activa el mismo flujo que un envío
-        # real del formulario, incluyendo eventos y validación.
-        submitted = driver.execute_script(
-            """
-            const button = arguments[0];
-            const form = button.closest('form');
-
-            if (form && form.requestSubmit) {
-                form.requestSubmit(button);
-                return 'REQUEST_SUBMIT';
-            }
-
-            button.click();
-            return 'BUTTON_CLICK';
-            """,
-            btn,
-        )
-
-        print(
-            "[GOB_CURP_FORM_SUBMITTED]",
-            {
-                "curp": curp,
-                "method": submitted,
-                "url": driver.current_url,
-            },
-            flush=True,
-        )
-
-        # Espera el resultado. Si gob.mx no avanza,
-        # guarda evidencia para conocer la respuesta real.
-        try:
-            wait.until(
-                EC.presence_of_element_located(
-                    (
-                        By.XPATH,
-                        "//td[contains("
-                        "normalize-space(.), "
-                        "'Nombre(s)'"
-                        ")]",
-                    )
-                )
-            )
-
-            print(
-                "[GOB_CURP_RESULT_VISIBLE]",
-                {
-                    "curp": curp,
-                    "url": driver.current_url,
-                },
-                flush=True,
-            )
-
-        except TimeoutException as result_timeout:
-            debug_dir = (
-                "/tmp/gobmx_debug"
-            )
-
-            os.makedirs(
-                debug_dir,
-                exist_ok=True,
-            )
-
-            timestamp = datetime.now().strftime(
-                "%Y%m%d_%H%M%S"
-            )
-
-            screenshot_path = os.path.join(
-                debug_dir,
-                (
-                    f"{curp}_"
-                    f"{timestamp}.png"
-                ),
-            )
-
-            html_path = os.path.join(
-                debug_dir,
-                (
-                    f"{curp}_"
-                    f"{timestamp}.html"
-                ),
-            )
-
+        clicked = False
+        posibles_botones = [
+            "//button[contains(normalize-space(.), 'Consultar')]",
+            "//button[contains(normalize-space(.), 'Buscar')]",
+            "//input[@type='submit']",
+        ]
+        for xpath in posibles_botones:
             try:
-                driver.save_screenshot(
-                    screenshot_path
-                )
-            except Exception as screenshot_exc:
-                print(
-                    "[GOB_CURP_SCREENSHOT_ERROR]",
-                    repr(screenshot_exc),
-                    flush=True,
-                )
+                btn = driver.find_element(By.XPATH, xpath)
+                btn.click()
+                clicked = True
+                break
+            except NoSuchElementException:
+                continue
 
-            try:
-                with open(
-                    html_path,
-                    "w",
-                    encoding="utf-8",
-                ) as debug_file:
-                    debug_file.write(
-                        driver.page_source
-                        or ""
-                    )
+        if not clicked:
+            raise RuntimeError("CURP_BTN_NO_ENCONTRADO")
 
-            except Exception as html_exc:
-                print(
-                    "[GOB_CURP_HTML_ERROR]",
-                    repr(html_exc),
-                    flush=True,
+        # Esperar a que aparezca la tabla de resultados.
+        wait.until(
+            EC.presence_of_element_located(
+                (
+                    By.XPATH,
+                    "//td[contains("
+                    "normalize-space(.), "
+                    "'Nombre(s)'"
+                    ")]",
                 )
-
-            try:
-                body_text = (
-                    driver.execute_script(
-                        """
-                        return document.body
-                            ? document.body.innerText
-                            : '';
-                        """
-                    )
-                    or ""
-                )
-            except Exception:
-                body_text = ""
-
-            try:
-                input_value_after = (
-                    driver.find_element(
-                        By.ID,
-                        "curpinput",
-                    ).get_attribute(
-                        "value"
-                    )
-                    or ""
-                )
-            except Exception:
-                input_value_after = ""
-
-            print(
-                "[GOB_CURP_RESULT_TIMEOUT_DEBUG]",
-                {
-                    "curp": curp,
-                    "url": driver.current_url,
-                    "title": driver.title,
-                    "input_value":
-                        input_value_after,
-                    "body":
-                        body_text[:4000],
-                    "screenshot":
-                        screenshot_path,
-                    "html":
-                        html_path,
-                },
-                flush=True,
             )
-
-            raise RuntimeError(
-                "GOB_CURP_RESULT_TIMEOUT"
-            ) from result_timeout
+        )
 
         # Algunas CURP muestran un modal de aviso:
         # "Tu CURP debe certificarse..."
