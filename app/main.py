@@ -13706,20 +13706,20 @@ def panel_RFC(
           currentEnabled
         ) {{
           const newEnabled = !currentEnabled;
-        
+
           const actionText = newEnabled
             ? "activar"
             : "desactivar";
-        
+
           const ok = confirm(
             `¿Confirmas ${{actionText}} RFC verificable `
             + `para este grupo?`
           );
-        
+
           if (!ok) {{
             return;
           }}
-        
+
           try {{
             const url =
               `/panel/group/`
@@ -13727,9 +13727,9 @@ def panel_RFC(
               + `/verifiable`
               + `?token=`
               + `${{encodeURIComponent(
-                  "{{_esc(settings.ADMIN_PANEL_TOKEN)}}"
+                  "{_esc(settings.ADMIN_PANEL_TOKEN)}"
                 )}}`;
-        
+
             const response = await fetch(
               url,
               {{
@@ -13743,19 +13743,20 @@ def panel_RFC(
                 }})
               }}
             );
-        
+
             const data = await response.json();
-        
+
             if (!response.ok || !data.ok) {{
               alert(
-                data.error
+                data.detail
+                || data.error
                 || "No se pudo actualizar el grupo."
               );
               return;
             }}
-        
+
             location.reload();
-        
+
           }} catch (error) {{
             alert(
               "Error de conexión al actualizar "
