@@ -9663,6 +9663,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         }}
         .btn-success {{ background: #166534; color: white; }}
         .btn-danger {{ background: #b91c1c; color: white; }}
+        .btn-warning {{ background: #d97706; color: white; }}
         .btn-primary {{ background: #1d4ed8; color: white; }}
         .badge {{
           display: inline-flex;
@@ -10046,7 +10047,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             if verifiable_enabled:
                 verifiable_btn = f"""
                     <button
-                      class="btn btn-danger"
+                      class="btn btn-warning"
                       onclick="
                         setBotGroupVerifiable(
                           '{_esc(g["group_jid"])}',
@@ -10054,7 +10055,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                         )
                       "
                     >
-                      Desactivar verificable
+                      Desactivar verificables
                     </button>
                 """
             else:
