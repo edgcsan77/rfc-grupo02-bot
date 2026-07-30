@@ -10473,19 +10473,6 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
           groupJid,
           enabled
         ) {
-          const actionText = enabled
-            ? "activar"
-            : "desactivar";
-
-          const ok = confirm(
-            `¿Seguro que deseas ${actionText} `
-            + "RFC verificable para este grupo?"
-          );
-
-          if (!ok) {
-            return;
-          }
-
           try {
             const res = await fetch(
               `${BOT_PANEL_BASE}/group/${
