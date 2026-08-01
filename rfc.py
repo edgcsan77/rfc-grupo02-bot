@@ -7397,16 +7397,47 @@ def internal_generate_pdf():
                     flush=True,
                 )
 
+                if not provider_idcif:
+                    raise RuntimeError(
+                        "RFC_VERIFICABLE_"
+                        "FALLBACK_IDCIF_EMPTY"
+                    )
+
+                fallback_query = (
+                    f"{fallback_rfc} "
+                    f"{provider_idcif}"
+                ).strip()
+
+                print(
+                    "[RFC VERIFICABLE "
+                    "RUNTIME FALLBACK QUERY]",
+                    {
+                        "fallback_query": (
+                            fallback_query
+                        ),
+                        "provider_rfc": (
+                            fallback_rfc
+                        ),
+                        "provider_idcif": (
+                            provider_idcif
+                        ),
+                        "warning_code": (
+                            error_code
+                        ),
+                    },
+                    flush=True,
+                )
+
                 fallback_result = (
                     procesar_solicitud_interna_para_pdf(
                         from_wa_id=(
                             requester_number
                         ),
                         text_body=(
-                            fallback_rfc
+                            fallback_query
                         ),
                         original_text=(
-                            original_text
+                            fallback_query
                         ),
                         source=(
                             "GROUP_BRIDGE_"
