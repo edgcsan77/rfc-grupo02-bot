@@ -11873,8 +11873,51 @@ def panel_RFC(
               }}
             
               .table-wrap {{
+                width: 100%;
                 overflow-x: auto;
+                overscroll-behavior-inline: contain;
+                scrollbar-gutter: stable;
                 -webkit-overflow-scrolling: touch;
+              }}
+            
+              .table-wrap::-webkit-scrollbar {{
+                height: 11px;
+              }}
+            
+              .table-wrap::-webkit-scrollbar-track {{
+                background: #eef2f7;
+                border-radius: 999px;
+              }}
+            
+              .table-wrap::-webkit-scrollbar-thumb {{
+                background: #94a3b8;
+                border: 2px solid #eef2f7;
+                border-radius: 999px;
+              }}
+            
+              .table-wrap::-webkit-scrollbar-thumb:hover {{
+                background: #64748b;
+              }}
+
+              .table-wrap th:first-child,
+              .table-wrap td:first-child {{
+                position: sticky;
+                left: 0;
+                z-index: 2;
+              }}
+            
+              .table-wrap td:first-child {{
+                background: #ffffff;
+                box-shadow: 1px 0 0 #e5e7eb;
+              }}
+            
+              .table-wrap tr:hover td:first-child {{
+                background: #f9fafb;
+              }}
+            
+              .table-wrap th:first-child {{
+                z-index: 4;
+                background: #1f2937;
               }}
             
               .table-wrap table {{
@@ -21775,7 +21818,7 @@ def panel_rfc_bolsas_fragment(request: Request):
                 ORDER BY instance_name, group_name
             """)).mappings().all()
 
-        body = ""
+        cards_html = ""
 
         now = datetime.now(timezone.utc)
 
@@ -21800,75 +21843,396 @@ def panel_rfc_bolsas_fragment(request: Request):
                 except Exception:
                     expires_txt = str(expires)
 
-            body += f"""
-            <tr>
-              <td>
-                <b>{_esc(r["group_name"])}</b><br>
-                <small>{_esc(r["group_jid"])}</small><br>
-                <small>Bot: {_esc(r["instance_name"])}</small>
-              </td>
-              <td><b>{int(r["clon_balance"] or 0)}</b></td>
-              <td>{int(r["clon_used"] or 0)}</td>
-              <td>${float(r["clon_price"] or 0):.2f}</td>
-              <td><b>{idcif_status}</b></td>
-              <td>{_esc(expires_txt or "-")}</td>
-              <td>{int(r["idcif_used"] or 0)}</td>
-              <td>
-                <form method="get" action="/panel/rfc-plan/recargar-clon" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px;">
-                  <input type="hidden" name="token" value="{_esc(token)}">
-                  <input type="hidden" name="group_jid" value="{_esc(r["group_jid"])}">
-                  <input type="hidden" name="instance_name" value="{_esc(r["instance_name"])}">
-                  <input name="qty" type="number" min="1" placeholder="Ej. 100" style="width:90px;">
-                  <input name="price" type="number" step="0.01" value="{float(r["clon_price"] or 1.5):.2f}" style="width:80px;">
-                  <button type="submit" style="background:#14532d;color:white;border:0;border-radius:8px;padding:8px 10px;font-weight:700;">Recargar CLON</button>
-                </form>
-
-                <form method="get" action="/panel/rfc-plan/renovar-idcif" style="display:flex; gap:6px; flex-wrap:wrap;">
-                  <input type="hidden" name="token" value="{_esc(token)}">
-                  <input type="hidden" name="group_jid" value="{_esc(r["group_jid"])}">
-                  <input type="hidden" name="instance_name" value="{_esc(r["instance_name"])}">
-                  <input name="weeks" type="number" min="1" value="1" style="width:70px;">
-                  <input name="price" type="number" step="0.01" value="{float(r["idcif_weekly_price"] or 500):.2f}" style="width:90px;">
-                  <button type="submit" style="background:#1f2937;color:white;border:0;border-radius:8px;padding:8px 10px;font-weight:700;">Renovar IDCIF</button>
-                </form>
-              </td>
-            </tr>
+            cards_html += f"""
+              <article class="rfc-plan-card">
+                <div class="rfc-plan-card-head">
+                  <div>
+                    <strong class="rfc-plan-group-name">
+                      {_esc(r["group_name"])}
+                    </strong>
+            
+                    <span class="rfc-plan-group-jid">
+                      {_esc(r["group_jid"])}
+                    </span>
+            
+                    <span class="rfc-plan-instance">
+                      Bot: {_esc(r["instance_name"])}
+                    </span>
+                  </div>
+            
+                  <span class="rfc-plan-status">
+                    {idcif_status}
+                  </span>
+                </div>
+            
+                <div class="rfc-plan-stats">
+                  <div class="rfc-plan-stat">
+                    <span>CLON disponibles</span>
+                    <strong>
+                      {int(r["clon_balance"] or 0)}
+                    </strong>
+                  </div>
+            
+                  <div class="rfc-plan-stat">
+                    <span>CLON usados</span>
+                    <strong>
+                      {int(r["clon_used"] or 0)}
+                    </strong>
+                  </div>
+            
+                  <div class="rfc-plan-stat">
+                    <span>Precio CLON</span>
+                    <strong>
+                      ${float(r["clon_price"] or 0):.2f}
+                    </strong>
+                  </div>
+            
+                  <div class="rfc-plan-stat">
+                    <span>Usos IDCIF</span>
+                    <strong>
+                      {int(r["idcif_used"] or 0)}
+                    </strong>
+                  </div>
+                </div>
+            
+                <div class="rfc-plan-expiry">
+                  <span>Vencimiento IDCIF</span>
+                  <strong>{_esc(expires_txt)}</strong>
+                </div>
+            
+                <div class="rfc-plan-actions">
+                  <form
+                    method="get"
+                    action="/panel/rfc-plan/recargar-clon"
+                    class="rfc-plan-form"
+                  >
+                    <input
+                      type="hidden"
+                      name="token"
+                      value="{_esc(token)}"
+                    >
+            
+                    <input
+                      type="hidden"
+                      name="group_jid"
+                      value="{_esc(r["group_jid"])}"
+                    >
+            
+                    <input
+                      type="hidden"
+                      name="instance_name"
+                      value="{_esc(r["instance_name"])}"
+                    >
+            
+                    <label>
+                      Recarga CLON
+                    </label>
+            
+                    <div class="rfc-plan-form-row">
+                      <input
+                        name="qty"
+                        type="number"
+                        min="1"
+                        placeholder="Cantidad"
+                      >
+            
+                      <button type="submit">
+                        Recargar
+                      </button>
+                    </div>
+                  </form>
+            
+                  <form
+                    method="get"
+                    action="/panel/rfc-plan/renovar-idcif"
+                    class="rfc-plan-form"
+                  >
+                    <input
+                      type="hidden"
+                      name="token"
+                      value="{_esc(token)}"
+                    >
+            
+                    <input
+                      type="hidden"
+                      name="group_jid"
+                      value="{_esc(r["group_jid"])}"
+                    >
+            
+                    <input
+                      type="hidden"
+                      name="instance_name"
+                      value="{_esc(r["instance_name"])}"
+                    >
+            
+                    <label>
+                      Renovación IDCIF
+                    </label>
+            
+                    <div class="rfc-plan-form-row">
+                      <input
+                        name="weeks"
+                        type="number"
+                        min="1"
+                        value="1"
+                        title="Semanas"
+                      >
+            
+                      <input
+                        name="price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="{
+                          float(
+                            r["idcif_weekly_price"]
+                            or 500
+                          ):.2f
+                        }"
+                        title="Precio semanal"
+                      >
+            
+                      <button type="submit">
+                        Renovar
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </article>
             """
 
-        if not body:
-            body = """
-            <tr>
-              <td colspan="8">Sin grupos configurados.</td>
-            </tr>
+        if not cards_html:
+            cards_html = """
+              <div class="rfc-plan-empty">
+                Sin grupos configurados.
+              </div>
             """
 
         html = f"""
-        <section class="card" style="margin:16px 0;">
-          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+        <style>
+          .rfc-plan-section {{
+            margin: 16px 0;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            background: #ffffff;
+            box-shadow:
+              0 6px 18px rgba(15, 23, 42, .06);
+          }}
+        
+          .rfc-plan-section-head {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 18px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+          }}
+        
+          .rfc-plan-section-head h3 {{
+            margin: 0 0 4px;
+            color: #0f172a;
+            font-size: 1rem;
+          }}
+        
+          .rfc-plan-section-head small {{
+            color: #64748b;
+          }}
+        
+          .rfc-plan-list {{
+            display: grid;
+            grid-template-columns:
+              repeat(auto-fit, minmax(380px, 1fr));
+            gap: 12px;
+            padding: 12px;
+            background: #f4f6f8;
+          }}
+        
+          .rfc-plan-card {{
+            overflow: hidden;
+            border: 1px solid #cfd8e3;
+            border-radius: 16px;
+            background: #ffffff;
+            box-shadow:
+              0 2px 5px rgba(15, 23, 42, .05);
+          }}
+        
+          .rfc-plan-card-head {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px;
+            border-bottom: 1px solid #e2e8f0;
+            background: linear-gradient(
+              180deg,
+              #ffffff 0%,
+              #f8fafc 100%
+            );
+          }}
+        
+          .rfc-plan-group-name {{
+            display: block;
+            color: #0f172a;
+            font-size: 1rem;
+          }}
+        
+          .rfc-plan-group-jid,
+          .rfc-plan-instance {{
+            display: block;
+            margin-top: 3px;
+            color: #64748b;
+            font-family: Consolas, Monaco, monospace;
+            font-size: .73rem;
+          }}
+        
+          .rfc-plan-status {{
+            display: inline-flex;
+            padding: 5px 9px;
+            border-radius: 999px;
+            background: #e2e8f0;
+            color: #334155;
+            font-size: .72rem;
+            font-weight: 900;
+          }}
+        
+          .rfc-plan-stats {{
+            display: grid;
+            grid-template-columns:
+              repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            padding: 12px;
+          }}
+        
+          .rfc-plan-stat {{
+            padding: 10px 8px;
+            border: 1px solid #e2e8f0;
+            border-radius: 11px;
+            background: #f8fafc;
+            text-align: center;
+          }}
+        
+          .rfc-plan-stat span {{
+            display: block;
+            color: #64748b;
+            font-size: .66rem;
+            font-weight: 800;
+            text-transform: uppercase;
+          }}
+        
+          .rfc-plan-stat strong {{
+            display: block;
+            margin-top: 5px;
+            color: #0f172a;
+            font-size: 1rem;
+          }}
+        
+          .rfc-plan-expiry {{
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin: 0 12px 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #f8fafc;
+            color: #475569;
+            font-size: .8rem;
+          }}
+        
+          .rfc-plan-actions {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            padding: 12px;
+            border-top: 1px solid #e2e8f0;
+            background: #fafafa;
+          }}
+        
+          .rfc-plan-form {{
+            display: grid;
+            gap: 6px;
+          }}
+        
+          .rfc-plan-form label {{
+            color: #64748b;
+            font-size: .72rem;
+            font-weight: 800;
+          }}
+        
+          .rfc-plan-form-row {{
+            display: flex;
+            gap: 6px;
+          }}
+        
+          .rfc-plan-form input {{
+            width: 100%;
+            min-width: 0;
+            height: 38px;
+            box-sizing: border-box;
+            border: 1px solid #cbd5e1;
+            border-radius: 9px;
+            padding: 7px 9px;
+          }}
+        
+          .rfc-plan-form button {{
+            min-height: 38px;
+            border: 0;
+            border-radius: 9px;
+            padding: 8px 11px;
+            background: #166534;
+            color: #ffffff;
+            font-weight: 800;
+            cursor: pointer;
+            white-space: nowrap;
+          }}
+        
+          .rfc-plan-empty {{
+            padding: 24px;
+            color: #64748b;
+            text-align: center;
+          }}
+        
+          @media (max-width: 700px) {{
+            .rfc-plan-list {{
+              grid-template-columns: 1fr;
+              padding: 8px;
+            }}
+        
+            .rfc-plan-stats {{
+              grid-template-columns: 1fr 1fr;
+            }}
+        
+            .rfc-plan-actions {{
+              grid-template-columns: 1fr;
+            }}
+        
+            .rfc-plan-form-row {{
+              flex-wrap: wrap;
+            }}
+        
+            .rfc-plan-form button {{
+              width: 100%;
+            }}
+          }}
+        </style>
+        
+        <section class="rfc-plan-section">
+          <div class="rfc-plan-section-head">
             <div>
-              <h3 style="margin:0 0 4px;">💰 Control comercial RFC por grupo</h3>
-              <small>RFC CLON descuenta piezas. RFC IDCIF valida plan semanal.</small>
+              <h3>
+                💰 Control comercial RFC por grupo
+              </h3>
+        
+              <small>
+                RFC CLON descuenta piezas.
+                RFC IDCIF valida plan semanal.
+              </small>
             </div>
           </div>
-
-          <div style="overflow:auto;margin-top:12px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Grupo</th>
-                  <th>CLON disponibles</th>
-                  <th>CLON usados</th>
-                  <th>$ CLON</th>
-                  <th>IDCIF semanal</th>
-                  <th>Vence</th>
-                  <th>Usos IDCIF</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {body}
-              </tbody>
-            </table>
+        
+          <div class="rfc-plan-list">
+            {cards_html}
           </div>
         </section>
         """
@@ -21948,7 +22312,7 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
             """)).mappings().all()
 
         now = datetime.now(timezone.utc)
-        body = ""
+        cards_html = ""
 
         for r in rows:
             expires = r["idcif_expires_at"]
@@ -21971,55 +22335,193 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
                 except Exception:
                     expires_txt = str(expires)
 
-            body += f"""
-            <tr>
-              <td>
-                <b>{_esc(r["group_name"])}</b><br>
-                <small>{_esc(r["group_jid"])}</small><br>
-                <small>Bot: {_esc(r["instance_name"])}</small>
-              </td>
-              <td><b>{int(r["clon_balance"] or 0)}</b></td>
-              <td>{int(r["clon_used"] or 0)}</td>
-              <td>${float(r["clon_price"] or 0):.2f}</td>
-              <td><b>{idcif_status}</b></td>
-              <td>{_esc(expires_txt)}</td>
-              <td>{int(r["idcif_used"] or 0)}</td>
-            </tr>
+            cards_html += f"""
+              <article class="rfc-readonly-card">
+                <div class="rfc-readonly-head">
+                  <div>
+                    <strong>{_esc(r["group_name"])}</strong>
+                    <span>{_esc(r["group_jid"])}</span>
+                    <span>
+                      Bot: {_esc(r["instance_name"])}
+                    </span>
+                  </div>
+            
+                  <b>{idcif_status}</b>
+                </div>
+            
+                <div class="rfc-readonly-stats">
+                  <div>
+                    <span>CLON disponibles</span>
+                    <strong>
+                      {int(r["clon_balance"] or 0)}
+                    </strong>
+                  </div>
+            
+                  <div>
+                    <span>CLON usados</span>
+                    <strong>
+                      {int(r["clon_used"] or 0)}
+                    </strong>
+                  </div>
+            
+                  <div>
+                    <span>Precio CLON</span>
+                    <strong>
+                      ${float(r["clon_price"] or 0):.2f}
+                    </strong>
+                  </div>
+            
+                  <div>
+                    <span>Usos IDCIF</span>
+                    <strong>
+                      {int(r["idcif_used"] or 0)}
+                    </strong>
+                  </div>
+                </div>
+            
+                <div class="rfc-readonly-expiry">
+                  Vence IDCIF:
+                  <strong>{_esc(expires_txt)}</strong>
+                </div>
+              </article>
             """
 
-        if not body:
-            body = """
-            <tr>
-              <td colspan="7">Sin grupos configurados.</td>
-            </tr>
+        if not cards_html:
+            cards_html = """
+              <div class="rfc-plan-empty">
+                Sin grupos configurados.
+              </div>
             """
 
         html = f"""
-        <section class="card" style="margin:16px 0;">
-          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
-            <div>
-              <h3 style="margin:0 0 4px;">💰 Bolsa RFC por grupo</h3>
-              <small>RFC CLON descuenta piezas. RFC IDCIF funciona por plan semanal.</small>
-            </div>
+        <style>
+          .rfc-readonly-section {{
+            margin: 16px 0;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            background: #ffffff;
+          }}
+        
+          .rfc-readonly-section-head {{
+            padding: 16px 18px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+          }}
+        
+          .rfc-readonly-section-head h3 {{
+            margin: 0 0 4px;
+            font-size: 1rem;
+          }}
+        
+          .rfc-readonly-section-head small {{
+            color: #64748b;
+          }}
+        
+          .rfc-readonly-list {{
+            display: grid;
+            grid-template-columns:
+              repeat(auto-fit, minmax(320px, 1fr));
+            gap: 12px;
+            padding: 12px;
+            background: #f4f6f8;
+          }}
+        
+          .rfc-readonly-card {{
+            overflow: hidden;
+            border: 1px solid #cfd8e3;
+            border-radius: 15px;
+            background: #ffffff;
+          }}
+        
+          .rfc-readonly-head {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 13px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+          }}
+        
+          .rfc-readonly-head strong,
+          .rfc-readonly-head span {{
+            display: block;
+          }}
+        
+          .rfc-readonly-head span {{
+            margin-top: 3px;
+            color: #64748b;
+            font-family: Consolas, Monaco, monospace;
+            font-size: .72rem;
+          }}
+        
+          .rfc-readonly-head b {{
+            padding: 5px 9px;
+            border-radius: 999px;
+            background: #e2e8f0;
+            font-size: .7rem;
+          }}
+        
+          .rfc-readonly-stats {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 12px;
+          }}
+        
+          .rfc-readonly-stats > div {{
+            padding: 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f8fafc;
+            text-align: center;
+          }}
+        
+          .rfc-readonly-stats span {{
+            display: block;
+            color: #64748b;
+            font-size: .68rem;
+            font-weight: 800;
+            text-transform: uppercase;
+          }}
+        
+          .rfc-readonly-stats strong {{
+            display: block;
+            margin-top: 4px;
+            color: #0f172a;
+            font-size: 1rem;
+          }}
+        
+          .rfc-readonly-expiry {{
+            margin: 0 12px 12px;
+            padding: 9px 11px;
+            border-radius: 9px;
+            background: #f8fafc;
+            color: #64748b;
+            font-size: .78rem;
+          }}
+        
+          @media (max-width: 600px) {{
+            .rfc-readonly-list {{
+              grid-template-columns: 1fr;
+              padding: 8px;
+            }}
+          }}
+        </style>
+        
+        <section class="rfc-readonly-section">
+          <div class="rfc-readonly-section-head">
+            <h3>💰 Bolsa RFC por grupo</h3>
+        
+            <small>
+              RFC CLON descuenta piezas.
+              RFC IDCIF funciona por plan semanal.
+            </small>
           </div>
-
-          <div style="overflow:auto;margin-top:12px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Grupo</th>
-                  <th>CLON disponibles</th>
-                  <th>CLON usados</th>
-                  <th>$ CLON</th>
-                  <th>IDCIF semanal</th>
-                  <th>Vence</th>
-                  <th>Usos IDCIF</th>
-                </tr>
-              </thead>
-              <tbody>
-                {body}
-              </tbody>
-            </table>
+        
+          <div class="rfc-readonly-list">
+            {cards_html}
           </div>
         </section>
         """
@@ -22499,8 +23001,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             );
         
             border-bottom: 1px solid #dbe2ea;
-        
-            position: sticky;
+            position: static;
           }
 
           .rfc-bot-identity {
@@ -22661,17 +23162,147 @@ def panel_rfc_bot_control_fragment(request: Request):
             font-size: .78rem;
           }
 
-          @media (max-width: 1150px) {
-            .rfc-family-grid {
-              grid-template-columns: 1fr;
-            }
+          .rfc-manager-price-list {
+            display: grid;
+            grid-template-columns:
+              repeat(auto-fit, minmax(360px, 1fr));
+            gap: 12px;
+            padding: 12px;
+            background: #f4f6f8;
+          }
+            
+          .rfc-manager-price-card {
+            background: #ffffff;
+            border: 1px solid #cfd8e3;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow:
+              0 2px 5px rgba(15, 23, 42, .05),
+              0 8px 18px rgba(15, 23, 42, .04);
+          }
+            
+          .rfc-manager-price-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #dbe2ea;
+            background: linear-gradient(
+              180deg,
+              #ffffff 0%,
+              #f8fafc 100%
+            );
+          }
+            
+          .rfc-manager-price-name {
+            display: block;
+            color: #0f172a;
+            font-size: 1rem;
+            font-weight: 900;
+            line-height: 1.25;
+          }
+            
+          .rfc-manager-price-instance {
+            display: block;
+            margin-top: 3px;
+            color: #64748b;
+            font-family: Consolas, Monaco, monospace;
+            font-size: .76rem;
+          }
+            
+          .rfc-manager-price-body {
+            display: grid;
+            gap: 12px;
+            padding: 14px;
+          }
+            
+          .rfc-manager-price-grid {
+            display: grid;
+            grid-template-columns:
+              repeat(3, minmax(0, 1fr));
+            gap: 8px;
+          }
+            
+          .rfc-manager-price-field {
+            min-width: 0;
+          }
+            
+          .rfc-manager-price-field label {
+            display: block;
+            margin-bottom: 5px;
+            color: #64748b;
+            font-size: .74rem;
+            font-weight: 800;
+            line-height: 1.2;
+          }
+            
+          .rfc-manager-price-field input {
+            width: 100%;
+            min-width: 0;
+            height: 40px;
+            box-sizing: border-box;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 8px 10px;
+            color: #0f172a;
+            background: #ffffff;
+            font: inherit;
+          }
+            
+          .rfc-manager-price-field input:focus {
+            outline: none;
+            border-color: #334155;
+            box-shadow:
+              0 0 0 3px rgba(51, 65, 85, .10);
+          }
+            
+          .rfc-manager-price-note {
+            grid-column: 1 / -1;
+          }
+            
+          .rfc-manager-price-actions {
+            display: grid;
+            grid-template-columns: 1fr;
+            padding: 0 14px 14px;
+          }
+            
+          .rfc-manager-price-actions .btn {
+            width: 100%;
+            min-height: 40px;
+          }
 
-            .rfc-bot-card-header {
-              position: static;
-            }
+          .rfc-manager-price-updated {
+            color: #64748b;
+            font-size: .73rem;
+            text-align: right;
+           }
+
+           @media (max-width: 1150px) {
+             .rfc-family-grid {
+               grid-template-columns: 1fr;
+             }
+           }
           }
 
           @media (max-width: 600px) {
+            .rfc-manager-price-list {
+              grid-template-columns: 1fr;
+              padding: 8px;
+            }
+            
+            .rfc-manager-price-grid {
+              grid-template-columns: 1fr;
+            }
+            
+            .rfc-manager-price-note {
+              grid-column: auto;
+            }
+            
+            .rfc-manager-price-head {
+              padding: 12px;
+            }
+          
             .rfc-bot-actions {
               grid-template-columns: 1fr 1fr;
             }
@@ -22685,10 +23316,6 @@ def panel_rfc_bot_control_fragment(request: Request):
             }
           
             .rfc-bot-control-list {
-              padding: 10px;
-            }
-
-            .rfc-family-grid {
               padding: 10px;
             }
 
@@ -22718,7 +23345,7 @@ def panel_rfc_bot_control_fragment(request: Request):
           <div class="rfc-bot-control-list">
         """
 
-        price_rows_html = ""
+        price_cards_html = ""
 
         for r in rows:
             inst = r["instance_name"] or ""
@@ -23124,127 +23751,133 @@ def panel_rfc_bot_control_fragment(request: Request):
               </article>
             """
 
-            price_rows_html += f"""
-                <tr>
-                  <td>
-                    <strong>{label_e}</strong><br>
-                    <span class="small">{inst_e}</span>
-                  </td>
+            price_cards_html += f"""
+              <article class="rfc-manager-price-card">
+                <div class="rfc-manager-price-head">
+                  <div>
+                    <span class="rfc-manager-price-name">
+                      {label_e}
+                    </span>
             
-                  <td>
-                    <input
-                      id="manager_name_{inst_e}"
-                      type="text"
-                      value="{manager_name_e}"
-                      placeholder="Nombre del gestor"
-                      style="width:100%;min-width:180px;"
-                    >
-                  </td>
+                    <span class="rfc-manager-price-instance">
+                      {inst_e}
+                    </span>
+                  </div>
             
-                  <td>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                      <span style="font-weight:800;">$</span>
+                  <div class="rfc-manager-price-updated">
+                    {sale_price_updated_txt}
+                  </div>
+                </div>
+            
+                <div class="rfc-manager-price-body">
+                  <div class="rfc-manager-price-grid">
+                    <div class="rfc-manager-price-field">
+                      <label>Nombre del gestor</label>
+            
                       <input
-                        id="price_clon_{inst_e}"
+                        id="manager_name_{inst_e}"
+                        type="text"
+                        value="{manager_name_e}"
+                        placeholder="Nombre del gestor"
+                      >
+                    </div>
+            
+                    <div class="rfc-manager-price-field">
+                      <label>Precio CLON</label>
+            
+                      <input
+                        id="clon_price_{inst_e}"
                         type="number"
                         min="0"
                         step="0.01"
-                        value="{price_clon_txt}"
-                        placeholder="Ej. 4.00"
-                        style="width:110px;"
+                        value="{sale_price_clon}"
                       >
                     </div>
-                  </td>
-
-                  <td>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                      <span style="font-weight:800;">$</span>
+            
+                    <div class="rfc-manager-price-field">
+                      <label>Precio IDCIF</label>
+            
                       <input
-                        id="price_idcif_{inst_e}"
+                        id="idcif_price_{inst_e}"
                         type="number"
                         min="0"
                         step="0.01"
-                        value="{price_idcif_txt}"
-                        placeholder="Ej. 3.00"
-                        style="width:110px;"
+                        value="{sale_price_idcif}"
                       >
                     </div>
-                  </td>
-
-                  <td>
+            
+                    <div class="rfc-manager-price-field">
+                      <label>Precio verificable</label>
+            
+                      <input
+                        id="verifiable_price_{inst_e}"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value="{sale_price_verifiable}"
+                      >
+                    </div>
+            
                     <div
-                      style="
-                        display:flex;
-                        align-items:center;
-                        gap:6px;
+                      class="
+                        rfc-manager-price-field
+                        rfc-manager-price-note
                       "
                     >
-                      <span style="font-weight:800;">$</span>
-                
+                      <label>Nota</label>
+            
                       <input
-                        id="price_verifiable_{inst_e}"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value="{price_verifiable_txt}"
-                        placeholder="Ej. 15.00"
-                        style="width:110px;"
+                        id="price_note_{inst_e}"
+                        type="text"
+                        value="{sale_price_note_e}"
+                        placeholder="Notas del acuerdo comercial"
                       >
                     </div>
-                  </td>
-
-                  <td>
-                    <input
-                      id="price_note_{inst_e}"
-                      type="text"
-                      value="{price_note_e}"
-                      placeholder="Contado, semanal, especial, por volumen..."
-                      style="width:100%;min-width:250px;"
-                    >
-                  </td>
-
-                  <td>
-                    <button
-                      class="btn btn-success"
-                      onclick="window.rfcBotSetPrice('{inst_e}')"
-                      style="white-space:nowrap;"
-                    >
-                      Guardar precio
-                    </button>
-                  </td>
-                </tr>
+                  </div>
+                </div>
+            
+                <div class="rfc-manager-price-actions">
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    onclick="rfcBotSavePrice(
+                      '{inst_e}'
+                    )"
+                  >
+                    Guardar precios
+                  </button>
+                </div>
+              </article>
             """
 
         html += f"""
           </div>
         </div>
 
-        <div class="box" style="margin-top:18px;">
+        html += f"""
+          </div>
+        </div>
+
+        <div
+          class="box"
+          style="margin-top:18px;"
+          id="rfcManagerPricesBox"
+        >
           <div class="head">
-            <strong>💲 Precios acordados por gestor</strong>
-            <span class="small">
-              Control interno. No modifica bolsas, límites, promociones ni cobros automáticos.
-            </span>
+            <div>
+              <strong>
+                💲 Precios acordados por gestor
+              </strong>
+
+              <div class="small">
+                Precios de venta asignados a cada
+                bot o gestor.
+              </div>
+            </div>
           </div>
 
-          <div class="table-wrap">
-            <table style="min-width:1200px;">
-              <thead>
-                <tr>
-                  <th>Gestor / bot</th>
-                  <th>Nombre gestor</th>
-                  <th>Precio CLON</th>
-                  <th>Precio IDCIF</th>
-                  <th>Precio verificable</th>
-                  <th>Nota del acuerdo</th>
-                  <th>Acción</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {price_rows_html}
-              </tbody>
-            </table>
+          <div class="rfc-manager-price-list">
+            {price_cards_html}
           </div>
         </div>
         """
