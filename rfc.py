@@ -8967,6 +8967,7 @@ def procesar_solicitud_interna_para_pdf(
             group_now in RFC_SUSPENDED_BLOCK_GROUPS
             and input_type in ("CURP", "RFC_ONLY")
             and not clon_mode_internal
+            and not verifiable_fallback_mode
         )
         
         # Nuevo modo: primero CheckID; si está incompleto, pide CURP CLON.
@@ -9226,26 +9227,14 @@ def procesar_solicitud_interna_para_pdf(
                     "CLIENT_RFC_CANCELLED"
                 )
 
-            if (
+            elif (
                 "CHECKID_RFC_SUSPENDED"
                 in se
                 or "CHECKID_E200_SUSPENDIDO"
                 in se
             ):
-                if not verifiable_fallback_mode:
-                    raise RuntimeError(
-                        "CLIENT_RFC_SUSPENDED"
-                    )
-            
-                print(
-                    "[RFC VERIFICABLE SUSPENDED BYPASSED]",
-                    {
-                        "query": query,
-                        "source": source,
-                        "group_jid": group_jid,
-                        "checkid_error": se,
-                    },
-                    flush=True,
+                checkid_negative_status = (
+                    "CLIENT_RFC_SUSPENDED"
                 )
 
             elif (
@@ -9547,7 +9536,7 @@ def procesar_solicitud_interna_para_pdf(
     # 🔒 BLOQUEO FINAL PARA GRUPOS RESTRINGIDOS
     group_now = (group_jid or "").strip()
 
-    if strict_checkid_group:
+    if strict_checkid_group and not verifiable_fallback_mode:
 
         # Si llegó aquí usando fallback, NO debe generar PDF en grupo restringido.
         if curp_fallback_used or rfc_only_fallback_used:
