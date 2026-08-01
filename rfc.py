@@ -9226,14 +9226,26 @@ def procesar_solicitud_interna_para_pdf(
                     "CLIENT_RFC_CANCELLED"
                 )
 
-            elif (
+            if (
                 "CHECKID_RFC_SUSPENDED"
                 in se
                 or "CHECKID_E200_SUSPENDIDO"
                 in se
             ):
-                checkid_negative_status = (
-                    "CLIENT_RFC_SUSPENDED"
+                if not verifiable_fallback_mode:
+                    raise RuntimeError(
+                        "CLIENT_RFC_SUSPENDED"
+                    )
+            
+                print(
+                    "[RFC VERIFICABLE SUSPENDED BYPASSED]",
+                    {
+                        "query": query,
+                        "source": source,
+                        "group_jid": group_jid,
+                        "checkid_error": se,
+                    },
+                    flush=True,
                 )
 
             elif (
