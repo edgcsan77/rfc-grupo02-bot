@@ -7233,322 +7233,322 @@ def internal_generate_pdf():
             "filename": filename,
         }), 200
 
-        except (RuntimeError, ValueError) as e:
-            error_code = str(
-                e
-            ).strip().upper()
-    
-            sat_rejection_codes = {
-                "SIN_DATOS_SAT",
-                "SAT_CIF_NOT_ISSUED",
-                "SAT_NO_ACTIVE_REGIME",
-                "SAT_STATUS_SUSPENDED",
-            }
-    
-            checkid_rejection_codes = {
-                "CLIENT_RFC_CANCELLED",
-                "CLIENT_RFC_SUSPENDED",
-                "CLIENT_RFC_INACTIVE",
-                "CLIENT_RFC_CP_EMPTY",
-                "CLIENT_RFC_REGIME_EMPTY",
-                "CLIENT_RFC_CP_AND_REGIME_EMPTY",
-            }
-    
-            # ==================================================
-            # RFC + IDCIF rechazado por SAT
-            # ==================================================
-            if error_code in sat_rejection_codes:
-                print(
-                    "[INTERNAL SAT REJECTION]",
-                    {
-                        "error": error_code,
-                        "exception_type": (
-                            type(e).__name__
-                        ),
-                        "is_verifiable": (
-                            is_verifiable
-                        ),
-                        "provider_rfc": (
-                            provider_rfc
-                        ),
-                        "provider_idcif": (
-                            provider_idcif
-                        ),
-                        "group_jid": group_jid,
-                        "instance_name": (
-                            instance_name
-                        ),
-                    },
-                    flush=True,
-                )
-    
-                # Solicitud normal:
-                # sí debe rechazarse.
-                if not is_verifiable:
-                    return jsonify(
-                        {
-                            "ok": False,
-                            "error": error_code,
-                        }
-                    ), 422
-    
-                # Solicitud verificable:
-                # genera constancia por RFC solo.
-                fallback_rfc = (
-                    provider_rfc
-                    or extraer_rfc_solo(query)
-                    or extraer_rfc_solo(
-                        original_text
-                    )
-                    or ""
-                ).strip().upper()
-    
-                if not fallback_rfc:
-                    print(
-                        "[RFC VERIFICABLE "
-                        "FALLBACK SKIPPED]",
-                        {
-                            "reason": (
-                                "fallback_rfc_empty"
-                            ),
-                            "error": error_code,
-                            "query": query,
-                            "original_text": (
-                                original_text
-                            ),
-                        },
-                        flush=True,
-                    )
-    
-                    return jsonify(
-                        {
-                            "ok": False,
-                            "error": error_code,
-                            "fallback_error": (
-                                "RFC_FALLBACK_EMPTY"
-                            ),
-                        }
-                    ), 422
-    
-                try:
-                    print(
-                        "[RFC VERIFICABLE "
-                        "FALLBACK START]",
-                        {
-                            "fallback_rfc": (
-                                fallback_rfc
-                            ),
-                            "provider_idcif": (
-                                provider_idcif
-                            ),
-                            "warning_code": (
-                                error_code
-                            ),
-                            "group_jid": (
-                                group_jid
-                            ),
-                            "instance_name": (
-                                instance_name
-                            ),
-                        },
-                        flush=True,
-                    )
-    
-                    fallback_result = (
-                        procesar_solicitud_interna_para_pdf(
-                            from_wa_id=(
-                                requester_number
-                            ),
-                            text_body=(
-                                fallback_rfc
-                            ),
-                            original_text=(
-                                original_text
-                            ),
-                            source=(
-                                "GROUP_BRIDGE_"
-                                "VERIFIABLE_FALLBACK"
-                            ),
-                            requester_name=(
-                                requester_name
-                            ),
-                            group_jid=group_jid,
-                            instance_name=(
-                                instance_name
-                            ),
-                        )
-                    )
-    
-                    fallback_mode = str(
-                        fallback_result.get(
-                            "mode"
-                        )
-                        or "single"
-                    ).strip().lower()
-    
-                    if fallback_mode != "single":
-                        raise RuntimeError(
-                            "RFC_VERIFICABLE_"
-                            "FALLBACK_UNEXPECTED_MODE:"
-                            f"{fallback_mode}"
-                        )
-    
-                    fallback_pdf_url = str(
-                        fallback_result.get(
-                            "pdf_url"
-                        )
-                        or ""
-                    ).strip()
-    
-                    fallback_filename = str(
-                        fallback_result.get(
-                            "filename"
-                        )
-                        or f"{fallback_rfc}.pdf"
-                    ).strip()
-    
-                    if not fallback_pdf_url:
-                        raise RuntimeError(
-                            "RFC_VERIFICABLE_"
-                            "FALLBACK_PDF_URL_EMPTY"
-                        )
-    
-                    _inc_and_bill_internal_stats(
-                        "527555592077",
-                        fallback_rfc,
-                        fallback_result,
-                    )
-    
-                    print(
-                        "[RFC VERIFICABLE "
-                        "FALLBACK OK]",
-                        {
-                            "fallback_rfc": (
-                                fallback_rfc
-                            ),
-                            "warning_code": (
-                                error_code
-                            ),
-                            "pdf_url": (
-                                fallback_pdf_url
-                            ),
-                            "filename": (
-                                fallback_filename
-                            ),
-                        },
-                        flush=True,
-                    )
-    
-                    return jsonify(
-                        {
-                            "ok": True,
-                            "mode": "single",
-                            "pdf_url": (
-                                fallback_pdf_url
-                            ),
-                            "filename": (
-                                fallback_filename
-                            ),
-    
-                            # El worker usa estos datos
-                            # para avisar al proveedor.
-                            "verifiable_fallback_used": (
-                                True
-                            ),
-                            "verifiable_fallback_kind": (
-                                "RFC_ONLY"
-                            ),
-                            "verifiable_provider_warning": (
-                                True
-                            ),
-                            "verifiable_provider_warning_code": (
-                                error_code
-                            ),
-                            "verifiable_provider_rfc": (
-                                fallback_rfc
-                            ),
-                            "verifiable_provider_idcif": (
-                                provider_idcif
-                            ),
-                        }
-                    ), 200
-    
-                except Exception as fallback_exc:
-                    print(
-                        "[RFC VERIFICABLE "
-                        "FALLBACK ERROR]",
-                        {
-                            "fallback_rfc": (
-                                fallback_rfc
-                            ),
-                            "warning_code": (
-                                error_code
-                            ),
-                            "error": repr(
-                                fallback_exc
-                            ),
-                            "exception_type": (
-                                type(
-                                    fallback_exc
-                                ).__name__
-                            ),
-                        },
-                        flush=True,
-                    )
-    
-                    return jsonify(
-                        {
-                            "ok": False,
-                            "error": error_code,
-                            "fallback_error": str(
-                                fallback_exc
-                            ),
-                        }
-                    ), 422
-    
-            # ==================================================
-            # Rechazos RFC_ONLY / CheckID normales
-            # ==================================================
-            if error_code in checkid_rejection_codes:
-                print(
-                    "[INTERNAL CHECKID "
-                    "RFC STATUS REJECTION]",
-                    {
-                        "error": error_code,
-                        "is_verifiable": (
-                            is_verifiable
-                        ),
-                    },
-                    flush=True,
-                )
-    
+    except (RuntimeError, ValueError) as e:
+        error_code = str(
+            e
+        ).strip().upper()
+
+        sat_rejection_codes = {
+            "SIN_DATOS_SAT",
+            "SAT_CIF_NOT_ISSUED",
+            "SAT_NO_ACTIVE_REGIME",
+            "SAT_STATUS_SUSPENDED",
+        }
+
+        checkid_rejection_codes = {
+            "CLIENT_RFC_CANCELLED",
+            "CLIENT_RFC_SUSPENDED",
+            "CLIENT_RFC_INACTIVE",
+            "CLIENT_RFC_CP_EMPTY",
+            "CLIENT_RFC_REGIME_EMPTY",
+            "CLIENT_RFC_CP_AND_REGIME_EMPTY",
+        }
+
+        # ==================================================
+        # RFC + IDCIF rechazado por SAT
+        # ==================================================
+        if error_code in sat_rejection_codes:
+            print(
+                "[INTERNAL SAT REJECTION]",
+                {
+                    "error": error_code,
+                    "exception_type": (
+                        type(e).__name__
+                    ),
+                    "is_verifiable": (
+                        is_verifiable
+                    ),
+                    "provider_rfc": (
+                        provider_rfc
+                    ),
+                    "provider_idcif": (
+                        provider_idcif
+                    ),
+                    "group_jid": group_jid,
+                    "instance_name": (
+                        instance_name
+                    ),
+                },
+                flush=True,
+            )
+
+            # Solicitud normal:
+            # sí debe rechazarse.
+            if not is_verifiable:
                 return jsonify(
                     {
                         "ok": False,
                         "error": error_code,
                     }
                 ), 422
-    
-            # ==================================================
-            # Resto de errores
-            # ==================================================
+
+            # Solicitud verificable:
+            # genera constancia por RFC solo.
+            fallback_rfc = (
+                provider_rfc
+                or extraer_rfc_solo(query)
+                or extraer_rfc_solo(
+                    original_text
+                )
+                or ""
+            ).strip().upper()
+
+            if not fallback_rfc:
+                print(
+                    "[RFC VERIFICABLE "
+                    "FALLBACK SKIPPED]",
+                    {
+                        "reason": (
+                            "fallback_rfc_empty"
+                        ),
+                        "error": error_code,
+                        "query": query,
+                        "original_text": (
+                            original_text
+                        ),
+                    },
+                    flush=True,
+                )
+
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": error_code,
+                        "fallback_error": (
+                            "RFC_FALLBACK_EMPTY"
+                        ),
+                    }
+                ), 422
+
+            try:
+                print(
+                    "[RFC VERIFICABLE "
+                    "FALLBACK START]",
+                    {
+                        "fallback_rfc": (
+                            fallback_rfc
+                        ),
+                        "provider_idcif": (
+                            provider_idcif
+                        ),
+                        "warning_code": (
+                            error_code
+                        ),
+                        "group_jid": (
+                            group_jid
+                        ),
+                        "instance_name": (
+                            instance_name
+                        ),
+                    },
+                    flush=True,
+                )
+
+                fallback_result = (
+                    procesar_solicitud_interna_para_pdf(
+                        from_wa_id=(
+                            requester_number
+                        ),
+                        text_body=(
+                            fallback_rfc
+                        ),
+                        original_text=(
+                            original_text
+                        ),
+                        source=(
+                            "GROUP_BRIDGE_"
+                            "VERIFIABLE_FALLBACK"
+                        ),
+                        requester_name=(
+                            requester_name
+                        ),
+                        group_jid=group_jid,
+                        instance_name=(
+                            instance_name
+                        ),
+                    )
+                )
+
+                fallback_mode = str(
+                    fallback_result.get(
+                        "mode"
+                    )
+                    or "single"
+                ).strip().lower()
+
+                if fallback_mode != "single":
+                    raise RuntimeError(
+                        "RFC_VERIFICABLE_"
+                        "FALLBACK_UNEXPECTED_MODE:"
+                        f"{fallback_mode}"
+                    )
+
+                fallback_pdf_url = str(
+                    fallback_result.get(
+                        "pdf_url"
+                    )
+                    or ""
+                ).strip()
+
+                fallback_filename = str(
+                    fallback_result.get(
+                        "filename"
+                    )
+                    or f"{fallback_rfc}.pdf"
+                ).strip()
+
+                if not fallback_pdf_url:
+                    raise RuntimeError(
+                        "RFC_VERIFICABLE_"
+                        "FALLBACK_PDF_URL_EMPTY"
+                    )
+
+                _inc_and_bill_internal_stats(
+                    "527555592077",
+                    fallback_rfc,
+                    fallback_result,
+                )
+
+                print(
+                    "[RFC VERIFICABLE "
+                    "FALLBACK OK]",
+                    {
+                        "fallback_rfc": (
+                            fallback_rfc
+                        ),
+                        "warning_code": (
+                            error_code
+                        ),
+                        "pdf_url": (
+                            fallback_pdf_url
+                        ),
+                        "filename": (
+                            fallback_filename
+                        ),
+                    },
+                    flush=True,
+                )
+
+                return jsonify(
+                    {
+                        "ok": True,
+                        "mode": "single",
+                        "pdf_url": (
+                            fallback_pdf_url
+                        ),
+                        "filename": (
+                            fallback_filename
+                        ),
+
+                        # El worker usa estos datos
+                        # para avisar al proveedor.
+                        "verifiable_fallback_used": (
+                            True
+                        ),
+                        "verifiable_fallback_kind": (
+                            "RFC_ONLY"
+                        ),
+                        "verifiable_provider_warning": (
+                            True
+                        ),
+                        "verifiable_provider_warning_code": (
+                            error_code
+                        ),
+                        "verifiable_provider_rfc": (
+                            fallback_rfc
+                        ),
+                        "verifiable_provider_idcif": (
+                            provider_idcif
+                        ),
+                    }
+                ), 200
+
+            except Exception as fallback_exc:
+                print(
+                    "[RFC VERIFICABLE "
+                    "FALLBACK ERROR]",
+                    {
+                        "fallback_rfc": (
+                            fallback_rfc
+                        ),
+                        "warning_code": (
+                            error_code
+                        ),
+                        "error": repr(
+                            fallback_exc
+                        ),
+                        "exception_type": (
+                            type(
+                                fallback_exc
+                            ).__name__
+                        ),
+                    },
+                    flush=True,
+                )
+
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": error_code,
+                        "fallback_error": str(
+                            fallback_exc
+                        ),
+                    }
+                ), 422
+
+        # ==================================================
+        # Rechazos RFC_ONLY / CheckID normales
+        # ==================================================
+        if error_code in checkid_rejection_codes:
             print(
-                "internal_generate_pdf "
-                f"{type(e).__name__}:",
-                repr(e),
+                "[INTERNAL CHECKID "
+                "RFC STATUS REJECTION]",
+                {
+                    "error": error_code,
+                    "is_verifiable": (
+                        is_verifiable
+                    ),
+                },
                 flush=True,
             )
-    
+
             return jsonify(
                 {
                     "ok": False,
                     "error": error_code,
                 }
-            ), (
-                400
-                if isinstance(e, ValueError)
-                else 500
-            )
+            ), 422
+
+        # ==================================================
+        # Resto de errores
+        # ==================================================
+        print(
+            "internal_generate_pdf "
+            f"{type(e).__name__}:",
+            repr(e),
+            flush=True,
+        )
+
+        return jsonify(
+            {
+                "ok": False,
+                "error": error_code,
+            }
+        ), (
+            400
+            if isinstance(e, ValueError)
+            else 500
+        )
 
     except Exception as e:
         print(
