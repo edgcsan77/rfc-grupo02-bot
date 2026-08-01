@@ -23463,6 +23463,19 @@ def panel_rfc_bot_control_fragment(request: Request):
             
             price_note_e = _esc(price_note)
 
+            sale_price_updated_at = r.get(
+                "sale_price_updated_at"
+            )
+
+            sale_price_updated_txt = (
+                "Actualizado: "
+                + _fmt_dt(
+                    sale_price_updated_at
+                )
+                if sale_price_updated_at
+                else "Sin actualización"
+            )
+
             block_button_html = (
                 f"""
                 <button
@@ -23790,7 +23803,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                         type="number"
                         min="0"
                         step="0.01"
-                        value="{sale_price_clon}"
+                        value="{price_clon_txt}"
                       >
                     </div>
             
@@ -23802,7 +23815,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                         type="number"
                         min="0"
                         step="0.01"
-                        value="{sale_price_idcif}"
+                        value="{price_idcif_txt}"
                       >
                     </div>
             
@@ -23814,7 +23827,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                         type="number"
                         min="0"
                         step="0.01"
-                        value="{sale_price_verifiable}"
+                        value="{price_verifiable_txt}"
                       >
                     </div>
             
@@ -23829,7 +23842,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                       <input
                         id="price_note_{inst_e}"
                         type="text"
-                        value="{sale_price_note_e}"
+                        value="{price_note_e}"
                         placeholder="Notas del acuerdo comercial"
                       >
                     </div>
