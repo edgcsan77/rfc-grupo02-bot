@@ -13107,10 +13107,30 @@ def panel_RFC(
         <script>
         (function() {
           try {
-            const qs = window.location.search || "";
-
-            fetch("/panel/rfc-bot-control-fragment" + qs)
-              .then(function(r) { return r.text(); })
+            const fragmentQs = new URLSearchParams(
+              window.location.search || ""
+            );
+            
+            fragmentQs.set("v", String(Date.now()));
+            
+            fetch(
+              "/panel/rfc-bot-control-fragment?" +
+              fragmentQs.toString(),
+              {
+                method: "GET",
+                credentials: "same-origin",
+                cache: "no-store"
+              }
+            )
+              .then(function(r) {
+                if (!r.ok) {
+                  throw new Error(
+                    "HTTP " + r.status
+                  );
+                }
+            
+                return r.text();
+              })
               .then(function(html) {
                 const box = document.getElementById("rfcBotControlNewMount");
                 if (box) box.innerHTML = html;
@@ -22468,7 +22488,8 @@ def panel_rfc_bot_control_fragment(request: Request):
             align-items: center;
             gap: 14px;
             flex-wrap: wrap;
-          
+            
+            min-height: 0;
             padding: 12px 16px;
         
             background: linear-gradient(
@@ -22480,8 +22501,6 @@ def panel_rfc_bot_control_fragment(request: Request):
             border-bottom: 1px solid #dbe2ea;
         
             position: sticky;
-            top: 58px;
-            z-index: 10;
           }
 
           .rfc-bot-identity {
@@ -23224,11 +23243,23 @@ def panel_rfc_bot_control_fragment(request: Request):
 
               <tbody>
                 {price_rows_html}
+              </tbody>
+            </table>
           </div>
         </div>
         """
 
-        return HTMLResponse(html)
+        return HTMLResponse(
+            content=html,
+            headers={
+                "Cache-Control": (
+                    "no-store, no-cache, "
+                    "must-revalidate, max-age=0"
+                ),
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     except Exception as e:
         print("panel_rfc_bot_control_fragment error:", repr(e), flush=True)
