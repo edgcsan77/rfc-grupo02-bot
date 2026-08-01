@@ -22446,17 +22446,20 @@ def panel_rfc_bot_control_fragment(request: Request):
           .rfc-bot-control-list {
             display: grid;
             grid-template-columns: 1fr;
-            gap: 18px;
-            padding: 18px;
+            gap: 12px;
+            padding: 12px;
             background: #f4f6f8;
           }
 
           .rfc-bot-card {
             background: #ffffff;
-            border: 1px solid #dbe2ea;
-            border-radius: 18px;
+            border: 1px solid #cfd8e3;
+            border-radius: 16px;
             overflow: hidden;
-            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07);
+        
+            box-shadow:
+              0 2px 5px rgba(15, 23, 42, .05),
+              0 8px 18px rgba(15, 23, 42, .04);
           }
 
           .rfc-bot-card-header {
@@ -22465,9 +22468,17 @@ def panel_rfc_bot_control_fragment(request: Request):
             align-items: center;
             gap: 14px;
             flex-wrap: wrap;
-            padding: 16px 18px;
-            background: #f8fafc;
-            border-bottom: 1px solid #e5e7eb;
+          
+            padding: 12px 16px;
+        
+            background: linear-gradient(
+              180deg,
+              #ffffff 0%,
+              #f8fafc 100%
+            );
+        
+            border-bottom: 1px solid #dbe2ea;
+        
             position: sticky;
             top: 58px;
             z-index: 10;
@@ -22479,32 +22490,35 @@ def panel_rfc_bot_control_fragment(request: Request):
 
           .rfc-bot-name {
             display: block;
-            font-size: 1.15rem;
+            font-size: 1.08rem;
             font-weight: 900;
-            color: #111827;
-            line-height: 1.25;
+            color: #0f172a;
+            line-height: 1.2;
+            letter-spacing: -0.015em;
           }
 
           .rfc-bot-instance {
             display: block;
-            margin-top: 3px;
+            margin-top: 2px;
             color: #64748b;
-            font-size: .84rem;
+            font-size: .78rem;
+            line-height: 1.2;
             font-family: Consolas, Monaco, monospace;
           }
 
           .rfc-family-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(250px, 1fr));
-            gap: 14px;
-            padding: 16px;
+            gap: 10px;
+            padding: 10px;
           }
 
           .rfc-family-box {
-            border: 1px solid #e5e7eb;
-            border-radius: 15px;
+            border: 1px solid #dbe2ea;
+            border-radius: 14px;
             padding: 14px;
             background: #ffffff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
           }
 
           .rfc-family-title {
@@ -22512,12 +22526,20 @@ def panel_rfc_bot_control_fragment(request: Request):
             justify-content: space-between;
             align-items: center;
             gap: 8px;
-            margin-bottom: 13px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #e5e7eb;
+        
+            margin: -14px -14px 13px;
+            padding: 11px 14px;
+        
+            border-bottom: 1px solid #dbe2ea;
+            border-radius: 14px 14px 0 0;
+        
+            background: #f1f5f9;
+            color: #0f172a;
+        
             font-weight: 900;
-            font-size: 1rem;
-            color: #111827;
+            font-size: .92rem;
+            letter-spacing: .02em;
+            text-transform: uppercase;
           }
 
           .rfc-family-stats {
@@ -22529,28 +22551,37 @@ def panel_rfc_bot_control_fragment(request: Request):
 
           .rfc-family-stat {
             background: #f8fafc;
-            border: 1px solid #e5e7eb;
-            border-radius: 11px;
-            padding: 10px 8px;
+            border: 1px solid #dbe2ea;
+            border-radius: 10px;
+            padding: 9px 7px;
             text-align: center;
+            min-height: 58px;
+        
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
           }
 
           .rfc-family-stat span {
             display: block;
             color: #64748b;
-            font-size: .73rem;
-            font-weight: 700;
+            font-size: .67rem;
+            font-weight: 800;
             text-transform: uppercase;
-            line-height: 1.2;
+            line-height: 1.15;
+            letter-spacing: .025em;
           }
 
           .rfc-family-stat strong {
             display: block;
-            margin-top: 5px;
-            color: #111827;
-            font-size: 1.15rem;
+            margin-top: 4px;
+            color: #0f172a;
+            font-size: 1.08rem;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
           }
-
+          
           .rfc-control-row {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
@@ -22594,17 +22625,21 @@ def panel_rfc_bot_control_fragment(request: Request):
           }
 
           .rfc-bot-actions {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            padding: 14px 16px 16px;
-            border-top: 1px solid #e5e7eb;
-            background: #fafafa;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(130px, 1fr));
+            gap: 6px;
+        
+            padding: 9px 10px;
+        
+            border-top: 1px solid #dbe2ea;
+            background: #f8fafc;
           }
 
           .rfc-bot-actions .btn {
-            flex: 1 1 145px;
+            width: 100%;
+            min-height: 36px;
             white-space: nowrap;
+            font-size: .78rem;
           }
 
           @media (max-width: 1150px) {
@@ -22618,6 +22653,18 @@ def panel_rfc_bot_control_fragment(request: Request):
           }
 
           @media (max-width: 600px) {
+            .rfc-bot-actions {
+              grid-template-columns: 1fr 1fr;
+            }
+            
+            .rfc-bot-card-header {
+              padding: 12px;
+            }
+            
+            .rfc-family-grid {
+              padding: 8px;
+            }
+          
             .rfc-bot-control-list {
               padding: 10px;
             }
