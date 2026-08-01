@@ -8400,6 +8400,23 @@ def procesar_solicitud_interna_para_pdf(
     instance_name: str = "",
 ):
 
+    verifiable_fallback_mode = (
+        str(source or "").strip().upper()
+        == "GROUP_BRIDGE_VERIFIABLE_FALLBACK"
+    )
+
+    if verifiable_fallback_mode:
+        print(
+            "[RFC VERIFIABLE FALLBACK MODE ENABLED]",
+            {
+                "source": source,
+                "group_jid": group_jid,
+                "instance_name": instance_name,
+                "text_body": text_body,
+            },
+            flush=True,
+        )
+
     # Si query no trae lugar pero original_text sí, anexarlo
     try:
         if original_text and "," in original_text and "," not in text_body:
@@ -9199,31 +9216,57 @@ def procesar_solicitud_interna_para_pdf(
 
             # Los estados fiscales negativos confirmados
             # por CheckID nunca deben continuar a fallback.
+            checkid_negative_status = ""
+
             if (
                 "CHECKID_RFC_CANCELLED"
                 in se
             ):
-                raise RuntimeError(
+                checkid_negative_status = (
                     "CLIENT_RFC_CANCELLED"
                 )
 
-            if (
+            elif (
                 "CHECKID_RFC_SUSPENDED"
                 in se
                 or "CHECKID_E200_SUSPENDIDO"
                 in se
             ):
-                raise RuntimeError(
+                checkid_negative_status = (
                     "CLIENT_RFC_SUSPENDED"
                 )
 
-            if (
+            elif (
                 "CHECKID_RFC_INACTIVE"
                 in se
             ):
-                raise RuntimeError(
+                checkid_negative_status = (
                     "CLIENT_RFC_INACTIVE"
                 )
+
+            if checkid_negative_status:
+                if not verifiable_fallback_mode:
+                    raise RuntimeError(
+                        checkid_negative_status
+                    )
+
+                print(
+                    "[RFC VERIFICABLE NEGATIVE "
+                    "STATUS BYPASSED]",
+                    {
+                        "status": (
+                            checkid_negative_status
+                        ),
+                        "source": source,
+                        "query": query,
+                        "group_jid": group_jid,
+                    },
+                    flush=True,
+                )
+
+                # En verificable no se rechaza al cliente.
+                # Se permite continuar al fallback de datos
+                # para generar el PDF.
 
             # Solo RFC_ONLY: CP/régimen incompletos.
             if input_type == "RFC_ONLY":
@@ -9253,7 +9296,10 @@ def procesar_solicitud_interna_para_pdf(
                     
             # 🔒 Grupos restringidos: si CheckID no validó correctamente,
             # NO permitir fallback SATPI/GOBMX ni generación de constancia.
-            if strict_checkid_group:
+            if (
+                strict_checkid_group
+                and not verifiable_fallback_mode
+            ):
                 if "CHECKID_E101_BAD_TERM" in se or "CHECKID_E200_NOT_FOUND" in se:
                     if input_type == "CURP":
                         raise RuntimeError("CLIENT_CURP_NOT_FOUND_OR_WRONG")
