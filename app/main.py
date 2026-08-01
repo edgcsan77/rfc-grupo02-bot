@@ -12918,13 +12918,42 @@ def panel_RFC(
         };
 
         window.rfcBotSetLimit = function(inst, family) {
-          const el = document.getElementById(family + "_limit_" + inst);
+          const el = document.getElementById(
+            family + "_limit_" + inst
+          );
+
           const value = el ? el.value : "0";
+          const limit = Number(value || 0);
+
+          if (!Number.isFinite(limit) || limit < 0) {
+            alert("El límite no puede ser negativo.");
+            return;
+          }
+
+          const limitText =
+            limit === 0
+              ? "ilimitado"
+              : String(limit);
+
+          const accepted = confirm(
+            "¿Fijar el límite " +
+            family.toUpperCase() +
+            " del bot " +
+            inst +
+            " en " +
+            limitText +
+            "?"
+          );
+
+          if (!accepted) {
+            return;
+          }
+
           window.rfcBotUpdate({
             instance: inst,
             action: "set_limit",
             family: family,
-            value: value
+            value: String(limit)
           });
         };
 
@@ -13006,13 +13035,37 @@ def panel_RFC(
         };
 
         window.rfcBotRecharge = function(inst, family) {
-          const el = document.getElementById(family + "_add_" + inst);
+          const el = document.getElementById(
+            family + "_add_" + inst
+          );
+
           const value = el ? el.value : "0";
+          const amount = Number(value || 0);
+
+          if (!Number.isFinite(amount) || amount <= 0) {
+            alert("La recarga debe ser mayor a 0.");
+            return;
+          }
+
+          const accepted = confirm(
+            "¿Recargar " +
+            amount +
+            " en " +
+            family.toUpperCase() +
+            " para el bot " +
+            inst +
+            "?"
+          );
+
+          if (!accepted) {
+            return;
+          }
+
           window.rfcBotUpdate({
             instance: inst,
             action: "recharge",
             family: family,
-            value: value
+            value: String(amount)
           });
         };
 
@@ -22378,41 +22431,225 @@ def panel_rfc_bot_control_fragment(request: Request):
             """)).mappings().all()
 
         html = """
+        <style>
+          #rfcBotControlNewBox {
+            overflow: visible;
+          }
+
+          #rfcBotControlNewBox .head {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: #ffffff;
+          }
+
+          .rfc-bot-control-list {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 18px;
+            padding: 18px;
+            background: #f4f6f8;
+          }
+
+          .rfc-bot-card {
+            background: #ffffff;
+            border: 1px solid #dbe2ea;
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: 0 6px 18px rgba(15, 23, 42, 0.07);
+          }
+
+          .rfc-bot-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+            padding: 16px 18px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e5e7eb;
+            position: sticky;
+            top: 58px;
+            z-index: 10;
+          }
+
+          .rfc-bot-identity {
+            min-width: 220px;
+          }
+
+          .rfc-bot-name {
+            display: block;
+            font-size: 1.15rem;
+            font-weight: 900;
+            color: #111827;
+            line-height: 1.25;
+          }
+
+          .rfc-bot-instance {
+            display: block;
+            margin-top: 3px;
+            color: #64748b;
+            font-size: .84rem;
+            font-family: Consolas, Monaco, monospace;
+          }
+
+          .rfc-family-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(250px, 1fr));
+            gap: 14px;
+            padding: 16px;
+          }
+
+          .rfc-family-box {
+            border: 1px solid #e5e7eb;
+            border-radius: 15px;
+            padding: 14px;
+            background: #ffffff;
+          }
+
+          .rfc-family-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 13px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e5e7eb;
+            font-weight: 900;
+            font-size: 1rem;
+            color: #111827;
+          }
+
+          .rfc-family-stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 14px;
+          }
+
+          .rfc-family-stat {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            border-radius: 11px;
+            padding: 10px 8px;
+            text-align: center;
+          }
+
+          .rfc-family-stat span {
+            display: block;
+            color: #64748b;
+            font-size: .73rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            line-height: 1.2;
+          }
+
+          .rfc-family-stat strong {
+            display: block;
+            margin-top: 5px;
+            color: #111827;
+            font-size: 1.15rem;
+          }
+
+          .rfc-control-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: end;
+            margin-top: 10px;
+          }
+
+          .rfc-control-field label {
+            display: block;
+            margin-bottom: 5px;
+            color: #64748b;
+            font-size: .76rem;
+            font-weight: 700;
+          }
+
+          .rfc-control-field input {
+            width: 100%;
+            min-width: 0;
+            height: 40px;
+            padding: 8px 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font: inherit;
+            box-sizing: border-box;
+          }
+
+          .rfc-control-field input:focus {
+            outline: none;
+            border-color: #334155;
+            box-shadow: 0 0 0 3px rgba(51, 65, 85, .10);
+          }
+
+          .rfc-control-row .btn {
+            min-height: 40px;
+            white-space: nowrap;
+          }
+
+          .rfc-verifiable-toggle {
+            margin-bottom: 12px;
+          }
+
+          .rfc-bot-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 14px 16px 16px;
+            border-top: 1px solid #e5e7eb;
+            background: #fafafa;
+          }
+
+          .rfc-bot-actions .btn {
+            flex: 1 1 145px;
+            white-space: nowrap;
+          }
+
+          @media (max-width: 1150px) {
+            .rfc-family-grid {
+              grid-template-columns: 1fr;
+            }
+
+            .rfc-bot-card-header {
+              position: static;
+            }
+          }
+
+          @media (max-width: 600px) {
+            .rfc-bot-control-list {
+              padding: 10px;
+            }
+
+            .rfc-family-grid {
+              padding: 10px;
+            }
+
+            .rfc-family-stats {
+              grid-template-columns: 1fr;
+            }
+
+            .rfc-control-row {
+              grid-template-columns: 1fr;
+            }
+
+            .rfc-control-row .btn {
+              width: 100%;
+            }
+          }
+        </style>
+
         <div class="box" id="rfcBotControlNewBox">
           <div class="head">
             <strong>Control por bot</strong>
-            <span class="small">Límites separados para RFC CLON e IDCIF. 0 significa ilimitado para ese bot, sujeto al saldo global del panel.</span>
+            <span class="small">
+              Cada bot conserva visibles su nombre, estado, límites,
+              recargas y acciones. 0 significa ilimitado, sujeto al saldo global.
+            </span>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Bot</th>
-                  <th>Estado</th>
 
-                  <th class="right">CLON usados</th>
-                  <th class="right">CLON límite</th>
-                  <th class="right">CLON disponibles</th>
-                  <th>Nuevo límite CLON</th>
-                  <th>Recarga CLON</th>
-
-                  <th class="right">IDCIF usados</th>
-                  <th class="right">IDCIF límite</th>
-                  <th class="right">IDCIF disponibles</th>
-                  <th>Nuevo límite IDCIF</th>
-                  <th>Recarga IDCIF</th>
-                
-                  <th>Verificable</th>
-                  <th>Verif. usados</th>
-                  <th>Verif. límite</th>
-                  <th>Verif. disponibles</th>
-                  <th>Fijar verif.</th>
-                  <th>Recargar verif.</th>
-                
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div class="rfc-bot-control-list">
         """
 
         price_rows_html = ""
@@ -22533,79 +22770,222 @@ def panel_rfc_bot_control_fragment(request: Request):
             
             price_note_e = _esc(price_note)
 
+            block_button_html = (
+                f"""
+                <button
+                  class="btn btn-success"
+                  onclick="rfcBotBlock('{inst_e}', 'unblock')"
+                >
+                  Desbloquear bot
+                </button>
+                """
+                if blocked
+                else
+                f"""
+                <button
+                  class="btn btn-danger"
+                  onclick="rfcBotBlock('{inst_e}', 'block')"
+                >
+                  Bloquear bot
+                </button>
+                """
+            )
+
             html += f"""
-                <tr>
-                  <td>
-                    <strong>{label_e}</strong><br>
-                    <span class="small">{inst_e}</span>
-                  </td>
-                
-                  <td>{badge}</td>
+              <article class="rfc-bot-card">
+                <div class="rfc-bot-card-header">
+                  <div class="rfc-bot-identity">
+                    <span class="rfc-bot-name">{label_e}</span>
+                    <span class="rfc-bot-instance">{inst_e}</span>
+                  </div>
 
-                  <td class="right">{clon_used}</td>
-                  <td class="right">{clon_limit_txt}</td>
-                  <td class="right"><strong>{clon_avail}</strong></td>
+                  <div>
+                    {badge}
+                  </div>
+                </div>
 
-                  <td>
-                    <input id="clon_limit_{inst_e}" type="number" min="0" value="{clon_limit}" style="width:90px;">
-                    <button class="btn" onclick="rfcBotSetLimit('{inst_e}', 'clon')">Guardar</button>
-                  </td>
+                <div class="rfc-family-grid">
 
-                  <td>
-                    <input id="clon_add_{inst_e}" type="number" min="1" value="10" style="width:80px;">
-                    <button class="btn btn-success" onclick="rfcBotRecharge('{inst_e}', 'clon')">Recargar</button>
-                  </td>
+                  <section class="rfc-family-box">
+                    <div class="rfc-family-title">
+                      <span>CLON</span>
+                    </div>
 
-                  <td class="right">{idcif_used}</td>
-                  <td class="right">{idcif_limit_txt}</td>
-                  <td class="right"><strong>{idcif_avail}</strong></td>
+                    <div class="rfc-family-stats">
+                      <div class="rfc-family-stat">
+                        <span>Usados</span>
+                        <strong>{clon_used}</strong>
+                      </div>
 
-                  <td>
-                    <input id="idcif_limit_{inst_e}" type="number" min="0" value="{idcif_limit}" style="width:90px;">
-                    <button class="btn" onclick="rfcBotSetLimit('{inst_e}', 'idcif')">Guardar</button>
-                  </td>
+                      <div class="rfc-family-stat">
+                        <span>Límite</span>
+                        <strong>{clon_limit_txt}</strong>
+                      </div>
 
-                  <td>
-                    <input id="idcif_add_{inst_e}" type="number" min="1" value="10" style="width:80px;">
-                    <button class="btn btn-success" onclick="rfcBotRecharge('{inst_e}', 'idcif')">Recargar</button>
-                  </td>
+                      <div class="rfc-family-stat">
+                        <span>Disponibles</span>
+                        <strong>{clon_avail}</strong>
+                      </div>
+                    </div>
 
-                  <td>
-                    {verifiable_badge}<br>
-                
-                    <button
-                      class="btn"
-                      style="margin-top:6px;"
-                      onclick="window.rfcBotToggleVerifiable(
-                        '{inst_e}',
-                        {verifiable_enabled_js}
-                      )"
-                    >
-                      {verifiable_button_text}
-                    </button>
-                  </td>
-                
-                  <td class="right">
-                      <strong>{verifiable_used}</strong>
-                  </td>
-                
-                  <td class="right">
-                      {verifiable_limit_txt}
-                  </td>
-                
-                  <td class="right">
-                      <strong>{verifiable_available_txt}</strong>
-                  </td>
-                 
-                  <td>
-                      <input
-                        id="verifiable_limit_{inst_e}"
-                        type="number"
-                        min="0"
-                        value="{verifiable_limit}"
-                        style="width:90px;"
+                    <div class="rfc-control-row">
+                      <div class="rfc-control-field">
+                        <label>Nuevo límite CLON</label>
+                        <input
+                          id="clon_limit_{inst_e}"
+                          type="number"
+                          min="0"
+                          value="{clon_limit}"
+                        >
+                      </div>
+
+                      <button
+                        class="btn"
+                        onclick="rfcBotSetLimit(
+                          '{inst_e}',
+                          'clon'
+                        )"
                       >
-                
+                        Guardar
+                      </button>
+                    </div>
+
+                    <div class="rfc-control-row">
+                      <div class="rfc-control-field">
+                        <label>Cantidad a recargar</label>
+                        <input
+                          id="clon_add_{inst_e}"
+                          type="number"
+                          min="1"
+                          value="10"
+                        >
+                      </div>
+
+                      <button
+                        class="btn btn-success"
+                        onclick="rfcBotRecharge(
+                          '{inst_e}',
+                          'clon'
+                        )"
+                      >
+                        Recargar
+                      </button>
+                    </div>
+                  </section>
+
+                  <section class="rfc-family-box">
+                    <div class="rfc-family-title">
+                      <span>IDCIF</span>
+                    </div>
+
+                    <div class="rfc-family-stats">
+                      <div class="rfc-family-stat">
+                        <span>Usados</span>
+                        <strong>{idcif_used}</strong>
+                      </div>
+
+                      <div class="rfc-family-stat">
+                        <span>Límite</span>
+                        <strong>{idcif_limit_txt}</strong>
+                      </div>
+
+                      <div class="rfc-family-stat">
+                        <span>Disponibles</span>
+                        <strong>{idcif_avail}</strong>
+                      </div>
+                    </div>
+
+                    <div class="rfc-control-row">
+                      <div class="rfc-control-field">
+                        <label>Nuevo límite IDCIF</label>
+                        <input
+                          id="idcif_limit_{inst_e}"
+                          type="number"
+                          min="0"
+                          value="{idcif_limit}"
+                        >
+                      </div>
+
+                      <button
+                        class="btn"
+                        onclick="rfcBotSetLimit(
+                          '{inst_e}',
+                          'idcif'
+                        )"
+                      >
+                        Guardar
+                      </button>
+                    </div>
+
+                    <div class="rfc-control-row">
+                      <div class="rfc-control-field">
+                        <label>Cantidad a recargar</label>
+                        <input
+                          id="idcif_add_{inst_e}"
+                          type="number"
+                          min="1"
+                          value="10"
+                        >
+                      </div>
+
+                      <button
+                        class="btn btn-success"
+                        onclick="rfcBotRecharge(
+                          '{inst_e}',
+                          'idcif'
+                        )"
+                      >
+                        Recargar
+                      </button>
+                    </div>
+                  </section>
+
+                  <section class="rfc-family-box">
+                    <div class="rfc-family-title">
+                      <span>RFC verificable</span>
+                      {verifiable_badge}
+                    </div>
+
+                    <div class="rfc-verifiable-toggle">
+                      <button
+                        class="btn"
+                        onclick="window.rfcBotToggleVerifiable(
+                          '{inst_e}',
+                          {verifiable_enabled_js}
+                        )"
+                      >
+                        {verifiable_button_text}
+                      </button>
+                    </div>
+
+                    <div class="rfc-family-stats">
+                      <div class="rfc-family-stat">
+                        <span>Usados</span>
+                        <strong>{verifiable_used}</strong>
+                      </div>
+
+                      <div class="rfc-family-stat">
+                        <span>Límite</span>
+                        <strong>{verifiable_limit_txt}</strong>
+                      </div>
+
+                      <div class="rfc-family-stat">
+                        <span>Disponibles</span>
+                        <strong>{verifiable_available_txt}</strong>
+                      </div>
+                    </div>
+
+                    <div class="rfc-control-row">
+                      <div class="rfc-control-field">
+                        <label>Nuevo límite verificable</label>
+                        <input
+                          id="verifiable_limit_{inst_e}"
+                          type="number"
+                          min="0"
+                          value="{verifiable_limit}"
+                        >
+                      </div>
+
                       <button
                         class="btn"
                         onclick="rfcBotSetLimit(
@@ -22615,17 +22995,19 @@ def panel_rfc_bot_control_fragment(request: Request):
                       >
                         Guardar
                       </button>
-                  </td>
-                
-                  <td>
-                      <input
-                        id="verifiable_add_{inst_e}"
-                        type="number"
-                        min="1"
-                        value="10"
-                        style="width:80px;"
-                      >
-                
+                    </div>
+
+                    <div class="rfc-control-row">
+                      <div class="rfc-control-field">
+                        <label>Cantidad a recargar</label>
+                        <input
+                          id="verifiable_add_{inst_e}"
+                          type="number"
+                          min="1"
+                          value="10"
+                        >
+                      </div>
+
                       <button
                         class="btn btn-success"
                         onclick="rfcBotRecharge(
@@ -22635,30 +23017,45 @@ def panel_rfc_bot_control_fragment(request: Request):
                       >
                         Recargar
                       </button>
-                  </td>
+                    </div>
+                  </section>
 
-                  <td>
-                    <button class="btn" onclick="rfcBotReset('{inst_e}', 'clon')">Reset CLON</button>
-                    <button class="btn" onclick="rfcBotReset('{inst_e}', 'idcif')">Reset IDCIF</button>
-                    <button
-                      class="btn"
-                      onclick="rfcBotReset(
-                        '{inst_e}',
-                        'verifiable'
-                      )"
-                    >
-                      Reset verificable
-                    </button>
-            """
+                </div>
 
-            if blocked:
-                html += f"""<button class="btn btn-success" onclick="rfcBotBlock('{inst_e}', 'unblock')">Desbloquear</button>"""
-            else:
-                html += f"""<button class="btn btn-danger" onclick="rfcBotBlock('{inst_e}', 'block')">Bloquear</button>"""
+                <div class="rfc-bot-actions">
+                  <button
+                    class="btn"
+                    onclick="rfcBotReset(
+                      '{inst_e}',
+                      'clon'
+                    )"
+                  >
+                    Reset CLON
+                  </button>
 
-            html += """
-                  </td>
-                </tr>
+                  <button
+                    class="btn"
+                    onclick="rfcBotReset(
+                      '{inst_e}',
+                      'idcif'
+                    )"
+                  >
+                    Reset IDCIF
+                  </button>
+
+                  <button
+                    class="btn"
+                    onclick="rfcBotReset(
+                      '{inst_e}',
+                      'verifiable'
+                    )"
+                  >
+                    Reset verificable
+                  </button>
+
+                  {block_button_html}
+                </div>
+              </article>
             """
 
             price_rows_html += f"""
@@ -22753,8 +23150,6 @@ def panel_rfc_bot_control_fragment(request: Request):
             """
 
         html += f"""
-              </tbody>
-            </table>
           </div>
         </div>
 
@@ -22782,8 +23177,6 @@ def panel_rfc_bot_control_fragment(request: Request):
 
               <tbody>
                 {price_rows_html}
-              </tbody>
-            </table>
           </div>
         </div>
         """
