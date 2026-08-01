@@ -22959,7 +22959,7 @@ def panel_rfc_bot_control_fragment(request: Request):
           }
 
           #rfcBotControlNewBox .head {
-            position: sticky;
+            position: static;
             top: 0;
             z-index: 20;
             background: #ffffff;
