@@ -23854,10 +23854,6 @@ def panel_rfc_bot_control_fragment(request: Request):
           </div>
         </div>
 
-        html += f"""
-          </div>
-        </div>
-
         <div
           class="box"
           style="margin-top:18px;"
