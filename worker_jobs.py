@@ -826,11 +826,16 @@ def call_bot_internal_text(
     original_text: str,
     query: str,
     instance_name=None,
+    *,
+    is_verifiable: bool = False,
+    provider_rfc: str = "",
+    provider_idcif: str = "",
 ):
     headers = {
         "Authorization": f"Bearer {BOT_INTERNAL_TOKEN}",
         "Content-Type": "application/json",
     }
+
     payload = {
         "requester_number": requester_number,
         "requester_name": requester_name,
@@ -838,15 +843,50 @@ def call_bot_internal_text(
         "original_text": original_text,
         "query": query,
         "evolution_instance": instance_name,
+
+        # RFC verificable
+        "is_verifiable": bool(is_verifiable),
+        "provider_rfc": (
+            provider_rfc or ""
+        ).strip().upper(),
+        "provider_idcif": (
+            provider_idcif or ""
+        ).strip(),
     }
-    url = f"{BOT_INTERNAL_URL.rstrip('/')}/internal/generate-pdf"
-    r = requests.post(url, json=payload, headers=headers, timeout=420)
-    print("worker call_bot_internal_text instance:", instance_name, flush=True)
-    print("worker call_bot_internal_text status:", r.status_code, flush=True)
-    print("worker call_bot_internal_text resp:", r.text, flush=True)
+
+    url = (
+        f"{BOT_INTERNAL_URL.rstrip('/')}"
+        "/internal/generate-pdf"
+    )
+
+    r = requests.post(
+        url,
+        json=payload,
+        headers=headers,
+        timeout=420,
+    )
+
+    print(
+        "worker call_bot_internal_text instance:",
+        instance_name,
+        flush=True,
+    )
+
+    print(
+        "worker call_bot_internal_text status:",
+        r.status_code,
+        flush=True,
+    )
+
+    print(
+        "worker call_bot_internal_text resp:",
+        r.text,
+        flush=True,
+    )
+
     r.raise_for_status()
     return r.json()
-
+    
 def call_bot_internal_media(
     requester_number: str,
     requester_name: str,
@@ -1495,6 +1535,12 @@ def process_group_request_job(job_data: dict):
             or ""
         ).strip().upper()
         
+        # Todo resultado nacido del flujo verificable
+        # debe contar y descontarse como RFC_VERIFICABLE,
+        # aunque internamente se genere como RFC_ONLY.
+        if is_verifiable:
+            forced_success_kind = "RFC_VERIFICABLE"
+        
         if forced_success_kind:
             requested_kind = forced_success_kind
 
@@ -1533,7 +1579,20 @@ def process_group_request_job(job_data: dict):
                 original_text=original_text,
                 query=query,
                 instance_name=instance_name,
+            
+                is_verifiable=is_verifiable,
+            
+                provider_rfc=(
+                    job_data.get("provider_rfc")
+                    or ""
+                ),
+            
+                provider_idcif=(
+                    job_data.get("provider_idcif")
+                    or ""
+                ),
             )
+            
         elif msg_type in ("image", "document") and media_id:
             media_bytes = evolution_get_media_base64(media_id, instance_name=instance_name)
 
@@ -1548,6 +1607,19 @@ def process_group_request_job(job_data: dict):
             )
         else:
             raise RuntimeError("NO_TEXT_OR_MEDIA")
+
+        verifiable_warning_code = (
+            result.get(
+                "verifiable_provider_warning_code"
+            )
+            or ""
+        ).strip().upper()
+        
+        verifiable_fallback_used = bool(
+            result.get(
+                "verifiable_fallback_used"
+            )
+        )
 
         if not result.get("ok"):
             err = result.get("error") or "No fue posible generar el documento."
@@ -2009,6 +2081,17 @@ def process_group_request_job(job_data: dict):
                 record_verifiable_provider_success(
                     job_data,
                     count=1,
+                )
+
+            if (
+                success_recorded
+                and is_verifiable
+                and verifiable_fallback_used
+                and verifiable_warning_code
+            ):
+                notify_verifiable_provider_sat_rejection(
+                    job_data=job_data,
+                    error_code=verifiable_warning_code,
                 )
         
             mark_delivery_done(
