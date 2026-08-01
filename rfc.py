@@ -2584,7 +2584,12 @@ def _classify_sat_invalid_status(
 
     return ""
 
-def extraer_datos_desde_sat(rfc, idcif, mode="WEB"):
+def extraer_datos_desde_sat(
+    rfc,
+    idcif,
+    mode="WEB",
+    allow_invalid_status: bool = False,
+):
     d3 = f"{idcif}_{rfc}"
 
     url = "https://siat.sat.gob.mx/app/qr/faces/pages/mobile/validadorqr.jsf"
@@ -2707,13 +2712,30 @@ def extraer_datos_desde_sat(rfc, idcif, mode="WEB"):
                 "estatus": estatus,
                 "regimen": regimen,
                 "reason": sat_invalid_reason,
+                "allow_invalid_status": (
+                    allow_invalid_status
+                ),
             },
             flush=True,
         )
     
-        raise ValueError(
-            sat_invalid_reason
+        if not allow_invalid_status:
+            raise ValueError(
+                sat_invalid_reason
+            )
+    
+        print(
+            "[RFC VERIFICABLE SIAT STATUS BYPASSED]",
+            {
+                "rfc": rfc,
+                "idcif": idcif,
+                "estatus": estatus,
+                "regimen": regimen,
+                "reason": sat_invalid_reason,
+            },
+            flush=True,
         )
+        
     fecha_alta_raw = get_val("Fecha de alta:")
     fecha_alta = fecha_alta_raw.replace("-", "/") if fecha_alta_raw else ""
 
@@ -6891,21 +6913,42 @@ def internal_generate_pdf_from_media():
                     },
                     flush=True,
                 )
+
+                if not provider_idcif:
+                    raise RuntimeError(
+                        "RFC_VERIFICABLE_"
+                        "FALLBACK_IDCIF_EMPTY"
+                    )
     
                 # Reprocesa únicamente el RFC.
                 # Así no vuelve a entrar a validación RFC+IDCIF.
+                fallback_query = (
+                    f"{fallback_rfc} "
+                    f"{provider_idcif}"
+                ).strip()
+                
                 fallback_result = (
                     procesar_solicitud_interna_para_pdf(
-                        from_wa_id=requester_number,
-                        text_body=fallback_rfc,
-                        original_text=original_text,
+                        from_wa_id=(
+                            requester_number
+                        ),
+                        text_body=(
+                            fallback_query
+                        ),
+                        original_text=(
+                            fallback_query
+                        ),
                         source=(
                             "GROUP_BRIDGE_"
                             "VERIFIABLE_FALLBACK"
                         ),
-                        requester_name=requester_name,
+                        requester_name=(
+                            requester_name
+                        ),
                         group_jid=group_jid,
-                        instance_name=instance_name,
+                        instance_name=(
+                            instance_name
+                        ),
                     )
                 )
     
@@ -6940,7 +6983,7 @@ def internal_generate_pdf_from_media():
                 # interno que una generación normal.
                 _inc_and_bill_internal_stats(
                     "527555592077",
-                    fallback_rfc,
+                    fallback_query,
                     fallback_result,
                 )
     
@@ -6971,7 +7014,7 @@ def internal_generate_pdf_from_media():
                     ),
                     "verifiable_fallback_used": True,
                     "verifiable_fallback_kind": (
-                        "RFC_ONLY"
+                        "RFC_IDCIF_SIAT"
                     ),
                     "verifiable_provider_rfc": (
                         fallback_rfc
@@ -7415,7 +7458,7 @@ def internal_generate_pdf():
 
                 _inc_and_bill_internal_stats(
                     "527555592077",
-                    fallback_rfc,
+                    fallback_query,
                     fallback_result,
                 )
 
@@ -7456,7 +7499,7 @@ def internal_generate_pdf():
                             True
                         ),
                         "verifiable_fallback_kind": (
-                            "RFC_ONLY"
+                            "RFC_IDCIF_SIAT"
                         ),
                         "verifiable_provider_warning": (
                             True
@@ -9231,12 +9274,27 @@ def procesar_solicitud_interna_para_pdf(
     # 2) Obtener datos
     # ----------------------------------------
     if input_type == "RFC_IDCIF":
-        rfc, idcif = extraer_rfc_idcif(text_body)
+        rfc, idcif = extraer_rfc_idcif(
+            text_body
+        )
+    
         if not rfc or not idcif:
-            raise RuntimeError("RFC_IDCIF_INVALID")
-
-        datos = extraer_datos_desde_sat(rfc, idcif, mode="WA")
-        datos = normalize_regimen_fields(datos)
+            raise RuntimeError(
+                "RFC_IDCIF_INVALID"
+            )
+    
+        datos = extraer_datos_desde_sat(
+            rfc,
+            idcif,
+            mode="WA",
+            allow_invalid_status=(
+                verifiable_fallback_mode
+            ),
+        )
+    
+        datos = normalize_regimen_fields(
+            datos
+        )
 
     elif input_type in ("CURP", "RFC_ONLY"):
         query = (
