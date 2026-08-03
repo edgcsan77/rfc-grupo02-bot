@@ -1613,6 +1613,83 @@ def _extract_verifiable_no_id_items(
     return results
 
 
+def _extract_verif4_blank_id_items(
+    text: str,
+) -> list[dict]:
+    """
+    Para ID ROBERTO / VERIF4:
+
+    Interpreta una línea que contiene únicamente un RFC
+    como resultado sin IDCIF.
+
+    Ejemplos aceptados:
+
+        JACJ0407211Z6
+        JACJ0407211Z6<TAB>
+        JACJ0407211Z6    <espacios>
+
+    No toma líneas que sí contienen un IDCIF.
+    No toma texto libre.
+    """
+    results: list[dict] = []
+
+    normalized_text = (
+        str(text or "")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\u00a0", " ")
+        .replace("\u2007", " ")
+        .replace("\u202f", " ")
+        .replace("\u200b", "")
+        .replace("\u200c", "")
+        .replace("\u200d", "")
+        .replace("\ufeff", "")
+    )
+
+    seen: set[str] = set()
+
+    for line_number, raw_line in enumerate(
+        normalized_text.split("\n"),
+        start=1,
+    ):
+        line = str(raw_line or "").strip().upper()
+
+        if not line:
+            continue
+
+        # Conserva solamente el contenido útil de la línea.
+        compact_line = re.sub(
+            r"[ \t]+$",
+            "",
+            line,
+        ).strip()
+
+        # Debe ser exactamente un RFC.
+        # No se acepta texto antes ni después.
+        if not RFC_FULL_RE.fullmatch(compact_line):
+            continue
+
+        # Protección adicional: una línea con IDCIF nunca
+        # debe interpretarse como "sin id".
+        if IDCIF_SEARCH_RE.search(compact_line):
+            continue
+
+        identifier = compact_line.upper()
+
+        if identifier in seen:
+            continue
+
+        seen.add(identifier)
+
+        results.append({
+            "identifier": identifier,
+            "line_number": line_number,
+            "reason": "verif4_blank_idcif",
+        })
+
+    return results
+
+
 def _find_verifiable_no_id_pending(
     *,
     identifier: str,
@@ -2057,12 +2134,92 @@ async def evolution_rfc_webhook(request: Request):
                     text
                 )
             )
-
+            
             provider_pairs = (
                 extract_rfc_idcif_pairs(
                     text
                 )
             )
+            
+            # --------------------------------------------------
+            # ID ROBERTO / VERIF4:
+            # una línea con puro RFC significa "sin IDCIF".
+            #
+            # Se restringe por grupo + instancia para no cambiar
+            # el comportamiento de los demás proveedores.
+            # --------------------------------------------------
+            is_verif4_roberto = (
+                remote_jid
+                == "120363409752881042@g.us"
+                and instance_name == "grupo02"
+            )
+            
+            if is_verif4_roberto:
+                verif4_blank_items = (
+                    _extract_verif4_blank_id_items(
+                        text
+                    )
+                )
+            
+                # RFC que ya tiene IDCIF dentro de provider_pairs.
+                paired_rfcs = {
+                    str(pair[0] or "").strip().upper()
+                    for pair in provider_pairs
+                    if pair
+                }
+            
+                # RFC ya detectados por frases explícitas:
+                # "NO ID", "SIN ID", "S/ID", etc.
+                explicit_no_id_rfcs = {
+                    str(item.get("identifier") or "")
+                    .strip()
+                    .upper()
+                    for item in provider_no_id_items
+                }
+            
+                for blank_item in verif4_blank_items:
+                    identifier = (
+                        blank_item.get("identifier")
+                        or ""
+                    ).strip().upper()
+            
+                    if not identifier:
+                        continue
+            
+                    # Si esa línea o RFC sí quedó emparejado con IDCIF,
+                    # no debe marcarse como no-id.
+                    if identifier in paired_rfcs:
+                        continue
+            
+                    # Evita duplicar un "sin id" que ya fue detectado
+                    # mediante texto explícito.
+                    if identifier in explicit_no_id_rfcs:
+                        continue
+            
+                    provider_no_id_items.append(
+                        blank_item
+                    )
+            
+                    explicit_no_id_rfcs.add(
+                        identifier
+                    )
+            
+                print(
+                    "RFC_VERIFIABLE_VERIF4_BLANK_ID_PARSE =",
+                    {
+                        "provider_code": "VERIF4",
+                        "provider_group": remote_jid,
+                        "provider_instance": instance_name,
+                        "pairs": provider_pairs,
+                        "blank_no_id_items": (
+                            verif4_blank_items
+                        ),
+                        "final_no_id_items": (
+                            provider_no_id_items
+                        ),
+                    },
+                    flush=True,
+                )
 
             total_provider_results = (
                 len(provider_no_id_items)
