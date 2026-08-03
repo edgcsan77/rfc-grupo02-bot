@@ -1750,16 +1750,33 @@ def _find_verifiable_no_id_pending(
                 )
                 or ""
             ).strip()
-
+        
             pending = (
                 fallback_match.get("pending")
                 or {}
             )
-
+        
             matched_by = (
                 fallback_match.get("matched_by")
                 or "provider_identifier"
             )
+        
+        elif (
+            fallback_match.get("reason")
+            == "ambiguous_pending_match"
+        ):
+            matches = (
+                fallback_match.get("matches")
+                or []
+            )
+        
+            return {
+                "ok": False,
+                "ambiguous": True,
+                "identifier": identifier,
+                "reason": "ambiguous_pending_match",
+                "matches": matches,
+            }
 
     if request_key and not pending:
         pending = (
@@ -2279,6 +2296,94 @@ async def evolution_rfc_webhook(request: Request):
                         allow_quote=is_single_result,
                     )
                 )
+
+                if (
+                    pending_match.get("ambiguous")
+                    and pending_match.get("matches")
+                ):
+                    fanout_results = []
+                
+                    seen_request_keys: set[str] = set()
+                
+                    for match in (
+                        pending_match.get("matches")
+                        or []
+                    ):
+                        match_request_key = (
+                            match.get("request_key")
+                            or ""
+                        ).strip()
+                
+                        match_pending = (
+                            match.get("pending")
+                            or {}
+                        )
+                
+                        if (
+                            not match_request_key
+                            or not match_pending
+                            or match_request_key
+                            in seen_request_keys
+                        ):
+                            continue
+                
+                        seen_request_keys.add(
+                            match_request_key
+                        )
+                
+                        fanout_result = (
+                            _send_verifiable_no_id_to_client(
+                                request_key=match_request_key,
+                                pending=match_pending,
+                                remote_jid=remote_jid,
+                                instance_name=instance_name,
+                                quoted_message_id="",
+                                provider_response_msg_id=msg_id,
+                                matched_identifier=identifier,
+                                matched_by=(
+                                    match.get("matched_by")
+                                    or "ambiguous_no_id_fanout"
+                                ),
+                            )
+                        )
+                
+                        fanout_result["line_number"] = (
+                            no_id_item.get("line_number")
+                        )
+                
+                        fanout_result["no_id_index"] = (
+                            no_id_index
+                        )
+                
+                        fanout_result["fanout"] = True
+                
+                        fanout_results.append(
+                            fanout_result
+                        )
+                
+                    no_id_results.extend(
+                        fanout_results
+                    )
+                
+                    print(
+                        "RFC_VERIFIABLE_NO_ID_FANOUT =",
+                        {
+                            "identifier": identifier,
+                            "matches": len(
+                                pending_match.get("matches")
+                                or []
+                            ),
+                            "sent": len([
+                                item
+                                for item in fanout_results
+                                if item.get("sent")
+                            ]),
+                            "results": fanout_results,
+                        },
+                        flush=True,
+                    )
+                
+                    continue
 
                 if not pending_match.get("ok"):
                     result = {
