@@ -1666,12 +1666,11 @@ def _extract_verif4_blank_id_items(
 
         # Debe ser exactamente un RFC.
         # No se acepta texto antes ni después.
-        if not RFC_FULL_RE.fullmatch(compact_line):
-            continue
-
-        # Protección adicional: una línea con IDCIF nunca
-        # debe interpretarse como "sin id".
-        if IDCIF_SEARCH_RE.search(compact_line):
+        if not re.fullmatch(
+            r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9Ñ]{3}",
+            compact_line,
+            flags=re.IGNORECASE,
+        ):
             continue
 
         identifier = compact_line.upper()
@@ -1685,6 +1684,8 @@ def _extract_verif4_blank_id_items(
             "identifier": identifier,
             "line_number": line_number,
             "reason": "verif4_blank_idcif",
+            "status": "SIN ID",
+            "raw_line": raw_line,
         })
 
     return results
