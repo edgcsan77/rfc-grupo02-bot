@@ -1081,6 +1081,76 @@ def release_delivery_claim(lock_key: str):
         redis_stats.delete(lock_key)
 
 
+def mark_verifiable_completed_24h(
+    job_data: dict,
+) -> bool:
+    if not bool(
+        job_data.get("is_verifiable")
+    ):
+        return False
+
+    processing_key = (
+        job_data.get(
+            "verifiable_processing_key"
+        )
+        or ""
+    ).strip()
+
+    completed_key = (
+        job_data.get(
+            "verifiable_completed_key"
+        )
+        or ""
+    ).strip()
+
+    if not completed_key:
+        print(
+            "[RFC VERIFIABLE COMPLETED KEY EMPTY]",
+            {
+                "request_key": (
+                    job_data.get(
+                        "verifiable_request_key"
+                    )
+                ),
+            },
+            flush=True,
+        )
+
+        return False
+
+    pipe = redis_stats.pipeline()
+
+    pipe.set(
+        completed_key,
+        _panel_now().isoformat(),
+        ex=24 * 60 * 60,
+    )
+
+    if processing_key:
+        pipe.delete(
+            processing_key
+        )
+
+    pipe.execute()
+
+    print(
+        "[RFC VERIFIABLE COMPLETED 24H MARKED]",
+        {
+            "request_key": (
+                job_data.get(
+                    "verifiable_request_key"
+                )
+            ),
+            "completed_key": completed_key,
+            "processing_key": processing_key,
+            "ttl_seconds": 86400,
+        },
+        flush=True,
+    )
+
+    return True
+
+
 def release_request_inflight(
     inflight_key: str,
 ):
@@ -1107,13 +1177,14 @@ def process_verifiable_timeout_job(
     request_key: str,
 ):
     """
-    Se ejecuta 1 hora después de enviar una
+    Se ejecuta 24 horas después de enviar una
     solicitud RFC verificable al proveedor.
 
     Si la solicitud todavía está pendiente:
     - avisa al cliente;
-    - libera el inflight;
+    - libera inflight y processing;
     - elimina el pendiente;
+    - permite volver a solicitarla;
     - evita que una respuesta tardía genere PDF.
     """
 
@@ -1208,6 +1279,13 @@ def process_verifiable_timeout_job(
         or ""
     ).strip()
 
+    verifiable_processing_key = (
+        pending.get(
+            "verifiable_processing_key"
+        )
+        or ""
+    ).strip()
+
     provider_message_id = (
         pending.get("provider_message_id")
         or ""
@@ -1235,9 +1313,10 @@ def process_verifiable_timeout_job(
                 client_group_jid,
                 (
                     f"⚠️ {requester_label}, "
-                    "solicitud sin éxito después "
-                    "de 15min-1h para "
-                    f"{identifier_text}."
+                    "la solicitud verificable no recibió "
+                    "respuesta dentro de 24 horas para "
+                    f"{identifier_text}.\n\n"
+                    "Ya puedes volver a solicitarla."
                 ),
                 instance_name=client_instance,
             )
@@ -1298,14 +1377,74 @@ def process_verifiable_timeout_job(
                     flush=True,
                 )
 
+        if verifiable_processing_key:
+            try:
+                redis_stats.delete(
+                    verifiable_processing_key
+                )
+        
+                print(
+                    "[RFC VERIFIABLE TIMEOUT "
+                    "PROCESSING RELEASED]",
+                    verifiable_processing_key,
+                    flush=True,
+                )
+        
+            except Exception as processing_exc:
+                print(
+                    "[RFC VERIFIABLE TIMEOUT "
+                    "PROCESSING RELEASE ERROR]",
+                    repr(processing_exc),
+                    flush=True,
+                )
+
         # Elimina pendiente y asociación con
         # el mensaje enviado al proveedor.
-        finish_pending(
-            request_key,
-            provider_message_id=(
-                provider_message_id
-            ),
-        )
+        try:
+            finish_pending(
+                request_key,
+                provider_message_id=(
+                    provider_message_id
+                ),
+            )
+        
+            print(
+                "[RFC VERIFIABLE TIMEOUT "
+                "PENDING FINISHED]",
+                {
+                    "request_key": request_key,
+                    "provider_message_id": (
+                        provider_message_id
+                    ),
+                },
+                flush=True,
+            )
+        
+        finally:
+            try:
+                release_provider_result_claim(
+                    request_key
+                )
+        
+                print(
+                    "[RFC VERIFIABLE TIMEOUT "
+                    "RESULT CLAIM RELEASED]",
+                    request_key,
+                    flush=True,
+                )
+        
+            except Exception as claim_exc:
+                print(
+                    "[RFC VERIFIABLE TIMEOUT "
+                    "RESULT CLAIM RELEASE ERROR]",
+                    {
+                        "request_key": request_key,
+                        "error": repr(
+                            claim_exc
+                        ),
+                    },
+                    flush=True,
+                )
 
     return {
         "ok": True,
@@ -1745,14 +1884,27 @@ def process_group_request_job(job_data: dict):
                 )
 
                 if (
-                    is_verifiable
+                    ok_count > 0
+                    and is_verifiable
                     and verifiable_request_key
                 ):
+                    completion_marked = (
+                        mark_verifiable_completed_24h(
+                            job_data
+                        )
+                    )
+                    
+                    if not completion_marked:
+                        raise RuntimeError(
+                            "RFC_VERIFIABLE_"
+                            "COMPLETED_24H_MARK_FAILED"
+                        )
+                    
                     finish_pending(
                         verifiable_request_key,
                         provider_message_id=(
                             job_data.get(
-                                "provider_response_msg_id"
+                                "provider_request_msg_id"
                             )
                             or ""
                         ),
@@ -1761,9 +1913,11 @@ def process_group_request_job(job_data: dict):
                     print(
                         "[RFC VERIFIABLE PENDING FINISHED]",
                         {
-                            "request_key":
-                                verifiable_request_key,
+                            "request_key": (
+                                verifiable_request_key
+                            ),
                             "mode": "batch_zip",
+                            "ok_count": ok_count,
                         },
                         flush=True,
                     )
@@ -1789,6 +1943,7 @@ def process_group_request_job(job_data: dict):
         if mode == "batch_multi":
             items = result.get("items") or []
             provider_success_count = 0
+            delivered_success_count = 0
 
             for item in items:
                 pdf_url = (item.get("pdf_url") or "").strip()
@@ -1881,6 +2036,8 @@ def process_group_request_job(job_data: dict):
                             delivery_lock_key,
                             delivery_done_key,
                         )
+
+                        delivered_success_count += 1
                     
                     except Exception as accounting_exc:
                         print(
@@ -1909,29 +2066,49 @@ def process_group_request_job(job_data: dict):
                     count=provider_success_count,
                 )
             
-                if (
-                    is_verifiable
-                    and verifiable_request_key
-                ):
-                    finish_pending(
-                        verifiable_request_key,
-                        provider_message_id=(
-                            job_data.get(
-                                "provider_response_msg_id"
-                            )
-                            or ""
-                        ),
+            if (
+                delivered_success_count > 0
+                and is_verifiable
+                and verifiable_request_key
+            ):
+                completion_marked = (
+                    mark_verifiable_completed_24h(
+                        job_data
                     )
+                )
+                
+                if not completion_marked:
+                    raise RuntimeError(
+                        "RFC_VERIFIABLE_"
+                        "COMPLETED_24H_MARK_FAILED"
+                    )
+                
+                finish_pending(
+                    verifiable_request_key,
+                    provider_message_id=(
+                        job_data.get(
+                            "provider_request_msg_id"
+                        )
+                        or ""
+                    ),
+                )
             
-                    print(
-                        "[RFC VERIFIABLE PENDING FINISHED]",
-                        {
-                            "request_key":
-                                verifiable_request_key,
-                            "mode": "batch_multi",
-                        },
-                        flush=True,
-                    )
+                print(
+                    "[RFC VERIFIABLE PENDING FINISHED]",
+                    {
+                        "request_key": (
+                            verifiable_request_key
+                        ),
+                        "mode": "batch_multi",
+                        "provider_success_count": (
+                            provider_success_count
+                        ),
+                        "delivered_success_count": (
+                            delivered_success_count
+                        ),
+                    },
+                    flush=True,
+                )
                 
             return
 
@@ -2153,16 +2330,28 @@ def process_group_request_job(job_data: dict):
                 is_verifiable
                 and verifiable_request_key
             ):
+                completion_marked = (
+                    mark_verifiable_completed_24h(
+                        job_data
+                    )
+                )
+            
+                if not completion_marked:
+                    raise RuntimeError(
+                        "RFC_VERIFIABLE_"
+                        "COMPLETED_24H_MARK_FAILED"
+                    )
+            
                 finish_pending(
                     verifiable_request_key,
                     provider_message_id=(
                         job_data.get(
-                            "provider_response_msg_id"
+                            "provider_request_msg_id"
                         )
                         or ""
                     ),
                 )
-        
+            
                 print(
                     "[RFC VERIFIABLE PENDING FINISHED]",
                     {
