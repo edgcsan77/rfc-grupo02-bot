@@ -895,28 +895,75 @@ def call_bot_internal_media(
     mime_type: str,
     media_bytes: bytes,
     instance_name=None,
+    *,
+    is_verifiable: bool = False,
+    provider_rfc: str = "",
+    provider_idcif: str = "",
 ):
     headers = {
-        "Authorization": f"Bearer {BOT_INTERNAL_TOKEN}",
+        "Authorization": (
+            f"Bearer {BOT_INTERNAL_TOKEN}"
+        ),
         "Content-Type": "application/json",
     }
+
     payload = {
         "requester_number": requester_number,
         "requester_name": requester_name,
         "group_jid": group_jid,
         "original_text": original_text,
         "mime_type": mime_type,
-        "media_b64": base64.b64encode(media_bytes).decode("utf-8"),
+        "media_b64": base64.b64encode(
+            media_bytes
+        ).decode("utf-8"),
         "evolution_instance": instance_name,
-    }
-    url = f"{BOT_INTERNAL_URL.rstrip('/')}/internal/generate-pdf-from-media"
-    r = requests.post(url, json=payload, headers=headers, timeout=420)
-    print("worker call_bot_internal_media instance:", instance_name, flush=True)
-    print("worker call_bot_internal_media status:", r.status_code, flush=True)
-    print("worker call_bot_internal_media resp:", r.text, flush=True)
-    r.raise_for_status()
-    return r.json()
 
+        # RFC verificable
+        "is_verifiable": bool(
+            is_verifiable
+        ),
+        "provider_rfc": (
+            provider_rfc or ""
+        ).strip().upper(),
+        "provider_idcif": (
+            provider_idcif or ""
+        ).strip(),
+    }
+
+    url = (
+        f"{BOT_INTERNAL_URL.rstrip('/')}"
+        "/internal/generate-pdf-from-media"
+    )
+
+    r = requests.post(
+        url,
+        json=payload,
+        headers=headers,
+        timeout=420,
+    )
+
+    print(
+        "worker call_bot_internal_media instance:",
+        instance_name,
+        flush=True,
+    )
+
+    print(
+        "worker call_bot_internal_media status:",
+        r.status_code,
+        flush=True,
+    )
+
+    print(
+        "worker call_bot_internal_media resp:",
+        r.text,
+        flush=True,
+    )
+
+    r.raise_for_status()
+
+    return r.json()
+    
 def _extraer_lugar_emision_desde_texto(raw: str) -> str:
     """
     Detecta MUNICIPIO, ENTIDAD en cualquier parte del texto,
@@ -1743,7 +1790,24 @@ def process_group_request_job(job_data: dict):
                 mime_type=mime_type,
                 media_bytes=media_bytes,
                 instance_name=instance_name,
+            
+                is_verifiable=is_verifiable,
+            
+                provider_rfc=(
+                    job_data.get(
+                        "provider_rfc"
+                    )
+                    or ""
+                ),
+            
+                provider_idcif=(
+                    job_data.get(
+                        "provider_idcif"
+                    )
+                    or ""
+                ),
             )
+            
         else:
             raise RuntimeError("NO_TEXT_OR_MEDIA")
 
