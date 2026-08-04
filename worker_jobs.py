@@ -1851,6 +1851,8 @@ def process_group_request_job(job_data: dict):
                 return
 
             try:
+                success_recorded = False
+            
                 if ok_count > 0:
                     success_recorded = (
                         record_success_once(
@@ -1859,9 +1861,22 @@ def process_group_request_job(job_data: dict):
                             group_name=group_name,
                             kind=kind,
                             count=ok_count,
-                            item_key=
-                                delivery_item_key,
+                            item_key=delivery_item_key,
                         )
+                    )
+            
+                if (
+                    success_recorded
+                    and bool(
+                        job_data.get(
+                            "verifiable_count_provider_success",
+                            True,
+                        )
+                    )
+                ):
+                    record_verifiable_provider_success(
+                        job_data,
+                        count=1,
                     )
             
                 mark_delivery_done(
@@ -1928,6 +1943,7 @@ def process_group_request_job(job_data: dict):
 
         if mode == "batch_multi":
             items = result.get("items") or []
+            provider_success_count = 0
             delivered_success_count = 0
 
             for item in items:
@@ -2013,6 +2029,9 @@ def process_group_request_job(job_data: dict):
                                 item_key=item_key,
                             )
                         )
+
+                        if success_recorded:
+                            provider_success_count += 1
                     
                         mark_delivery_done(
                             delivery_lock_key,
@@ -2041,6 +2060,20 @@ def process_group_request_job(job_data: dict):
                         f"❌ {requester_label} fallo {rfc} {idcif}: {err or 'error desconocido'}",
                         instance_name=instance_name
                     )
+
+            if (
+                provider_success_count > 0
+                and bool(
+                    job_data.get(
+                        "verifiable_count_provider_success",
+                        True,
+                    )
+                )
+            ):
+                record_verifiable_provider_success(
+                    job_data,
+                    count=provider_success_count,
+                )
             
             if (
                 delivered_success_count > 0
@@ -2269,6 +2302,20 @@ def process_group_request_job(job_data: dict):
                 count=1,
                 item_key=delivery_item_key,
             )
+
+            if (
+                success_recorded
+                and bool(
+                    job_data.get(
+                        "verifiable_count_provider_success",
+                        True,
+                    )
+                )
+            ):
+                record_verifiable_provider_success(
+                    job_data,
+                    count=1,
+                )
         
             if (
                 success_recorded
