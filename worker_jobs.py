@@ -2164,7 +2164,7 @@ def process_group_request_job(job_data: dict):
         
         if is_verifiable:
             time_caption += (
-                "\nRFC verificable entregado"
+                "\nRFC entregado"
             )
         
         try:
