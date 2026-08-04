@@ -529,6 +529,48 @@ def _dedupe_key(
     ).hexdigest()
 
 
+def _verifiable_identity_key(
+    instance: str,
+    remote_jid: str,
+    requester: str,
+    query_type: str,
+    identifier: str,
+) -> str:
+    """
+    Identifica la misma solicitud verificable aunque
+    WhatsApp genere otro msg_id.
+    
+    Bloquea la misma CURP/RFC para:
+    - la misma instancia;
+    - el mismo grupo;
+    - el mismo tipo de consulta.
+    """
+    normalized_identifier = re.sub(
+        r"\s+",
+        "",
+        str(identifier or "").strip().upper(),
+    )
+
+    normalized_type = (
+        str(query_type or "")
+        .strip()
+        .upper()
+    )
+
+    base = "|".join(
+        [
+            str(instance or "").strip(),
+            str(remote_jid or "").strip(),
+            normalized_type,
+            normalized_identifier,
+        ]
+    )
+
+    return hashlib.sha256(
+        base.encode("utf-8")
+    ).hexdigest()
+
+
 def _bot_label_from_db(instance_name: str | None) -> str:
     inst = (instance_name or "").strip()
 
@@ -795,7 +837,26 @@ def _queue_verifiable_pair_for_pending(
             "idcif": provider_idcif,
             "reason": "pending_missing",
         }
-
+    
+    # Vuelve a consultar Redis para no procesar una copia
+    # vieja de un pendiente que otro worker ya terminó.
+    current_pending = (
+        load_pending(verifiable_key)
+        or {}
+    )
+    
+    if not current_pending:
+        return {
+            "ok": False,
+            "queued": False,
+            "request_key": verifiable_key,
+            "rfc": provider_rfc,
+            "idcif": provider_idcif,
+            "reason": "pending_already_finished",
+        }
+    
+    pending = current_pending
+    
     if not claim_provider_result(
         verifiable_key
     ):
@@ -935,6 +996,24 @@ def _queue_verifiable_pair_for_pending(
             )
             or 0
         ),
+        "verifiable_identity": (
+            pending.get(
+                "verifiable_identity"
+            )
+            or ""
+        ),
+        "verifiable_processing_key": (
+            pending.get(
+                "verifiable_processing_key"
+            )
+            or ""
+        ),
+        "verifiable_completed_key": (
+            pending.get(
+                "verifiable_completed_key"
+            )
+            or ""
+        ),
         "verifiable_request_key": (
             verifiable_key
         ),
@@ -946,9 +1025,21 @@ def _queue_verifiable_pair_for_pending(
         ),
         "provider_rfc": provider_rfc,
         "provider_idcif": provider_idcif,
+        # ID del mensaje que el bot envió al proveedor.
+        # Se usa para borrar la asociación al finalizar.
+        "provider_request_msg_id": (
+            pending.get(
+                "provider_message_id"
+            )
+            or ""
+        ),
+        
+        # ID de la respuesta enviada por el proveedor.
+        # Se conserva para auditoría y deduplicación del job.
         "provider_response_msg_id": (
             provider_response_msg_id
         ),
+        
         "provider_quoted_msg_id": (
             quoted_message_id
         ),
@@ -997,9 +1088,16 @@ def _queue_verifiable_pair_for_pending(
         ),
     }
 
+    provider_job_message_id = (
+        provider_response_msg_id
+        or quoted_message_id
+        or "without-provider-message"
+    ).strip()
+    
     final_rq_job_id = (
         "rfc-verifiable-result:"
-        f"{verifiable_key}"
+        f"{verifiable_key}:"
+        f"{provider_job_message_id}"
     )
 
     try:
@@ -1009,8 +1107,8 @@ def _queue_verifiable_pair_for_pending(
             job_data,
             job_id=final_rq_job_id,
             job_timeout=900,
-            result_ttl=0,
-            failure_ttl=1200,
+            result_ttl=86400,
+            failure_ttl=86400,
         )
 
     except Exception:
@@ -1892,6 +1990,50 @@ def _send_verifiable_no_id_to_client(
         or ""
     ).strip()
 
+    verifiable_processing_key = (
+        pending.get(
+            "verifiable_processing_key"
+        )
+        or ""
+    ).strip()
+    
+    verifiable_completed_key = (
+        pending.get(
+            "verifiable_completed_key"
+        )
+        or ""
+    ).strip()
+
+    if not verifiable_completed_key:
+        release_provider_result_claim(
+            request_key
+        )
+    
+        print(
+            "RFC_VERIFIABLE_NO_ID_"
+            "COMPLETED_KEY_EMPTY =",
+            {
+                "request_key": request_key,
+                "original_identifier": (
+                    pending.get(
+                        "original_identifier"
+                    )
+                    or matched_identifier
+                    or ""
+                ),
+            },
+            flush=True,
+        )
+    
+        return {
+            "ok": False,
+            "sent": False,
+            "request_key": request_key,
+            "reason": (
+                "verifiable_completed_key_empty"
+            ),
+        }
+
     original_identifier = (
         pending.get("original_identifier")
         or matched_identifier
@@ -1977,30 +2119,92 @@ def _send_verifiable_no_id_to_client(
             "error": repr(send_exc),
         }
 
-    if inflight_key:
-        try:
-            request_queue.connection.delete(
+    try:
+        pipe = (
+            request_queue.connection
+            .pipeline()
+        )
+    
+        # Un resultado SIN ID también fue una respuesta
+        # definitiva enviada al cliente.
+        if verifiable_completed_key:
+            pipe.set(
+                verifiable_completed_key,
+                str(time.time()),
+                ex=24 * 60 * 60,
+            )
+    
+        if verifiable_processing_key:
+            pipe.delete(
+                verifiable_processing_key
+            )
+    
+        if inflight_key:
+            pipe.delete(
                 inflight_key
             )
-        except Exception as inflight_exc:
-            print(
-                "RFC_VERIFIABLE_NO_ID_"
-                "INFLIGHT_RELEASE_ERROR =",
-                {
-                    "request_key": request_key,
-                    "inflight_key": inflight_key,
-                    "error": repr(inflight_exc),
-                },
-                flush=True,
-            )
-
+    
+        pipe.execute()
+    
+        print(
+            "RFC_VERIFIABLE_NO_ID_"
+            "COMPLETED_24H_MARKED =",
+            {
+                "request_key": request_key,
+                "completed_key": (
+                    verifiable_completed_key
+                ),
+                "processing_key": (
+                    verifiable_processing_key
+                ),
+                "inflight_key": inflight_key,
+                "ttl_seconds": 86400,
+            },
+            flush=True,
+        )
+    
+    except Exception as completed_exc:
+        print(
+            "RFC_VERIFIABLE_NO_ID_"
+            "COMPLETED_MARK_ERROR =",
+            {
+                "request_key": request_key,
+                "error": repr(
+                    completed_exc
+                ),
+            },
+            flush=True,
+        )
+    
+        # No borres el pendiente si no se pudo crear
+        # correctamente la protección de completado.
+        release_provider_result_claim(
+            request_key
+        )
+    
+        return {
+            "ok": False,
+            "sent": True,
+            "request_key": request_key,
+            "reason": (
+                "no_id_completion_mark_failed"
+            ),
+            "error": repr(
+                completed_exc
+            ),
+        }
+    
     finish_pending(
         request_key,
         provider_message_id=(
             stored_provider_message_id
         ),
     )
-
+    
+    release_provider_result_claim(
+        request_key
+    )
+    
     return {
         "ok": True,
         "sent": True,
@@ -3129,7 +3333,9 @@ async def evolution_rfc_webhook(request: Request):
                 f"{original_query_type}:"
                 f"{original_identifier}"
             )
-
+            
+            # Dedupe técnico del mismo webhook.
+            # Conserva msg_id para bloquear el mismo evento repetido.
             command_key = _dedupe_key(
                 instance_name,
                 remote_jid,
@@ -3137,14 +3343,185 @@ async def evolution_rfc_webhook(request: Request):
                 normalized_query,
                 msg_id,
             )
-
+            
             redis_conn = (
                 request_queue.connection
             )
-
+            
             inflight_key = (
                 f"rfc:inflight:{command_key}"
             )
+            
+            # Identidad lógica de la solicitud.
+            # No incluye msg_id, por lo que también detecta
+            # cuando el usuario vuelve a escribir la misma CURP/RFC.
+            verifiable_identity = (
+                _verifiable_identity_key(
+                    instance=instance_name,
+                    remote_jid=remote_jid,
+                    requester=requester_wa_id,
+                    query_type=original_query_type,
+                    identifier=original_identifier,
+                )
+            )
+            
+            verifiable_processing_key = (
+                "rfc:verifiable:processing:"
+                f"{verifiable_identity}"
+            )
+            
+            verifiable_completed_key = (
+                "rfc:verifiable:completed:"
+                f"{verifiable_identity}"
+            )
+
+            if redis_conn.exists(
+                verifiable_completed_key
+            ):
+                completed_ttl = redis_conn.ttl(
+                    verifiable_completed_key
+                )
+            
+                try:
+                    remaining_seconds = max(
+                        int(completed_ttl or 0),
+                        0,
+                    )
+                except Exception:
+                    remaining_seconds = 0
+            
+                remaining_hours = max(
+                    1,
+                    int(
+                        (
+                            remaining_seconds
+                            + 3599
+                        )
+                        // 3600
+                    ),
+                )
+            
+                print(
+                    "RFC_VERIFIABLE_COMPLETED_24H_BLOCKED =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                        "requester": requester_wa_id,
+                        "query_type": original_query_type,
+                        "identifier": original_identifier,
+                        "completed_key": (
+                            verifiable_completed_key
+                        ),
+                        "ttl": completed_ttl,
+                    },
+                    flush=True,
+                )
+            
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"✅ {requester_label}, "
+                            "esta solicitud verificable "
+                            "ya fue entregada durante las "
+                            "últimas 24 horas.\n\n"
+                            "Podrás volver a solicitarla "
+                            f"aproximadamente en "
+                            f"{remaining_hours} h."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+            
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_completed_"
+                        "within_24h"
+                    ),
+                    "identifier": original_identifier,
+                    "remaining_seconds": (
+                        remaining_seconds
+                    ),
+                }
+
+            verifiable_processing_ttl = max(
+                int(
+                    VERIFIABLE_TIMEOUT_SEC
+                    or 3600
+                ) + 300,
+                900,
+            )
+            
+            processing_created = redis_conn.set(
+                verifiable_processing_key,
+                command_key,
+                nx=True,
+                ex=verifiable_processing_ttl,
+            )
+            
+            if not processing_created:
+                processing_ttl = redis_conn.ttl(
+                    verifiable_processing_key
+                )
+            
+                print(
+                    "RFC_VERIFIABLE_ALREADY_PROCESSING_BLOCKED =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                        "requester": requester_wa_id,
+                        "query_type": original_query_type,
+                        "identifier": original_identifier,
+                        "processing_key": (
+                            verifiable_processing_key
+                        ),
+                        "ttl": processing_ttl,
+                        "configured_ttl": (
+                            verifiable_processing_ttl
+                        ),
+                    },
+                    flush=True,
+                )
+            
+                duplicate_notice_key = (
+                    "rfc:verifiable:"
+                    "duplicate_processing_notice:"
+                    f"{verifiable_identity}"
+                )
+            
+                if redis_conn.set(
+                    duplicate_notice_key,
+                    "1",
+                    nx=True,
+                    ex=DUPLICATE_NOTICE_TTL_SEC,
+                ):
+                    try:
+                        send_text(
+                            remote_jid,
+                            (
+                                f"⏳ {requester_label}, "
+                                "esta solicitud verificable "
+                                "ya está en proceso.\n\n"
+                                "No es necesario volver "
+                                "a enviarla."
+                            ),
+                            instance_name=instance_name,
+                            fast=True,
+                        )
+                    except Exception:
+                        pass
+            
+                return {
+                    "ok": True,
+                    "ignored": (
+                        "verifiable_same_request_"
+                        "already_processing"
+                    ),
+                    "identifier": original_identifier,
+                }
 
             if not redis_conn.set(
                 inflight_key,
@@ -3152,12 +3529,18 @@ async def evolution_rfc_webhook(request: Request):
                 nx=True,
                 ex=86400,
             ):
+                # Esta ejecución no continuará, por lo que no debe
+                # conservar la llave lógica que acaba de reclamar.
+                redis_conn.delete(
+                    verifiable_processing_key
+                )
+            
                 duplicate_notice_key = (
                     "rfc:verifiable:"
                     "duplicate_notice:"
                     f"{command_key}"
                 )
-
+            
                 if redis_conn.set(
                     duplicate_notice_key,
                     "1",
@@ -3179,7 +3562,7 @@ async def evolution_rfc_webhook(request: Request):
                         )
                     except Exception:
                         pass
-
+            
                 return {
                     "ok": True,
                     "ignored": (
@@ -3197,6 +3580,10 @@ async def evolution_rfc_webhook(request: Request):
             if not selected_provider:
                 redis_conn.delete(
                     inflight_key
+                )
+            
+                redis_conn.delete(
+                    verifiable_processing_key
                 )
             
                 try:
@@ -3301,6 +3688,10 @@ async def evolution_rfc_webhook(request: Request):
                     redis_conn.delete(
                         inflight_key
                     )
+
+                    redis_conn.delete(
+                        verifiable_processing_key
+                    )
             
                     print(
                         "[VERIFIABLE_PROVIDER_"
@@ -3350,6 +3741,15 @@ async def evolution_rfc_webhook(request: Request):
                 ),
                 "inflight_key": (
                     inflight_key
+                ),
+                "verifiable_identity": (
+                    verifiable_identity
+                ),
+                "verifiable_processing_key": (
+                    verifiable_processing_key
+                ),
+                "verifiable_completed_key": (
+                    verifiable_completed_key
                 ),
                 "client_instance": (
                     instance_name
@@ -3404,10 +3804,83 @@ async def evolution_rfc_webhook(request: Request):
                 ),
             }
 
-            save_pending(
-                command_key,
-                pending_payload,
-            )
+            try:
+                save_pending(
+                    command_key,
+                    pending_payload,
+                )
+            
+            except Exception as pending_exc:
+                try:
+                    redis_conn.delete(
+                        inflight_key
+                    )
+            
+                    redis_conn.delete(
+                        verifiable_processing_key
+                    )
+            
+                except Exception as cleanup_exc:
+                    print(
+                        "RFC_VERIFIABLE_PENDING_"
+                        "SAVE_CLEANUP_ERROR =",
+                        {
+                            "request_key": command_key,
+                            "inflight_key": inflight_key,
+                            "processing_key": (
+                                verifiable_processing_key
+                            ),
+                            "error": repr(
+                                cleanup_exc
+                            ),
+                        },
+                        flush=True,
+                    )
+            
+                print(
+                    "RFC_VERIFIABLE_PENDING_"
+                    "SAVE_ERROR =",
+                    {
+                        "request_key": command_key,
+                        "identifier": (
+                            original_identifier
+                        ),
+                        "query_type": (
+                            original_query_type
+                        ),
+                        "inflight_key": inflight_key,
+                        "processing_key": (
+                            verifiable_processing_key
+                        ),
+                        "error": repr(
+                            pending_exc
+                        ),
+                    },
+                    flush=True,
+                )
+            
+                try:
+                    send_text(
+                        remote_jid,
+                        (
+                            f"⚠️ {requester_label}, "
+                            "no fue posible registrar la "
+                            "solicitud verificable. "
+                            "Intenta nuevamente."
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+            
+                except Exception:
+                    pass
+            
+                return {
+                    "ok": False,
+                    "error": (
+                        "verifiable_pending_save_failed"
+                    ),
+                }
 
             try:
                 provider_response = send_text(
@@ -3417,58 +3890,42 @@ async def evolution_rfc_webhook(request: Request):
                         provider_instance_name
                     ),
                 )
-
+            
                 provider_message_id = (
                     _extract_sent_message_id(
                         provider_response
                     )
                 )
-
+            
                 if not provider_message_id:
                     raise RuntimeError(
                         "VERIFIABLE_PROVIDER_"
                         "MESSAGE_ID_EMPTY"
                     )
-
-                associate_provider_message(
-                    command_key,
-                    provider_message_id,
-                )
-
-                pending_payload[
-                    "provider_message_id"
-                ] = provider_message_id
-                
-                save_pending(
-                    command_key,
-                    pending_payload,
-                )
-
-            except Exception as provider_exc:
+            
+            except Exception as provider_send_exc:
                 redis_conn.delete(
                     inflight_key
                 )
-                
+            
+                redis_conn.delete(
+                    verifiable_processing_key
+                )
+            
                 finish_pending(
                     command_key
                 )
-
+            
                 print(
                     "RFC_VERIFIABLE_PROVIDER_"
                     "SEND_ERROR =",
                     {
-                        "request_key": (
-                            command_key
-                        ),
-                        "provider_code": (
-                            provider_code
-                        ),
+                        "request_key": command_key,
+                        "provider_code": provider_code,
                         "provider_db_name": (
                             provider_db_name
                         ),
-                        "provider_name": (
-                            provider_name
-                        ),
+                        "provider_name": provider_name,
                         "provider_group": (
                             provider_group_jid
                         ),
@@ -3476,12 +3933,12 @@ async def evolution_rfc_webhook(request: Request):
                             provider_instance_name
                         ),
                         "error": repr(
-                            provider_exc
+                            provider_send_exc
                         ),
                     },
                     flush=True,
                 )
-
+            
                 try:
                     send_text(
                         remote_jid,
@@ -3491,14 +3948,12 @@ async def evolution_rfc_webhook(request: Request):
                             "solicitud al proveedor de "
                             "RFC verificables."
                         ),
-                        instance_name=(
-                            instance_name
-                        ),
+                        instance_name=instance_name,
                         fast=True,
                     )
                 except Exception:
                     pass
-
+            
                 return {
                     "ok": False,
                     "error": (
@@ -3506,6 +3961,102 @@ async def evolution_rfc_webhook(request: Request):
                         "send_failed"
                     ),
                 }
+
+            pending_payload[
+                "provider_message_id"
+            ] = provider_message_id
+            
+            try:
+                associate_provider_message(
+                    command_key,
+                    provider_message_id,
+                )
+            
+                save_pending(
+                    command_key,
+                    pending_payload,
+                )
+            
+            except Exception as provider_state_exc:
+                print(
+                    "RFC_VERIFIABLE_PROVIDER_"
+                    "STATE_SAVE_ERROR =",
+                    {
+                        "request_key": command_key,
+                        "provider_message_id": (
+                            provider_message_id
+                        ),
+                        "provider_group": (
+                            provider_group_jid
+                        ),
+                        "provider_instance": (
+                            provider_instance_name
+                        ),
+                        "error": repr(
+                            provider_state_exc
+                        ),
+                    },
+                    flush=True,
+                )
+            
+                # No eliminar el pendiente.
+                # El proveedor sí recibió la solicitud.
+
+            timeout_job_id = (
+                "rfc-verifiable-timeout:"
+                f"{command_key}"
+            )
+            
+            try:
+                request_queue.enqueue_in(
+                    timedelta(
+                        seconds=int(
+                            VERIFIABLE_TIMEOUT_SEC
+                        )
+                    ),
+                    "worker_jobs."
+                    "process_verifiable_timeout_job",
+                    command_key,
+                    job_id=timeout_job_id,
+                    job_timeout=300,
+                    result_ttl=86400,
+                    failure_ttl=86400,
+                )
+            
+                print(
+                    "RFC_VERIFIABLE_TIMEOUT_QUEUED =",
+                    {
+                        "request_key": command_key,
+                        "job_id": timeout_job_id,
+                        "timeout_seconds": int(
+                            VERIFIABLE_TIMEOUT_SEC
+                        ),
+                    },
+                    flush=True,
+                )
+            
+            except Exception as timeout_enqueue_exc:
+                print(
+                    "RFC_VERIFIABLE_TIMEOUT_"
+                    "ENQUEUE_ERROR =",
+                    {
+                        "request_key": command_key,
+                        "job_id": timeout_job_id,
+                        "provider_message_id": (
+                            provider_message_id
+                        ),
+                        "error": repr(
+                            timeout_enqueue_exc
+                        ),
+                    },
+                    flush=True,
+                )
+            
+                # El mensaje ya llegó al proveedor.
+                # No eliminar el pendiente ni mentir al cliente.
+                #
+                # El pendiente y processing tienen TTL propio,
+                # por lo que eventualmente se liberarán.
 
             try:
                 send_text(
