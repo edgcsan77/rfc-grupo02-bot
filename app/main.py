@@ -5350,10 +5350,55 @@ def panel_add_group_to_shared_promotion(
         row.total_actas = leader.total_actas
         row.clon_total = int(getattr(leader, "clon_total", 0) or 0)
         row.clon_used = int(getattr(leader, "clon_used", 0) or 0)
-        row.idcif_total = int(getattr(leader, "idcif_total", 0) or 0)
-        row.idcif_used = int(getattr(leader, "idcif_used", 0) or 0)
-        row.used_actas = int(row.clon_used or 0) + int(row.idcif_used or 0)
-        row.total_actas = int(row.clon_total or 0) + int(row.idcif_total or 0)
+        row.idcif_total = int(
+            getattr(
+                leader,
+                "idcif_total",
+                0,
+            )
+            or 0
+        )
+        row.idcif_used = int(
+            getattr(
+                leader,
+                "idcif_used",
+                0,
+            )
+            or 0
+        )
+        row.verifiable_total = int(
+            getattr(
+                leader,
+                "verifiable_total",
+                0,
+            )
+            or 0
+        ) 
+        row.verifiable_used = int(
+            getattr(
+                leader,
+                "verifiable_used",
+                0,
+            )
+            or 0
+        )
+        row.price_per_verifiable = getattr(
+            leader,
+            "price_per_verifiable",
+            None,
+        )
+        row.shared_group_limit_verifiable = None
+        row.shared_group_used_verifiable = 0
+        row.used_actas = (
+            int(row.clon_used or 0)
+            + int(row.idcif_used or 0)
+            + int(row.verifiable_used or 0)
+        )
+        row.total_actas = (
+            int(row.clon_total or 0)
+            + int(row.idcif_total or 0)
+            + int(row.verifiable_total or 0)
+        )
         #row.used_actas = 0
         row.price_per_piece = leader.price_per_piece
         row.is_credit = leader.is_credit
@@ -5374,15 +5419,85 @@ def panel_add_group_to_shared_promotion(
             promo_name=leader.promo_name,
             client_key=leader.client_key,
             shared_key=leader.shared_key,
-            total_actas=leader.total_actas,
+            total_actas=(
+                int(
+                    getattr(
+                        leader,
+                        "clon_total",
+                        0,
+                    )
+                    or 0
+                )
+                + int(
+                    getattr(
+                        leader,
+                        "idcif_total",
+                        0,
+                    )
+                    or 0
+                )
+                + int(
+                    getattr(
+                        leader,
+                        "verifiable_total",
+                        0,
+                    )
+                    or 0
+                )
+            ),
             used_actas=(
-                int(getattr(leader, "clon_used", 0) or 0)
-                + int(getattr(leader, "idcif_used", 0) or 0)
+                int(
+                    getattr(
+                        leader,
+                        "clon_used",
+                        0,
+                    )
+                    or 0
+                )
+                + int(
+                    getattr(
+                        leader,
+                        "idcif_used",
+                        0,
+                    )
+                    or 0
+                )
+                + int(
+                    getattr(
+                        leader,
+                        "verifiable_used",
+                        0,
+                    )
+                    or 0
+                )
             ),
             clon_total=int(getattr(leader, "clon_total", 0) or 0),
             clon_used=int(getattr(leader, "clon_used", 0) or 0),
             idcif_total=int(getattr(leader, "idcif_total", 0) or 0),
             idcif_used=int(getattr(leader, "idcif_used", 0) or 0),
+            verifiable_total=int(
+                getattr(
+                    leader,
+                    "verifiable_total",
+                    0,
+                )
+                or 0
+            ),
+            verifiable_used=int(
+                getattr(
+                    leader,
+                    "verifiable_used",
+                    0,
+                )
+                or 0
+            ),
+            price_per_verifiable=getattr(
+                leader,
+                "price_per_verifiable",
+                None,
+            ),
+            shared_group_limit_verifiable=None,
+            shared_group_used_verifiable=0,
             price_per_piece=leader.price_per_piece,
             is_credit=leader.is_credit,
             credit_abono=leader.credit_abono or 0,
@@ -6034,6 +6149,14 @@ def remove_group_from_shared_promotion(
     row.idcif_total = 0
     row.idcif_used = 0
 
+    row.verifiable_total = 0
+    row.verifiable_used = 0
+    
+    row.price_per_verifiable = None
+    
+    row.shared_group_limit_verifiable = None
+    row.shared_group_used_verifiable = 0
+
     row.updated_at = _utc_now_naive()
 
     db.commit()
@@ -6578,6 +6701,70 @@ def panel_group_detail(
           background: #dbeafe;
           color: #020617;
         }}
+        .promo-main-grid {{
+          grid-template-columns:
+            minmax(180px, 1.4fr)
+            minmax(130px, .8fr)
+            repeat(3, minmax(130px, .8fr))
+            minmax(140px, .9fr)
+            minmax(130px, .8fr)
+            minmax(130px, .8fr);
+        }}
+        .promo-actions {{
+          display: grid;
+          grid-template-columns:
+            minmax(220px, 1fr)
+            minmax(220px, 1fr);
+          gap: 12px;
+          padding: 0 16px 16px;
+        }}
+        .promo-actions .btn {{
+          width: 100%;
+          min-height: 44px;
+        }}
+        .limit-grid {{
+          grid-template-columns:
+            minmax(240px, 1fr)
+            minmax(240px, 1fr)
+            220px;
+          align-items: end;
+        }}
+        .recharge-grid {{
+          grid-template-columns:
+            minmax(240px, 1fr)
+            minmax(180px, 220px)
+            minmax(220px, 260px);
+          align-items: end;
+        }}
+        .price-grid {{
+          grid-template-columns:
+            repeat(3, minmax(180px, 1fr));
+        }}
+        .price-actions {{
+          display: grid;
+          grid-template-columns: repeat(3, minmax(180px, 1fr));
+          gap: 12px;
+          margin-top: 12px;
+        }}
+        @media (max-width: 1050px) {{
+          .promo-main-grid,
+          .limit-grid,
+          .recharge-grid,
+          .price-grid,
+          .price-actions {{
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }}
+        }}
+        @media (max-width: 650px) {{
+          .promo-main-grid,
+          .promo-actions,
+          .limit-grid,
+          .recharge-grid,
+          .price-grid,
+          .price-actions {{
+            grid-template-columns: 1fr;
+          }}
+        }}
         @media (max-width: 900px) {{
           .filters {{
             grid-template-columns: 1fr;
@@ -6657,9 +6844,42 @@ def panel_group_detail(
     is_in_shared_promo = bool((promo.shared_key or "").strip()) if promo else False
 
     shared_remove_btn = (
-        f'<button type="button" class="btn btn-danger" onclick="removeFromSharedPromotion(\'{group_jid}\')">Quitar de bolsa</button>'
+        f'''
+        <button
+          type="button"
+          class="btn btn-danger"
+          onclick="removeFromSharedPromotion('{group_jid}')"
+        >
+          Quitar de bolsa compartida
+        </button>
+        '''
         if is_in_shared_promo
         else ""
+    )
+
+    save_promo_btn = (
+        """
+        <button
+          type="button"
+          class="btn btn-primary"
+          disabled
+          title="Este grupo pertenece a una bolsa compartida"
+          style="opacity:.60;cursor:not-allowed;"
+        >
+          Bolsa compartida: usa recarga
+        </button>
+        """
+        if is_in_shared_promo
+        else
+        f"""
+        <button
+          type="button"
+          class="btn btn-success"
+          onclick="savePromotion('{group_jid}')"
+        >
+          Guardar / activar bolsa RFC
+        </button>
+        """
     )
     
     html += f"""
@@ -6701,7 +6921,7 @@ def panel_group_detail(
             </div>
           </div>
     
-          <div class="filters" style="grid-template-columns: repeat(7, minmax(0, 1fr));">
+          <div class="filters promo-main-grid">
             <div>
               <div class="small">Nombre de bolsa RFC</div>
               <input id="promo_name" placeholder="" value="{promo_name}">
@@ -6762,12 +6982,12 @@ def panel_group_detail(
             </div>
           </div>
     
-          <div class="filters">
-            <button type="button" class="btn btn-success" onclick="savePromotion('{group_jid}')">Activar bolsa RFC</button>
+          <div class="promo-actions">
+            {save_promo_btn}
             {shared_remove_btn}
           </div>
     
-          <div class="filters" style="grid-template-columns: minmax(0, 1fr) 220px;">
+          <div class="filters limit-grid">
             <div>
               <div class="small">Límite individual dentro de bolsa compartida</div>
               <input id="shared_group_limit" type="number" min="0"
@@ -6802,7 +7022,7 @@ def panel_group_detail(
             </div>
           </div>
     
-          <div class="filters" style="grid-template-columns: 1fr 220px 220px;">
+          <div class="filters recharge-grid">
             <select id="promo_recharge_family">
               <option value="CLON">Recargar CLON</option>
               <option value="IDCIF">Recargar IDCIF</option>
@@ -6811,8 +7031,7 @@ def panel_group_detail(
               </option>
             </select>
             <input id="promo_recharge" placeholder="Cantidad a recargar" type="number" min="1">
-            <button type="button" class="btn btn-success" onclick="rechargePromotion('{group_jid}')">Recargar bolsa RFC</button>
-            <button type="button" class="btn btn-danger" onclick="removePromotion('{group_jid}')">Quitar bolsa RFC</button>
+            <button type="button" class="btn btn-success" onclick="rechargePromotion('{group_jid}')">Aplicar recarga</button>
           </div>
         </div>
     """
@@ -6821,7 +7040,7 @@ def panel_group_detail(
         <div class="box">
           <div class="head"><strong>Precios de RFC</strong></div>
           
-          <div class="filters" style="grid-template-columns: 220px 220px 180px 180px;">
+          <div class="filters price-grid">
             <div>
               <div class="small">Precio por CLON</div>
               <input 
@@ -7251,6 +7470,14 @@ def panel_group_detail(
             );
             const pricePerPiece = document.getElementById("promo_price")?.value?.trim() || "";
 
+            const verifiablePrice = (
+              document
+                .getElementById("VERIFIABLE_price")
+                ?.value
+                ?.trim()
+              || ""
+            );
+
             const promoType = document.getElementById("promo_type")?.value || "paid";
             const isCredit = promoType === "credit";
             
@@ -7371,23 +7598,35 @@ def panel_group_detail(
             }}
           }}
 
-          async function setSharedGroupLimit(
-            groupJid
-          ) {{
-            const value = prompt(
-              "Ingresa el límite individual "
-              + "de CLON/IDCIF para este grupo:"
+          async function setSharedGroupLimit(groupJid) {{
+            const limitRFC = Number(
+              document
+                .getElementById("shared_group_limit")
+                ?.value
+                ?.trim()
+              || 0
             );
         
-            if (value === null) return;
-        
-            const verifiableValue = prompt(
-              "Ingresa el límite individual "
-              + "de RFC verificables para "
-              + "este grupo:"
+            const limitVerifiable = Number(
+              document
+                .getElementById(
+                  "shared_group_limit_verifiable"
+                )
+                ?.value
+                ?.trim()
+              || 0
             );
         
-            if (verifiableValue === null) {{
+            if (
+              !Number.isInteger(limitRFC)
+              || limitRFC < 0
+              || !Number.isInteger(limitVerifiable)
+              || limitVerifiable < 0
+            ) {{
+              alert(
+                "Los límites deben ser números enteros "
+                + "iguales o mayores a cero."
+              );
               return;
             }}
         
@@ -7397,40 +7636,31 @@ def panel_group_detail(
                 {{
                   method: "POST",
                   headers: {{
-                    "Content-Type":
-                      "application/json"
+                    "Content-Type": "application/json"
                   }},
                   body: JSON.stringify({{
                     group_jid: groupJid,
-                    limit_RFC:
-                      Number(value || 0),
-                    limit_verifiable:
-                      Number(
-                        verifiableValue || 0
-                      )
+                    limit_RFC: limitRFC,
+                    limit_verifiable: limitVerifiable
                   }})
                 }}
               );
         
               const data = await res.json();
         
-              if (data.ok) {{
-                alert(
-                  data.message
-                  || "Límites actualizados"
-                );
-                location.reload();
-              }} else {{
+              if (!data.ok) {{
                 alert(
                   data.error
-                  || "No se pudieron actualizar"
+                  || "No se pudieron actualizar los límites"
                 );
+                return;
               }}
-            }} catch (e) {{
-              alert(
-                "No se pudo conectar "
-                + "con el servidor"
-              );
+        
+              alert("Límites actualizados correctamente");
+              location.reload();
+        
+            }} catch (error) {{
+              alert("No se pudo conectar con el servidor");
             }}
           }}
 
@@ -18823,6 +19053,19 @@ def panel_set_group_promotion(
         return {"ok": False, "error": "TOTAL_RFC_INVALID"}
 
     row = db.query(GroupPromotion).filter(GroupPromotion.group_jid == group_jid).first()
+
+    if (
+        row
+        and (row.shared_key or "").strip()
+    ):
+        return {
+            "ok": False,
+            "error": (
+                "Este grupo pertenece a una bolsa compartida. "
+                "Usa Recargar bolsa RFC o edita la bolsa compartida "
+                "desde el panel principal."
+            ),
+        }
 
     if row:
         row.promo_name = promo_name or row.promo_name
