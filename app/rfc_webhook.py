@@ -4,10 +4,7 @@ import json
 import hashlib
 import time
 
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-
-from sqlalchemy import text as sql_text
+from datetime import timedelta
 
 from fastapi import APIRouter, Request
 
@@ -594,219 +591,6 @@ def _bot_label_from_db(instance_name: str | None) -> str:
         return inst
     finally:
         db.close()
-
-
-def _record_verifiable_provider_pair_once(
-    db,
-    *,
-    provider: dict,
-    provider_rfc: str,
-    provider_idcif: str,
-) -> bool:
-    """
-    Contabiliza una localización RFC + IDCIF cuando
-    el proveedor la entrega, sin depender de:
-
-    - generación del PDF;
-    - resultado del SAT;
-    - saldo del cliente;
-    - envío del archivo;
-    - coincidencia única con un pendiente.
-
-    Una misma pareja RFC + IDCIF se contabiliza
-    solamente una vez por proveedor y por día local.
-    """
-
-    provider = provider or {}
-
-    provider_db_name = (
-        provider.get("db_name")
-        or ""
-    ).strip().upper()
-
-    provider_name = (
-        provider.get("name")
-        or provider_db_name
-        or "RFC VERIFICABLE"
-    ).strip()
-
-    provider_group_jid = (
-        provider.get("group_jid")
-        or ""
-    ).strip()
-
-    provider_rfc = (
-        provider_rfc or ""
-    ).strip().upper()
-
-    provider_idcif = (
-        provider_idcif or ""
-    ).strip()
-
-    if (
-        not provider_db_name
-        or not provider_rfc
-        or not provider_idcif
-    ):
-        return False
-
-    local_timezone = (
-        os.getenv(
-            "PANEL_TZ",
-            "America/Monterrey",
-        )
-        or "America/Monterrey"
-    ).strip()
-
-    local_day = datetime.now(
-        ZoneInfo(local_timezone)
-    ).strftime("%Y-%m-%d")
-
-    identity_base = "|".join(
-        [
-            provider_db_name,
-            local_day,
-            provider_rfc,
-            provider_idcif,
-        ]
-    )
-
-    provider_result_key = (
-        "provider-result:"
-        + hashlib.sha256(
-            identity_base.encode("utf-8")
-        ).hexdigest()
-    )
-
-    try:
-        inserted_id = db.execute(
-            sql_text(
-                """
-                INSERT INTO verifiable_provider_stats (
-                    count,
-                    provider_db_name,
-                    provider_name,
-                    provider_group_jid,
-                    status,
-                    created_at,
-                    request_key
-                )
-                VALUES (
-                    1,
-                    :provider_db_name,
-                    :provider_name,
-                    :provider_group_jid,
-                    'DONE',
-                    :created_at,
-                    :request_key
-                )
-                ON CONFLICT (request_key)
-                DO NOTHING
-                RETURNING id
-                """
-            ),
-            {
-                "provider_db_name":
-                    provider_db_name,
-
-                "provider_name":
-                    provider_name,
-
-                "provider_group_jid":
-                    provider_group_jid,
-
-                "created_at":
-                    datetime.utcnow(),
-
-                "request_key":
-                    provider_result_key,
-            },
-        ).scalar_one_or_none()
-
-        db.commit()
-
-        if inserted_id is None:
-            print(
-                "VERIFIABLE_PROVIDER_PAIR_"
-                "DUPLICATE_IGNORED =",
-                {
-                    "provider_db_name":
-                        provider_db_name,
-
-                    "provider_name":
-                        provider_name,
-
-                    "rfc":
-                        provider_rfc,
-
-                    "idcif":
-                        provider_idcif,
-
-                    "local_day":
-                        local_day,
-
-                    "request_key":
-                        provider_result_key,
-                },
-                flush=True,
-            )
-
-            return False
-
-        print(
-            "VERIFIABLE_PROVIDER_PAIR_RECORDED =",
-            {
-                "provider_db_name":
-                    provider_db_name,
-
-                "provider_name":
-                    provider_name,
-
-                "rfc":
-                    provider_rfc,
-
-                "idcif":
-                    provider_idcif,
-
-                "local_day":
-                    local_day,
-
-                "request_key":
-                    provider_result_key,
-            },
-            flush=True,
-        )
-
-        return True
-
-    except Exception as provider_stat_exc:
-        db.rollback()
-
-        print(
-            "VERIFIABLE_PROVIDER_PAIR_"
-            "RECORD_ERROR =",
-            {
-                "provider_db_name":
-                    provider_db_name,
-
-                "provider_name":
-                    provider_name,
-
-                "rfc":
-                    provider_rfc,
-
-                "idcif":
-                    provider_idcif,
-
-                "error":
-                    repr(provider_stat_exc),
-            },
-            flush=True,
-        )
-
-        # El fallo del contador no debe impedir
-        # procesar la respuesta para el cliente.
-        return False
 
 
 def _extract_sent_message_id(
@@ -2578,36 +2362,6 @@ async def evolution_rfc_webhook(request: Request):
                     text
                 )
             )
-
-            # Contabiliza las localizaciones en el momento
-            # en que el proveedor entrega RFC + IDCIF.
-            #
-            # Se realiza antes de intentar relacionarlas
-            # con pendientes, generar PDF o revisar saldo.
-            provider_location_results = []
-
-            for (
-                located_rfc,
-                located_idcif,
-            ) in provider_pairs:
-                provider_location_results.append(
-                    {
-                        "rfc": located_rfc,
-                        "idcif": located_idcif,
-                        "recorded": (
-                            _record_verifiable_provider_pair_once(
-                                db,
-                                provider=(
-                                    current_verifiable_provider
-                                ),
-                                provider_rfc=located_rfc,
-                                provider_idcif=(
-                                    located_idcif
-                                ),
-                            )
-                        ),
-                    }
-                )
             
             # --------------------------------------------------
             # ID ROBERTO / VERIF4:
@@ -2981,18 +2735,6 @@ async def evolution_rfc_webhook(request: Request):
                         instance_name
                     ),
                     "provider_message_id": msg_id,
-                    "provider_locations": (
-                        provider_location_results
-                    ),
-
-                    "provider_locations_recorded": len(
-                        [
-                            item
-                            for item
-                            in provider_location_results
-                            if item.get("recorded")
-                        ]
-                    ),
                     "quoted_message_id": (
                         quoted_message_id
                     ),
