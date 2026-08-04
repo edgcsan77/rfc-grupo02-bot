@@ -9082,7 +9082,7 @@ def procesar_solicitud_interna_para_pdf(
                 with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as zf:
                     for (rfc, idcif) in pares:
                         try:
-                            datos = extraer_datos_desde_sat(rfc, idcif, mode="WA")
+                            datos = extraer_datos_desde_sat(rfc, idcif, mode="WA",allow_invalid_status=True)
                             datos = normalize_regimen_fields(datos)
 
                             try:
@@ -9173,7 +9173,7 @@ def procesar_solicitud_interna_para_pdf(
         with tempfile.TemporaryDirectory() as tmpdir:
             for (rfc, idcif) in pares:
                 try:
-                    datos = extraer_datos_desde_sat(rfc, idcif, mode="WA")
+                    datos = extraer_datos_desde_sat(rfc, idcif, mode="WA",allow_invalid_status=True)
                     datos = normalize_regimen_fields(datos)
 
                     try:
@@ -9355,9 +9355,11 @@ def procesar_solicitud_interna_para_pdf(
             rfc,
             idcif,
             mode="WA",
-            allow_invalid_status=(
-                verifiable_fallback_mode
-            ),
+    
+            # Permite generar la constancia aunque el SAT
+            # muestre suspendido, cancelado, baja o sin
+            # régimen activo.
+            allow_invalid_status=True,
         )
     
         datos = normalize_regimen_fields(
@@ -10347,7 +10349,12 @@ def _process_wa_message(job: dict):
                 last_exc = None
                 for attempt in range(1, SAT_MAX_ATTEMPTS_PER_PAIR + 1):
                     try:
-                        return extraer_datos_desde_sat(rfc, idcif)
+                        return extraer_datos_desde_sat(
+                            rfc,
+                            idcif,
+                            mode="WA",
+                            allow_invalid_status=True,
+                        )
                     except ValueError as e:
                         # casos tipo "SIN_DATOS_SAT"
                         last_exc = e
@@ -12457,7 +12464,7 @@ def _process_wa_message(job: dict):
 
         try:
             try:
-                datos = extraer_datos_desde_sat(rfc, idcif, mode="WA")
+                datos = extraer_datos_desde_sat(rfc, idcif, mode="WA",allow_invalid_status=True)
             except ValueError as e:
                 error_code = str(e).strip().upper()
             
@@ -13458,7 +13465,7 @@ def generar_constancia():
     
         else:
             try:
-                datos = extraer_datos_desde_sat(rfc, idcif, mode="WEB")
+                datos = extraer_datos_desde_sat(rfc, idcif, mode="WEB",allow_invalid_status=True)
             except ValueError as e:
                 error_code = str(e).strip().upper()
             
