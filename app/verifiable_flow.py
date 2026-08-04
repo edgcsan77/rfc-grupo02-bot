@@ -20,9 +20,9 @@ VERIFIABLE_PROVIDER_INSTANCE = (
 VERIFIABLE_TIMEOUT_SEC = int(
     os.getenv(
         "RFC_VERIFIABLE_TIMEOUT_SEC",
-        "7200",
+        "86400",
     )
-    or "7200"
+    or "86400"
 )
 
 
@@ -691,7 +691,9 @@ def save_pending(
 
     redis_conn.setex(
         pending_key(request_key),
-        VERIFIABLE_TIMEOUT_SEC,
+        int(
+            VERIFIABLE_TIMEOUT_SEC
+        ) + 300,
         json.dumps(
             payload,
             ensure_ascii=False,
@@ -735,7 +737,9 @@ def associate_provider_message(
         provider_message_key(
             provider_message_id
         ),
-        VERIFIABLE_TIMEOUT_SEC,
+        int(
+            VERIFIABLE_TIMEOUT_SEC
+        ) + 300,
         request_key,
     )
 
@@ -1035,7 +1039,12 @@ def claim_provider_result(
             result_claim_key(request_key),
             "1",
             nx=True,
-            ex=VERIFIABLE_TIMEOUT_SEC,
+            ex=(
+                int(
+                    VERIFIABLE_TIMEOUT_SEC
+                )
+                + 300
+            ),
         )
     )
 
