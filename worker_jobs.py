@@ -1743,6 +1743,30 @@ def process_group_request_job(job_data: dict):
                     delivery_lock_key,
                     delivery_done_key,
                 )
+
+                if (
+                    is_verifiable
+                    and verifiable_request_key
+                ):
+                    finish_pending(
+                        verifiable_request_key,
+                        provider_message_id=(
+                            job_data.get(
+                                "provider_response_msg_id"
+                            )
+                            or ""
+                        ),
+                    )
+                
+                    print(
+                        "[RFC VERIFIABLE PENDING FINISHED]",
+                        {
+                            "request_key":
+                                verifiable_request_key,
+                            "mode": "batch_zip",
+                        },
+                        flush=True,
+                    )
             
             except Exception as accounting_exc:
                 print(
@@ -1884,6 +1908,30 @@ def process_group_request_job(job_data: dict):
                     job_data,
                     count=provider_success_count,
                 )
+            
+                if (
+                    is_verifiable
+                    and verifiable_request_key
+                ):
+                    finish_pending(
+                        verifiable_request_key,
+                        provider_message_id=(
+                            job_data.get(
+                                "provider_response_msg_id"
+                            )
+                            or ""
+                        ),
+                    )
+            
+                    print(
+                        "[RFC VERIFIABLE PENDING FINISHED]",
+                        {
+                            "request_key":
+                                verifiable_request_key,
+                            "mode": "batch_multi",
+                        },
+                        flush=True,
+                    )
                 
             return
 
@@ -2082,7 +2130,7 @@ def process_group_request_job(job_data: dict):
                     job_data,
                     count=1,
                 )
-
+        
             if (
                 success_recorded
                 and is_verifiable
@@ -2098,6 +2146,38 @@ def process_group_request_job(job_data: dict):
                 delivery_lock_key,
                 delivery_done_key,
             )
+        
+            # Una vez entregado y contabilizado correctamente,
+            # elimina definitivamente el pendiente verificable.
+            if (
+                is_verifiable
+                and verifiable_request_key
+            ):
+                finish_pending(
+                    verifiable_request_key,
+                    provider_message_id=(
+                        job_data.get(
+                            "provider_response_msg_id"
+                        )
+                        or ""
+                    ),
+                )
+        
+                print(
+                    "[RFC VERIFIABLE PENDING FINISHED]",
+                    {
+                        "request_key": (
+                            verifiable_request_key
+                        ),
+                        "provider_response_msg_id": (
+                            job_data.get(
+                                "provider_response_msg_id"
+                            )
+                            or ""
+                        ),
+                    },
+                    flush=True,
+                )
         
         except Exception as accounting_exc:
             print(
