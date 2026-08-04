@@ -6776,6 +6776,43 @@ def internal_generate_pdf_from_media():
     mime_type = (data.get("mime_type") or "").strip().lower()
     instance_name = (data.get("evolution_instance") or "").strip()
 
+    is_verifiable_raw = data.get(
+        "is_verifiable",
+        False,
+    )
+    
+    if isinstance(
+        is_verifiable_raw,
+        str,
+    ):
+        is_verifiable = (
+            is_verifiable_raw
+            .strip()
+            .lower()
+            in (
+                "1",
+                "true",
+                "yes",
+                "si",
+                "sí",
+                "on",
+            )
+        )
+    else:
+        is_verifiable = bool(
+            is_verifiable_raw
+        )
+    
+    provider_rfc = (
+        data.get("provider_rfc")
+        or ""
+    ).strip().upper()
+    
+    provider_idcif = (
+        data.get("provider_idcif")
+        or ""
+    ).strip()
+
     if not media_b64:
         return jsonify({"ok": False, "error": "media_b64 vacía"}), 400
 
