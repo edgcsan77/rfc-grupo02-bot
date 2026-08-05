@@ -1111,8 +1111,26 @@ def _bot_groups_for_instance(
                     row.group_name
                     or group_jid
                 ),
+                clon_enabled=bool(
+                    getattr(
+                        row,
+                        "clon_enabled",
+                        True,
+                    )
+                ),
+                idcif_enabled=bool(
+                    getattr(
+                        row,
+                        "idcif_enabled",
+                        True,
+                    )
+                ),
                 verifiable_enabled=bool(
-                    row.verifiable_enabled
+                    getattr(
+                        row,
+                        "verifiable_enabled",
+                        False,
+                    )
                 ),
             )
         )
@@ -1342,6 +1360,20 @@ def _bot_group_stats(db: Session, instance_name: str):
         out.append({
             "group_jid": gid,
             "group_name": group_name,
+            "clon_enabled": bool(
+                getattr(
+                    g,
+                    "clon_enabled",
+                    True,
+                )
+            ),
+            "idcif_enabled": bool(
+                getattr(
+                    g,
+                    "idcif_enabled",
+                    True,
+                )
+            ),
             "verifiable_enabled": bool(
                 getattr(
                     g,
@@ -1354,7 +1386,6 @@ def _bot_group_stats(db: Session, instance_name: str):
             "month_done": month_map.get(gid, 0),
             "prev_month_done": prev_month_map.get(gid, 0),
             "blocked": gid in blocked_set,
-            
             "promo_clon_total": (
                 int(
                     getattr(
@@ -1367,7 +1398,6 @@ def _bot_group_stats(db: Session, instance_name: str):
                 if promo
                 else 0
             ),
-            
             "promo_clon_used": (
                 int(
                     getattr(
@@ -1380,7 +1410,6 @@ def _bot_group_stats(db: Session, instance_name: str):
                 if promo
                 else 0
             ),
-            
             "promo_idcif_total": (
                 int(
                     getattr(
@@ -1393,7 +1422,6 @@ def _bot_group_stats(db: Session, instance_name: str):
                 if promo
                 else 0
             ),
-            
             "promo_idcif_used": (
                 int(
                     getattr(
@@ -1406,7 +1434,6 @@ def _bot_group_stats(db: Session, instance_name: str):
                 if promo
                 else 0
             ),
-            
             "promo_verifiable_total": (
                 int(
                     getattr(
@@ -1419,7 +1446,6 @@ def _bot_group_stats(db: Session, instance_name: str):
                 if promo
                 else 0
             ),
-            
             "promo_verifiable_used": (
                 int(
                     getattr(
@@ -1432,7 +1458,6 @@ def _bot_group_stats(db: Session, instance_name: str):
                 if promo
                 else 0
             ),
-            
             "promo_total": (
                 int(
                     getattr(
@@ -1461,7 +1486,6 @@ def _bot_group_stats(db: Session, instance_name: str):
             )
             if promo
             else 0,
-            
             "promo_used": (
                 int(
                     getattr(
@@ -1490,7 +1514,6 @@ def _bot_group_stats(db: Session, instance_name: str):
             )
             if promo
             else 0,
-            
             "promo_active": bool(promo.is_active) if promo else False,
         })
 
@@ -6304,16 +6327,24 @@ def panel_group_detail(
     view: str = "month",
     date_from: str = "",
     date_to: str = "",
+    token: str = "",
     db: Session = Depends(get_db),
 ):
     if not group_jid:
         return HTMLResponse("<pre>Falta group_jid</pre>", status_code=400)
+
+    if token != PANEL_TOKEN:
+        return HTMLResponse(
+            "<pre>Panel no autorizado</pre>",
+            status_code=403,
+        )
 
     cache_key = "panel:group_detail:" + "|".join([
         (group_jid or "").strip(),
         (view or "month").strip(),
         (date_from or "").strip(),
         (date_to or "").strip(),
+        (token or "").strip(),
     ])
     cached_html = redis_conn.get(cache_key)
     if cached_html:
@@ -6324,6 +6355,95 @@ def panel_group_detail(
     group_cache = _build_group_name_cache(db)
 
     promo = _get_group_promotion(db, group_jid)
+    authorized_group = (
+        db.query(AuthorizedGroup)
+        .filter(
+            AuthorizedGroup.group_jid
+            == group_jid
+        )
+        .first()
+    )
+    clon_enabled = bool(
+        getattr(
+            authorized_group,
+            "clon_enabled",
+            True,
+        )
+    )
+    idcif_enabled = bool(
+        getattr(
+            authorized_group,
+            "idcif_enabled",
+            True,
+        )
+    )
+    verifiable_enabled = bool(
+        getattr(
+            authorized_group,
+            "verifiable_enabled",
+            False,
+        )
+    )
+    clon_status_text = (
+        "CLON activo"
+        if clon_enabled
+        else "CLON desactivado"
+    )
+    idcif_status_text = (
+        "IDCIF activo"
+        if idcif_enabled
+        else "IDCIF desactivado"
+    )
+    verifiable_status_text = (
+        "Verificables activos"
+        if verifiable_enabled
+        else "Verificables desactivados"
+    )
+    clon_status_class = (
+        "service-on"
+        if clon_enabled
+        else "service-off"
+    )
+    idcif_status_class = (
+        "service-on"
+        if idcif_enabled
+        else "service-off"
+    )
+    verifiable_status_class = (
+        "service-on"
+        if verifiable_enabled
+        else "service-off"
+    )
+    clon_next_value = (
+        "false"
+        if clon_enabled
+        else "true"
+    )
+    idcif_next_value = (
+        "false"
+        if idcif_enabled
+        else "true"
+    )
+    verifiable_next_value = (
+        "false"
+        if verifiable_enabled
+        else "true"
+    )
+    clon_button_text = (
+        "Desactivar CLON"
+        if clon_enabled
+        else "Activar CLON"
+    )
+    idcif_button_text = (
+        "Desactivar IDCIF"
+        if idcif_enabled
+        else "Activar IDCIF"
+    )
+    verifiable_button_text = (
+        "Desactivar verificables"
+        if verifiable_enabled
+        else "Activar verificables"
+    )
     #promo = _sync_promo_used_from_logs(db, promo)
     promo_html = _promotion_badge_html(promo)
     group_display_name = _esc(_group_name_cached(group_jid, group_cache))
@@ -6770,6 +6890,45 @@ def panel_group_detail(
             grid-template-columns: 1fr;
           }}
         }}
+        .service-status-grid {{
+          display: grid;
+          grid-template-columns:
+            repeat(
+              auto-fit,
+              minmax(210px, 1fr)
+            );
+          gap: 12px;
+          margin-top: 12px;
+        }}
+        .service-status-item {{
+          display: flex;
+          flex-direction: column;
+          gap: 9px;
+          padding: 12px;
+          border: 1px solid #e5e7eb;
+          border-radius: 14px;
+          background: #ffffff;
+        }}
+        .service-badge {{
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 30px;
+          padding: 5px 10px;
+          border-radius: 999px;
+          font-size: 12px;
+          font-weight: 800;
+        }}
+        .service-on {{
+          color: #166534;
+          background: #dcfce7;
+          border: 1px solid #bbf7d0;
+        }}
+        .service-off {{
+          color: #991b1b;
+          background: #fee2e2;
+          border: 1px solid #fecaca;
+        }}
       </style>
     </head>
     <body>
@@ -6810,6 +6969,100 @@ def panel_group_detail(
             </div>
           </div>
         </div>
+    """
+
+    html += f"""
+    <div class="card">
+      <div class="card-title">
+        Servicios habilitados para el grupo
+      </div>
+    
+      <div class="service-status-grid">
+        <div class="service-status-item">
+          <span
+            class="service-badge {
+              clon_status_class
+            }"
+          >
+            {clon_status_text}
+          </span>
+    
+          <button
+            type="button"
+            class="btn {
+              'btn-warning'
+              if clon_enabled
+              else 'btn-success'
+            }"
+            onclick="
+              setGroupService(
+                '{_esc(group_jid)}',
+                'clon',
+                {clon_next_value}
+              )
+            "
+          >
+            {clon_button_text}
+          </button>
+        </div>
+    
+        <div class="service-status-item">
+          <span
+            class="service-badge {
+              idcif_status_class
+            }"
+          >
+            {idcif_status_text}
+          </span>
+    
+          <button
+            type="button"
+            class="btn {
+              'btn-warning'
+              if idcif_enabled
+              else 'btn-success'
+            }"
+            onclick="
+              setGroupService(
+                '{_esc(group_jid)}',
+                'idcif',
+                {idcif_next_value}
+              )
+            "
+          >
+            {idcif_button_text}
+          </button>
+        </div>
+    
+        <div class="service-status-item">
+          <span
+            class="service-badge {
+              verifiable_status_class
+            }"
+          >
+            {verifiable_status_text}
+          </span>
+    
+          <button
+            type="button"
+            class="btn {
+              'btn-warning'
+              if verifiable_enabled
+              else 'btn-success'
+            }"
+            onclick="
+              setGroupService(
+                '{_esc(group_jid)}',
+                'verifiable',
+                {verifiable_next_value}
+              )
+            "
+          >
+            {verifiable_button_text}
+          </button>
+        </div>
+      </div>
+    </div>
     """
 
     html += f"""
@@ -7313,6 +7566,84 @@ def panel_group_detail(
       </div>
 
       <script>
+          async function setGroupService(
+            groupJid,
+            service,
+            enabled
+          ) {{
+            const labels = {{
+              clon: "CLON",
+              idcif: "IDCIF",
+              verifiable: "Verificables"
+            }};
+        
+            const serviceLabel =
+              labels[service] || service;
+        
+            const actionLabel = enabled
+              ? "activar"
+              : "desactivar";
+        
+            const confirmed = confirm(
+              "¿Deseas "
+              + actionLabel
+              + " "
+              + serviceLabel
+              + " para este grupo?"
+            );
+        
+            if (!confirmed) {{
+              return;
+            }}
+        
+            try {{
+              const panelToken = new URLSearchParams(
+                window.location.search
+              ).get("token") || "";
+        
+              const url =
+                "/panel/group/"
+                + encodeURIComponent(groupJid)
+                + "/service?token="
+                + encodeURIComponent(panelToken);
+        
+              const response = await fetch(
+                url,
+                {{
+                  method: "POST",
+                  headers: {{
+                    "Content-Type":
+                      "application/json"
+                  }},
+                  body: JSON.stringify({{
+                    service: service,
+                    enabled: Boolean(enabled)
+                  }})
+                }}
+              );
+        
+              const data = await response.json();
+        
+              if (!response.ok || !data.ok) {{
+                throw new Error(
+                  data.detail
+                  || data.error
+                  || "No se pudo guardar"
+                );
+              }}
+        
+              window.location.reload();
+        
+            }} catch (error) {{
+              alert(
+                "No se pudo actualizar "
+                + serviceLabel
+                + ": "
+                + error.message
+              );
+            }}
+          }}
+
           async function saveRFCPrice(groupJid) {{
             const price = document.getElementById("RFC_price")?.value?.trim() || "";
 
@@ -9071,6 +9402,54 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "used": 0,
             "available": 0,
         }
+
+
+@app.post(
+    "/botpanel/{token}/group/"
+    "{group_jid}/service"
+)
+def botpanel_set_group_service(
+    token: str,
+    group_jid: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    instance_name = (
+        _bot_instance_from_token(
+            db,
+            token,
+        )
+    )
+
+    if not instance_name:
+        raise HTTPException(
+            status_code=403,
+            detail="INVALID_PANEL",
+        )
+
+    _assert_group_owned_by_bot(
+        db,
+        group_jid,
+        instance_name,
+    )
+
+    service = (
+        payload.get("service")
+        or ""
+    ).strip().lower()
+
+    enabled = payload.get(
+        "enabled",
+        False,
+    )
+
+    return _set_group_service_enabled(
+        db=db,
+        group_jid=group_jid,
+        service=service,
+        enabled=enabled,
+        expected_instance=instance_name,
+    )
         
 
 @app.post("/botpanel/{token}/group/{group_jid}/block")
@@ -10264,6 +10643,82 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 f'<button class="btn btn-light" onclick="hideBotGroup(\'{_esc(g["group_jid"])}\')">Ocultar</button>'
             )
 
+            clon_enabled = bool(
+                g.get(
+                    "clon_enabled",
+                    True,
+                )
+            )
+            
+            idcif_enabled = bool(
+                g.get(
+                    "idcif_enabled",
+                    True,
+                )
+            )
+
+            if clon_enabled:
+                clon_btn = f"""
+                    <button
+                      class="btn btn-warning"
+                      onclick="
+                        setBotGroupService(
+                          '{_esc(g["group_jid"])}',
+                          'clon',
+                          false
+                        )
+                      "
+                    >
+                      Desactivar CLON
+                    </button>
+                """
+            else:
+                clon_btn = f"""
+                    <button
+                      class="btn btn-success"
+                      onclick="
+                        setBotGroupService(
+                          '{_esc(g["group_jid"])}',
+                          'clon',
+                          true
+                        )
+                      "
+                    >
+                      Activar CLON
+                    </button>
+                """
+            
+            if idcif_enabled:
+                idcif_btn = f"""
+                    <button
+                      class="btn btn-warning"
+                      onclick="
+                        setBotGroupService(
+                          '{_esc(g["group_jid"])}',
+                          'idcif',
+                          false
+                        )
+                      "
+                    >
+                      Desactivar IDCIF
+                    </button>
+                """
+            else:
+                idcif_btn = f"""
+                    <button
+                      class="btn btn-success"
+                      onclick="
+                        setBotGroupService(
+                          '{_esc(g["group_jid"])}',
+                          'idcif',
+                          true
+                        )
+                      "
+                    >
+                      Activar IDCIF
+                    </button>
+                """
+
             verifiable_enabled = bool(
                 g.get(
                     "verifiable_enabled",
@@ -10315,108 +10770,120 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             )
             
             if group_blocked:
-                clon_idcif_status = """
+                clon_status = """
                 <div
                   style="
                     display:inline-flex;
                     align-items:center;
-                    gap:5px;
                     padding:4px 8px;
                     border-radius:999px;
                     background:#fee2e2;
                     color:#b91c1c;
                     font-size:12px;
                     font-weight:700;
-                    line-height:1.2;
                     white-space:nowrap;
                   "
                 >
-                  Grupo bloqueado
+                  CLON detenido por bloqueo
                 </div>
                 """
             
-                verifiable_status = """
+                idcif_status = """
                 <div
                   style="
                     display:inline-flex;
                     align-items:center;
-                    gap:5px;
                     padding:4px 8px;
                     border-radius:999px;
                     background:#fee2e2;
                     color:#b91c1c;
-                    font-size:11px;
+                    font-size:12px;
                     font-weight:700;
-                    line-height:1.2;
                     white-space:nowrap;
                   "
                 >
-                  CLON, IDCIF y verificables detenidos
+                  IDCIF detenido por bloqueo
                 </div>
                 """
             
             else:
-                clon_idcif_status = """
-                <div
-                  style="
-                    display:inline-flex;
-                    align-items:center;
-                    gap:5px;
-                    padding:4px 8px;
-                    border-radius:999px;
-                    background:#dcfce7;
-                    color:#166534;
-                    font-size:12px;
-                    font-weight:700;
-                    line-height:1.2;
-                    white-space:nowrap;
-                  "
-                >
-                  CLON/IDCIF activos
-                </div>
-                """
-            
-                if verifiable_enabled:
-                    verifiable_status = """
+                clon_status = (
+                    """
                     <div
                       style="
                         display:inline-flex;
                         align-items:center;
-                        gap:5px;
                         padding:4px 8px;
                         border-radius:999px;
                         background:#dcfce7;
                         color:#166534;
                         font-size:12px;
                         font-weight:700;
-                        line-height:1.2;
                         white-space:nowrap;
                       "
                     >
-                      Verificables activos
+                      CLON activo
                     </div>
                     """
-            
-                else:
-                    verifiable_status = """
+                    if clon_enabled
+                    else
+                    """
                     <div
                       style="
                         display:inline-flex;
                         align-items:center;
-                        gap:5px;
                         padding:4px 8px;
                         border-radius:999px;
-                        background:#ffedd5;
-                        color:#c2410c;
+                        background:#fef3c7;
+                        color:#92400e;
                         font-size:12px;
                         font-weight:700;
-                        line-height:1.2;
                         white-space:nowrap;
                       "
                     >
-                      Verificables desactivados
+                      CLON desactivado
                     </div>
                     """
+                )
+            
+                idcif_status = (
+                    """
+                    <div
+                      style="
+                        display:inline-flex;
+                        align-items:center;
+                        padding:4px 8px;
+                        border-radius:999px;
+                        background:#dcfce7;
+                        color:#166534;
+                        font-size:12px;
+                        font-weight:700;
+                        white-space:nowrap;
+                      "
+                    >
+                      IDCIF activo
+                    </div>
+                    """
+                    if idcif_enabled
+                    else
+                    """
+                    <div
+                      style="
+                        display:inline-flex;
+                        align-items:center;
+                        padding:4px 8px;
+                        border-radius:999px;
+                        background:#fef3c7;
+                        color:#92400e;
+                        font-size:12px;
+                        font-weight:700;
+                        white-space:nowrap;
+                      "
+                    >
+                      IDCIF desactivado
+                    </div>
+                    """
+                )
 
             search_text = f'{g["group_name"]} {g["group_jid"]}'.lower()
 
@@ -10446,7 +10913,8 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                         min-width:175px;
                       "
                     >
-                      {clon_idcif_status}
+                      {clon_status}
+                      {idcif_status}
                       {verifiable_status}
                     </div>
                   </td>
@@ -10521,6 +10989,8 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                         min-width:190px;
                       "
                     >
+                      {clon_btn}
+                      {idcif_btn}
                       {verifiable_btn}
                       {block_btn}
                     </div>
@@ -10696,6 +11166,76 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             location.reload();
           } else {
             alert(data.error || "No se pudo quitar el grupo.");
+          }
+        }
+
+        async function setBotGroupService(
+          groupJid,
+          service,
+          enabled
+        ) {
+          const labels = {
+            clon: "CLON",
+            idcif: "IDCIF",
+            verifiable: "Verificables"
+          };
+        
+          const serviceLabel =
+            labels[service] || service;
+        
+          const actionLabel = enabled
+            ? "activar"
+            : "desactivar";
+        
+          const confirmed = confirm(
+            "¿Deseas "
+            + actionLabel
+            + " "
+            + serviceLabel
+            + " para este grupo?"
+          );
+        
+          if (!confirmed) {
+            return;
+          }
+        
+          try {
+            const response = await fetch(
+              `${BOT_PANEL_BASE}/group/${
+                encodeURIComponent(groupJid)
+              }/service`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type":
+                    "application/json"
+                },
+                body: JSON.stringify({
+                  service: service,
+                  enabled: Boolean(enabled)
+                })
+              }
+            );
+        
+            const data = await response.json();
+        
+            if (!response.ok || !data.ok) {
+              throw new Error(
+                data.detail
+                || data.error
+                || "No se pudo actualizar"
+              );
+            }
+        
+            window.location.reload();
+        
+          } catch (error) {
+            alert(
+              "No se pudo actualizar "
+              + serviceLabel
+              + ": "
+              + error.message
+            );
           }
         }
 
@@ -13879,7 +14419,7 @@ def panel_RFC(
                     """
                 else:
                     promo_cell = f"""
-                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}"
+                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}&token={_esc(token)}"
                        class="btn btn-success"
                        style="color:white;display:inline-flex;align-items:center;justify-content:center;padding:6px 12px; font-size:13px; border-radius:16px; text-decoration:none;">
                        Bolsa RFC
@@ -13889,7 +14429,7 @@ def panel_RFC(
                 html += f"""
                 <tr>
                   <td>
-                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}">
+                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}&token={_esc(token)}">
                       {_esc(r["group_name"])}
                     </a>
                   </td>
@@ -18825,6 +19365,157 @@ def list_blocked_groups() -> list[str]:
             out.append(str(v))
     out.sort()
     return out
+
+
+def _set_group_service_enabled(
+    *,
+    db: Session,
+    group_jid: str,
+    service: str,
+    enabled,
+    expected_instance: str = "",
+):
+    group_jid = str(
+        group_jid or ""
+    ).strip()
+
+    service = str(
+        service or ""
+    ).strip().lower()
+
+    allowed_fields = {
+        "clon": "clon_enabled",
+        "idcif": "idcif_enabled",
+        "verifiable":
+            "verifiable_enabled",
+    }
+
+    field_name = allowed_fields.get(
+        service
+    )
+
+    if not field_name:
+        raise HTTPException(
+            status_code=400,
+            detail="INVALID_SERVICE",
+        )
+
+    if isinstance(enabled, bool):
+        enabled_value = enabled
+    else:
+        enabled_value = str(
+            enabled or ""
+        ).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+            "si",
+            "sí",
+        }
+
+    row = (
+        db.query(AuthorizedGroup)
+        .filter(
+            AuthorizedGroup.group_jid
+            == group_jid
+        )
+        .first()
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="GROUP_NOT_FOUND",
+        )
+
+    owner_instance = str(
+        row.owner_instance or ""
+    ).strip()
+
+    expected_instance = str(
+        expected_instance or ""
+    ).strip()
+
+    if (
+        expected_instance
+        and owner_instance
+        and owner_instance
+        != expected_instance
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "GROUP_OWNER_INSTANCE_MISMATCH"
+            ),
+        )
+
+    setattr(
+        row,
+        field_name,
+        enabled_value,
+    )
+
+    db.commit()
+    db.refresh(row)
+
+    _clear_panel_cache()
+
+    print(
+        "PANEL_GROUP_SERVICE_UPDATED =",
+        {
+            "group_jid": group_jid,
+            "owner_instance":
+                owner_instance,
+            "service": service,
+            "field": field_name,
+            "enabled": enabled_value,
+        },
+        flush=True,
+    )
+
+    return {
+        "ok": True,
+        "group_jid": group_jid,
+        "owner_instance":
+            owner_instance,
+        "service": service,
+        "enabled": enabled_value,
+        field_name: enabled_value,
+    }
+
+
+@app.post(
+    "/panel/group/{group_jid}/service"
+)
+def panel_set_group_service(
+    group_jid: str,
+    payload: dict = Body(...),
+    token: str = "",
+    db: Session = Depends(get_db),
+):
+    if token != PANEL_TOKEN:
+        raise HTTPException(
+            status_code=403,
+            detail="UNAUTHORIZED",
+        )
+
+    service = (
+        payload.get("service")
+        or ""
+    ).strip().lower()
+
+    enabled = payload.get(
+        "enabled",
+        False,
+    )
+
+    return _set_group_service_enabled(
+        db=db,
+        group_jid=group_jid,
+        service=service,
+        enabled=enabled,
+    )
 
 
 @app.post(
