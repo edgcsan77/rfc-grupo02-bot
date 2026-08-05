@@ -10799,6 +10799,24 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   IDCIF detenido por bloqueo
                 </div>
                 """
+
+                verifiable_status = """
+                <div
+                  style="
+                    display:inline-flex;
+                    align-items:center;
+                    padding:4px 8px;
+                    border-radius:999px;
+                    background:#fee2e2;
+                    color:#b91c1c;
+                    font-size:12px;
+                    font-weight:700;
+                    white-space:nowrap;
+                  "
+                >
+                  Verificable detenido por bloqueo
+                </div>
+                """
             
             else:
                 clon_status = (
@@ -10875,6 +10893,45 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                       "
                     >
                       IDCIF desactivado
+                    </div>
+                    """
+                )
+
+                verifiable_status = (
+                    """
+                    <div
+                      style="
+                        display:inline-flex;
+                        align-items:center;
+                        padding:4px 8px;
+                        border-radius:999px;
+                        background:#dcfce7;
+                        color:#166534;
+                        font-size:12px;
+                        font-weight:700;
+                        white-space:nowrap;
+                      "
+                    >
+                      Verificable activo
+                    </div>
+                    """
+                    if verifiable_enabled
+                    else
+                    """
+                    <div
+                      style="
+                        display:inline-flex;
+                        align-items:center;
+                        padding:4px 8px;
+                        border-radius:999px;
+                        background:#fef3c7;
+                        color:#92400e;
+                        font-size:12px;
+                        font-weight:700;
+                        white-space:nowrap;
+                      "
+                    >
+                      Verificable desactivado
                     </div>
                     """
                 )
