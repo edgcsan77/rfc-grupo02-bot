@@ -1619,97 +1619,345 @@ def _extract_verifiable_no_id_items(
     """
     Extrae respuestas negativas individuales y de listas mixtas.
 
-    Admite:
+    Respuestas admitidas:
     - NO ID
-    - CURP NO ID
     - SIN ID
     - S/ID
-    - RFC NO ID
-    - CURP NO ID
+    - NO HAY ID
+    - NO SALE
+
+    Formatos admitidos:
+    - DATO RESPUESTA
+    - RESPUESTA DATO
+    - RESPUESTA + salto + DATO
+    - DATO + salto + RESPUESTA
+    - RESPUESTA sola, cuando el mensaje está citado
+      o contiene un único resultado.
     """
 
     results: list[dict] = []
 
-    bare_no_id_re = re.compile(
-        r"^(?:"
-        r"(?:CURP\s+)?NO\s*ID"
-        r"|(?:CURP\s+)?SIN\s*ID"
-        r"|(?:CURP\s+)?NO\s+HAY\s+ID"
-        r"|(?:CURP\s+)?S\s*/\s*ID"
-        r")$",
-        re.I,
+    normalized_text = (
+        str(provider_text or "")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\u00a0", " ")
+        .replace("\u2007", " ")
+        .replace("\u202f", " ")
+        .replace("\u200b", "")
+        .replace("\u200c", "")
+        .replace("\u200d", "")
+        .replace("\ufeff", "")
     )
 
-    identifier_no_id_re = re.compile(
-        r"^(?P<identifier>"
-        r"(?:[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})"
-        r"|(?:[A-Z][AEIOUX][A-Z]{2}\d{6}"
-        r"[HM][A-Z]{5}[A-Z0-9]\d)"
+    identifier_pattern = (
+        r"(?:"
+        r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9Ñ]{3}"
+        r"|"
+        r"[A-Z][AEIOUX][A-Z]{2}\d{6}"
+        r"[HM][A-Z]{5}[A-Z0-9]\d"
         r")"
-        r"\s*(?:[-:|]\s*)?"
-        r"(?P<status>"
+    )
+
+    status_pattern = (
+        r"(?:"
         r"S\s*/\s*ID"
         r"|SIN\s+ID"
         r"|NO\s+ID"
         r"|NO\s+HAY\s+ID"
-        r")$",
+        r"|NO\s+SALE"
+        r")"
+    )
+
+    identifier_only_re = re.compile(
+        rf"^(?P<identifier>{identifier_pattern})$",
         re.I,
     )
 
+    status_only_re = re.compile(
+        rf"^(?P<status>{status_pattern})$",
+        re.I,
+    )
+
+    # DATO RESPUESTA
+    identifier_status_re = re.compile(
+        rf"^(?P<identifier>{identifier_pattern})"
+        r"\s*(?:[-:|]\s*)?"
+        rf"(?P<status>{status_pattern})$",
+        re.I,
+    )
+
+    # RESPUESTA DATO
+    status_identifier_re = re.compile(
+        rf"^(?P<status>{status_pattern})"
+        r"\s*(?:[-:|]\s*)?"
+        rf"(?P<identifier>{identifier_pattern})$",
+        re.I,
+    )
+
+    lines: list[dict] = []
+
     for line_number, raw_line in enumerate(
-        (provider_text or "").splitlines(),
+        normalized_text.split("\n"),
         start=1,
     ):
         normalized_line = re.sub(
             r"\s+",
             " ",
-            (raw_line or "").strip().upper(),
+            str(raw_line or "")
+            .strip()
+            .upper(),
         )
 
         if not normalized_line:
             continue
 
-        identifier_match = (
-            identifier_no_id_re.fullmatch(
-                normalized_line
+        lines.append({
+            "line_number": line_number,
+            "raw_line": raw_line,
+            "text": normalized_line,
+        })
+
+    consumed_indexes: set[int] = set()
+    seen_results: set[tuple] = set()
+
+    def add_result(
+        *,
+        identifier: str,
+        status: str,
+        line_number: int,
+        raw_line: str,
+        reason: str,
+    ):
+        identifier = str(
+            identifier or ""
+        ).strip().upper()
+
+        status = re.sub(
+            r"\s+",
+            " ",
+            str(status or "")
+            .strip()
+            .upper(),
+        )
+
+        dedupe_key = (
+            identifier,
+            status,
+            int(line_number or 0),
+        )
+
+        if dedupe_key in seen_results:
+            return
+
+        seen_results.add(dedupe_key)
+
+        results.append({
+            "identifier": identifier,
+            "status": status,
+            "line_number": line_number,
+            "raw_line": raw_line,
+            "reason": reason,
+        })
+
+    # ==================================================
+    # 1. RESPUESTAS EN LA MISMA LÍNEA
+    # ==================================================
+    for index, line_data in enumerate(lines):
+        line_text = line_data["text"]
+
+        match = identifier_status_re.fullmatch(
+            line_text
+        )
+
+        if match:
+            add_result(
+                identifier=match.group(
+                    "identifier"
+                ),
+                status=match.group(
+                    "status"
+                ),
+                line_number=line_data[
+                    "line_number"
+                ],
+                raw_line=line_data[
+                    "raw_line"
+                ],
+                reason=(
+                    "identifier_status_same_line"
+                ),
+            )
+
+            consumed_indexes.add(index)
+            continue
+
+        match = status_identifier_re.fullmatch(
+            line_text
+        )
+
+        if match:
+            add_result(
+                identifier=match.group(
+                    "identifier"
+                ),
+                status=match.group(
+                    "status"
+                ),
+                line_number=line_data[
+                    "line_number"
+                ],
+                raw_line=line_data[
+                    "raw_line"
+                ],
+                reason=(
+                    "status_identifier_same_line"
+                ),
+            )
+
+            consumed_indexes.add(index)
+
+    # ==================================================
+    # 2. RESPUESTA Y DATO EN LÍNEAS CONSECUTIVAS
+    # ==================================================
+    index = 0
+
+    while index < len(lines) - 1:
+        if index in consumed_indexes:
+            index += 1
+            continue
+
+        next_index = index + 1
+
+        if next_index in consumed_indexes:
+            index += 1
+            continue
+
+        current = lines[index]
+        following = lines[next_index]
+
+        current_status = status_only_re.fullmatch(
+            current["text"]
+        )
+
+        current_identifier = (
+            identifier_only_re.fullmatch(
+                current["text"]
             )
         )
 
-        if identifier_match:
-            results.append(
-                {
-                    "identifier": (
-                        identifier_match.group(
-                            "identifier"
-                        )
-                        or ""
-                    ).strip().upper(),
-                    "status": (
-                        identifier_match.group(
-                            "status"
-                        )
-                        or ""
-                    ).strip().upper(),
-                    "line_number": line_number,
-                    "raw_line": raw_line,
-                }
+        following_status = (
+            status_only_re.fullmatch(
+                following["text"]
             )
+        )
+
+        following_identifier = (
+            identifier_only_re.fullmatch(
+                following["text"]
+            )
+        )
+
+        # RESPUESTA
+        # DATO
+        if (
+            current_status
+            and following_identifier
+        ):
+            add_result(
+                identifier=(
+                    following_identifier.group(
+                        "identifier"
+                    )
+                ),
+                status=current_status.group(
+                    "status"
+                ),
+                line_number=current[
+                    "line_number"
+                ],
+                raw_line=(
+                    f"{current['raw_line']}\n"
+                    f"{following['raw_line']}"
+                ),
+                reason=(
+                    "status_then_identifier_lines"
+                ),
+            )
+
+            consumed_indexes.add(index)
+            consumed_indexes.add(next_index)
+
+            index += 2
             continue
 
-        if bare_no_id_re.fullmatch(
-            normalized_line
+        # DATO
+        # RESPUESTA
+        if (
+            current_identifier
+            and following_status
         ):
-            results.append(
-                {
-                    "identifier": "",
-                    "status": normalized_line,
-                    "line_number": line_number,
-                    "raw_line": raw_line,
-                }
+            add_result(
+                identifier=(
+                    current_identifier.group(
+                        "identifier"
+                    )
+                ),
+                status=following_status.group(
+                    "status"
+                ),
+                line_number=current[
+                    "line_number"
+                ],
+                raw_line=(
+                    f"{current['raw_line']}\n"
+                    f"{following['raw_line']}"
+                ),
+                reason=(
+                    "identifier_then_status_lines"
+                ),
             )
 
-    return results
+            consumed_indexes.add(index)
+            consumed_indexes.add(next_index)
 
+            index += 2
+            continue
+
+        index += 1
+
+    # ==================================================
+    # 3. RESPUESTAS SOLAS
+    # ==================================================
+    for index, line_data in enumerate(lines):
+        if index in consumed_indexes:
+            continue
+
+        status_match = status_only_re.fullmatch(
+            line_data["text"]
+        )
+
+        if not status_match:
+            continue
+
+        add_result(
+            identifier="",
+            status=status_match.group(
+                "status"
+            ),
+            line_number=line_data[
+                "line_number"
+            ],
+            raw_line=line_data[
+                "raw_line"
+            ],
+            reason="bare_negative_status",
+        )
+
+        consumed_indexes.add(index)
+
+    return results
+    
 
 def _extract_verif4_blank_id_items(
     text: str,
