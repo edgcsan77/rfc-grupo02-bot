@@ -30,6 +30,8 @@ from app.db import (
     SessionLocal,
 )
 
+from app.models import AuthorizedGroup
+
 class VerifiableProviderStat(Base):
     __tablename__ = "verifiable_provider_stats"
 
@@ -231,6 +233,75 @@ def _family_from_kind(kind: str) -> str:
     if kind == "RFC_VERIFICABLE":
         return "RFC_VERIFICABLE"
     return "UNKNOWN"
+
+def _group_service_enabled_for_job(
+    *,
+    group_jid: str,
+    kind: str,
+) -> bool:
+    group_jid = (
+        group_jid or ""
+    ).strip()
+
+    kind = (
+        kind or ""
+    ).strip().upper()
+
+    if not group_jid:
+        return False
+
+    db = SessionLocal()
+
+    try:
+        row = (
+            db.query(AuthorizedGroup)
+            .filter(
+                AuthorizedGroup.group_jid
+                == group_jid
+            )
+            .first()
+        )
+
+        if not row:
+            return False
+
+        if kind in {
+            "CURP",
+            "RFC_ONLY",
+        }:
+            return bool(
+                getattr(
+                    row,
+                    "clon_enabled",
+                    True,
+                )
+            )
+
+        if kind in {
+            "QR",
+            "RFC_IDCIF",
+        }:
+            return bool(
+                getattr(
+                    row,
+                    "idcif_enabled",
+                    True,
+                )
+            )
+
+        if kind == "RFC_VERIFICABLE":
+            return bool(
+                getattr(
+                    row,
+                    "verifiable_enabled",
+                    False,
+                )
+            )
+
+        return False
+
+    finally:
+        db.close()
 
 def panel_record_success(group_jid: str, group_name: str, kind: str, count: int = 1):
     """
@@ -1729,6 +1800,36 @@ def process_group_request_job(job_data: dict):
         
         if forced_success_kind:
             requested_kind = forced_success_kind
+
+        if not _group_service_enabled_for_job(
+            group_jid=group_jid,
+            kind=requested_kind,
+        ):
+            print(
+                "RFC_WORKER_GROUP_SERVICE_DISABLED =",
+                {
+                    "group_jid": group_jid,
+                    "instance": instance_name,
+                    "kind": requested_kind,
+                    "request_key":
+                        job_data.get(
+                            "request_key"
+                        ),
+                },
+                flush=True,
+            )
+        
+            evolution_send_text_to_group(
+                group_jid,
+                (
+                    f"⚠️ {requester_label}, "
+                    "este servicio fue desactivado "
+                    "antes de procesar la solicitud."
+                ),
+                instance_name=instance_name,
+            )
+        
+            return
 
         if not _rfc_commercial_check_or_notify(
             job_data=job_data,
