@@ -18962,8 +18962,35 @@ def _promotion_available(promo: GroupPromotion) -> int:
     idcif_total = int(getattr(promo, "idcif_total", 0) or 0)
     idcif_used = int(getattr(promo, "idcif_used", 0) or 0)
 
-    total = clon_total + idcif_total
-    used = clon_used + idcif_used
+    verifiable_total = int(
+        getattr(
+            promo,
+            "verifiable_total",
+            0,
+        )
+        or 0
+    )
+    
+    verifiable_used = int(
+        getattr(
+            promo,
+            "verifiable_used",
+            0,
+        )
+        or 0
+    )
+
+    total = (
+        clon_total
+        + idcif_total
+        + verifiable_total
+    )
+    
+    used = (
+        clon_used
+        + idcif_used
+        + verifiable_used
+    )
 
     if total <= 0:
         total = int(getattr(promo, "total_actas", 0) or 0)
@@ -18980,52 +19007,177 @@ def _sync_promo_used_from_logs(db: Session, promo: GroupPromotion):
     return promo
 
 
-def _promotion_badge_html(promo: GroupPromotion | None) -> str:
+def _promotion_badge_html(
+    promo: GroupPromotion | None,
+) -> str:
     if not promo:
-        return '<span style="color:#6b7280;font-weight:700;">Sin bolsa RFC</span>'
+        return (
+            '<span style="color:#6b7280;'
+            'font-weight:700;">'
+            'Sin bolsa RFC'
+            '</span>'
+        )
 
-    promo_name = (promo.promo_name or "").strip()
-    clon_total = int(getattr(promo, "clon_total", 0) or 0)
-    clon_used = int(getattr(promo, "clon_used", 0) or 0)
-    idcif_total = int(getattr(promo, "idcif_total", 0) or 0)
-    idcif_used = int(getattr(promo, "idcif_used", 0) or 0)
-    
-    total_actas = clon_total + idcif_total
-    used_actas = clon_used + idcif_used
-    
+    promo_name = (
+        promo.promo_name or ""
+    ).strip()
+
+    clon_total = int(
+        getattr(
+            promo,
+            "clon_total",
+            0,
+        )
+        or 0
+    )
+
+    clon_used = int(
+        getattr(
+            promo,
+            "clon_used",
+            0,
+        )
+        or 0
+    )
+
+    idcif_total = int(
+        getattr(
+            promo,
+            "idcif_total",
+            0,
+        )
+        or 0
+    )
+
+    idcif_used = int(
+        getattr(
+            promo,
+            "idcif_used",
+            0,
+        )
+        or 0
+    )
+
+    verifiable_total = int(
+        getattr(
+            promo,
+            "verifiable_total",
+            0,
+        )
+        or 0
+    )
+
+    verifiable_used = int(
+        getattr(
+            promo,
+            "verifiable_used",
+            0,
+        )
+        or 0
+    )
+
+    total_actas = (
+        clon_total
+        + idcif_total
+        + verifiable_total
+    )
+
+    used_actas = (
+        clon_used
+        + idcif_used
+        + verifiable_used
+    )
+
+    # Compatibilidad con bolsas antiguas
+    # que todavía no tienen totales separados.
     if total_actas <= 0:
-        total_actas = int(promo.total_actas or 0)
-        used_actas = int(promo.used_actas or 0)
+        total_actas = int(
+            getattr(
+                promo,
+                "total_actas",
+                0,
+            )
+            or 0
+        )
 
-    if not promo_name and total_actas == 0 and used_actas == 0:
-        return '<span style="color:#6b7280;font-weight:700;">Sin bolsa RFC</span>'
+        used_actas = int(
+            getattr(
+                promo,
+                "used_actas",
+                0,
+            )
+            or 0
+        )
 
-    available = max(0, total_actas - used_actas)
+    if (
+        not promo_name
+        and total_actas == 0
+        and used_actas == 0
+    ):
+        return (
+            '<span style="color:#6b7280;'
+            'font-weight:700;">'
+            'Sin bolsa RFC'
+            '</span>'
+        )
+
+    available = max(
+        0,
+        total_actas - used_actas,
+    )
 
     if available <= 0:
         color = "#991b1b"
         bg = "#fee2e2"
-        label = f"Agotada · {available} disponibles"
+        label = (
+            f"Agotada · "
+            f"{available} disponibles"
+        )
+
     elif available <= 10:
         color = "#991b1b"
         bg = "#fee2e2"
-        label = f"Crítico · {available} disponibles"
+        label = (
+            f"Crítico · "
+            f"{available} disponibles"
+        )
+
     elif available <= 50:
         color = "#92400e"
         bg = "#fef3c7"
-        label = f"Precaución · {available} disponibles"
+        label = (
+            f"Precaución · "
+            f"{available} disponibles"
+        )
+
     elif available <= 100:
         color = "#92400e"
         bg = "#fef3c7"
-        label = f"Bajo · {available} disponibles"
+        label = (
+            f"Bajo · "
+            f"{available} disponibles"
+        )
+
     else:
         color = "#166534"
         bg = "#dcfce7"
-        label = f"Activa · {available} disponibles"
+        label = (
+            f"Activa · "
+            f"{available} disponibles"
+        )
 
     return (
-        f'<span style="display:inline-block;padding:6px 10px;border-radius:999px;'
-        f'font-weight:800;font-size:.82rem;color:{color};background:{bg};">{label}</span>'
+        '<span style="'
+        'display:inline-block;'
+        'padding:6px 10px;'
+        'border-radius:999px;'
+        'font-weight:800;'
+        'font-size:.82rem;'
+        f'color:{color};'
+        f'background:{bg};'
+        '">'
+        f'{label}'
+        '</span>'
     )
 
 
