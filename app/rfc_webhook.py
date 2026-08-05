@@ -4590,12 +4590,12 @@ async def evolution_rfc_webhook(request: Request):
                 selected_provider["code"]
             )
 
-            "provider_selection_mode": (
+            provider_selection_mode = (
                 selected_provider.get(
                     "selection_mode"
                 )
                 or "AUTO"
-            ),
+            )
             
             provider_db_name = (
                 selected_provider["db_name"]
@@ -4774,6 +4774,9 @@ async def evolution_rfc_webhook(request: Request):
                 ),
                 "provider_code": (
                     provider_code
+                ),
+                "provider_selection_mode": (
+                    provider_selection_mode
                 ),
                 "provider_db_name": (
                     provider_db_name
