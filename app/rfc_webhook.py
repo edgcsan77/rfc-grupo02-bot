@@ -381,6 +381,14 @@ def _verifiable_group_config(
             )
         ),
         "owner_instance": owner_instance,
+    
+        "provider_code": (
+            getattr(
+                row,
+                "verifiable_provider_code",
+                None,
+            )
+        ),
     }
 
 
