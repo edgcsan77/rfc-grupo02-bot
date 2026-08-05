@@ -14,6 +14,7 @@ from app.db import SessionLocal
 from app.models import (
     AuthorizedGroup,
     BotControl,
+    GroupPromotion,
     ProviderSetting,
 )
 from core_sat import (
@@ -380,6 +381,245 @@ def _verifiable_group_config(
             )
         ),
         "owner_instance": owner_instance,
+    }
+
+
+def _verifiable_group_balance(
+    db,
+    group_jid: str,
+) -> dict:
+    group_jid = str(
+        group_jid or ""
+    ).strip()
+
+    if not group_jid:
+        return {
+            "found": False,
+            "allowed": False,
+            "reason": "group_jid_empty",
+            "total": 0,
+            "used": 0,
+            "available": 0,
+            "shared_key": "",
+        }
+
+    promo = (
+        db.query(GroupPromotion)
+        .filter(
+            GroupPromotion.group_jid
+            == group_jid,
+            GroupPromotion.is_active
+            == True,
+        )
+        .order_by(
+            GroupPromotion.updated_at.desc(),
+            GroupPromotion.id.desc(),
+        )
+        .first()
+    )
+
+    if not promo:
+        return {
+            "found": False,
+            "allowed": False,
+            "reason": (
+                "verifiable_group_promotion_not_found"
+            ),
+            "total": 0,
+            "used": 0,
+            "available": 0,
+            "shared_key": "",
+        }
+
+    shared_key = str(
+        getattr(
+            promo,
+            "shared_key",
+            "",
+        )
+        or ""
+    ).strip()
+
+    # Bolsa individual
+    if not shared_key:
+        total = int(
+            getattr(
+                promo,
+                "verifiable_total",
+                0,
+            )
+            or 0
+        )
+
+        used = int(
+            getattr(
+                promo,
+                "verifiable_used",
+                0,
+            )
+            or 0
+        )
+
+    # Bolsa compartida:
+    # todos los registros deben conservar el mismo total/used.
+    else:
+        shared_rows = (
+            db.query(GroupPromotion)
+            .filter(
+                GroupPromotion.shared_key
+                == shared_key,
+                GroupPromotion.is_active
+                == True,
+            )
+            .order_by(
+                GroupPromotion.id.asc()
+            )
+            .all()
+        )
+
+        if not shared_rows:
+            return {
+                "found": False,
+                "allowed": False,
+                "reason": (
+                    "verifiable_shared_promotion_not_found"
+                ),
+                "total": 0,
+                "used": 0,
+                "available": 0,
+                "shared_key": shared_key,
+            }
+
+        totals = {
+            int(
+                getattr(
+                    row,
+                    "verifiable_total",
+                    0,
+                )
+                or 0
+            )
+            for row in shared_rows
+        }
+
+        used_values = {
+            int(
+                getattr(
+                    row,
+                    "verifiable_used",
+                    0,
+                )
+                or 0
+            )
+            for row in shared_rows
+        }
+
+        if len(totals) != 1:
+            return {
+                "found": True,
+                "allowed": False,
+                "reason": (
+                    "verifiable_shared_total_mismatch"
+                ),
+                "total": 0,
+                "used": 0,
+                "available": 0,
+                "shared_key": shared_key,
+            }
+
+        if len(used_values) != 1:
+            return {
+                "found": True,
+                "allowed": False,
+                "reason": (
+                    "verifiable_shared_used_mismatch"
+                ),
+                "total": 0,
+                "used": 0,
+                "available": 0,
+                "shared_key": shared_key,
+            }
+
+        total = next(iter(totals))
+        used = next(iter(used_values))
+
+    available = max(
+        total - used,
+        0,
+    )
+
+    if total <= 0:
+        return {
+            "found": True,
+            "allowed": False,
+            "reason": (
+                "verifiable_group_not_assigned"
+            ),
+            "total": total,
+            "used": used,
+            "available": available,
+            "shared_key": shared_key,
+        }
+
+    if used >= total:
+        return {
+            "found": True,
+            "allowed": False,
+            "reason": (
+                "verifiable_group_limit_reached"
+            ),
+            "total": total,
+            "used": used,
+            "available": available,
+            "shared_key": shared_key,
+        }
+
+    shared_limit = int(
+        getattr(
+            promo,
+            "shared_group_limit_verifiable",
+            0,
+        )
+        or 0
+    )
+
+    shared_used = int(
+        getattr(
+            promo,
+            "shared_group_used_verifiable",
+            0,
+        )
+        or 0
+    )
+
+    if (
+        shared_limit > 0
+        and shared_used >= shared_limit
+    ):
+        return {
+            "found": True,
+            "allowed": False,
+            "reason": (
+                "verifiable_shared_group_limit_reached"
+            ),
+            "total": total,
+            "used": used,
+            "available": available,
+            "shared_key": shared_key,
+            "shared_limit": shared_limit,
+            "shared_used": shared_used,
+        }
+
+    return {
+        "found": True,
+        "allowed": True,
+        "reason": "ok",
+        "total": total,
+        "used": used,
+        "available": available,
+        "shared_key": shared_key,
+        "shared_limit": shared_limit,
+        "shared_used": shared_used,
     }
 
 
@@ -3641,6 +3881,174 @@ async def evolution_rfc_webhook(request: Request):
                         "verifiable_limit_reached"
                     ),
                 }
+
+            group_balance = (
+                _verifiable_group_balance(
+                    db,
+                    remote_jid,
+                )
+            )
+            
+            if not group_balance.get(
+                "allowed",
+                False,
+            ):
+                reason = (
+                    group_balance.get("reason")
+                    or "verifiable_group_balance_denied"
+                )
+            
+                print(
+                    "RFC_VERIFIABLE_GROUP_BALANCE_DENIED =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                        "identifier": (
+                            original_identifier
+                        ),
+                        "query_type": (
+                            original_query_type
+                        ),
+                        "reason": reason,
+                        "verifiable_total": (
+                            group_balance.get("total")
+                        ),
+                        "verifiable_used": (
+                            group_balance.get("used")
+                        ),
+                        "verifiable_available": (
+                            group_balance.get(
+                                "available"
+                            )
+                        ),
+                        "shared_key": (
+                            group_balance.get(
+                                "shared_key"
+                            )
+                        ),
+                        "shared_limit": (
+                            group_balance.get(
+                                "shared_limit"
+                            )
+                        ),
+                        "shared_used": (
+                            group_balance.get(
+                                "shared_used"
+                            )
+                        ),
+                    },
+                    flush=True,
+                )
+            
+                if reason == (
+                    "verifiable_group_promotion_not_found"
+                ):
+                    client_message = (
+                        f"⚠️ {requester_label}, "
+                        "este grupo no tiene una bolsa RFC "
+                        "activa."
+                    )
+            
+                elif reason == (
+                    "verifiable_group_not_assigned"
+                ):
+                    client_message = (
+                        f"⚠️ {requester_label}, "
+                        "este grupo no tiene RFC "
+                        "verificables asignados."
+                    )
+            
+                elif reason == (
+                    "verifiable_group_limit_reached"
+                ):
+                    client_message = (
+                        f"⚠️ {requester_label}, "
+                        "este grupo ya no tiene RFC "
+                        "verificables disponibles."
+                    )
+            
+                elif reason == (
+                    "verifiable_shared_group_limit_reached"
+                ):
+                    client_message = (
+                        f"⚠️ {requester_label}, "
+                        "este grupo alcanzó su límite "
+                        "de RFC verificables dentro de "
+                        "la bolsa compartida."
+                    )
+            
+                else:
+                    client_message = (
+                        f"⚠️ {requester_label}, "
+                        "no fue posible validar el saldo "
+                        "de RFC verificables. "
+                        "Intenta nuevamente."
+                    )
+            
+                try:
+                    send_text(
+                        remote_jid,
+                        client_message,
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception as send_exc:
+                    print(
+                        "RFC_VERIFIABLE_GROUP_BALANCE_"
+                        "NOTICE_ERROR =",
+                        {
+                            "group_jid": remote_jid,
+                            "reason": reason,
+                            "error": repr(send_exc),
+                        },
+                        flush=True,
+                    )
+            
+                return {
+                    "ok": True,
+                    "ignored": reason,
+                    "group_jid": remote_jid,
+                    "verifiable_total": (
+                        group_balance.get("total")
+                    ),
+                    "verifiable_used": (
+                        group_balance.get("used")
+                    ),
+                    "verifiable_available": (
+                        group_balance.get("available")
+                    ),
+                }
+            
+            print(
+                "RFC_VERIFIABLE_GROUP_BALANCE_OK =",
+                {
+                    "instance": instance_name,
+                    "group_jid": remote_jid,
+                    "identifier": (
+                        original_identifier
+                    ),
+                    "query_type": (
+                        original_query_type
+                    ),
+                    "verifiable_total": (
+                        group_balance.get("total")
+                    ),
+                    "verifiable_used": (
+                        group_balance.get("used")
+                    ),
+                    "verifiable_available": (
+                        group_balance.get(
+                            "available"
+                        )
+                    ),
+                    "shared_key": (
+                        group_balance.get(
+                            "shared_key"
+                        )
+                    ),
+                },
+                flush=True,
+            )
 
             normalized_query = (
                 "VERIFICABLE:"
