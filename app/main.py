@@ -10292,6 +10292,52 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
           border-radius: 10px;
           box-sizing: border-box;
         }}
+        .bot-promo-cell {{
+          width: 230px;
+          min-width: 230px;
+        }}
+        .bot-promo-form {{
+          display: grid;
+          grid-template-columns:
+            repeat(3, minmax(0, 1fr));
+          gap: 6px;
+          width: 100%;
+        }}
+        .bot-promo-form input {{
+          min-width: 0;
+          height: 34px;
+          padding: 6px 7px;
+          font-size: 12px;
+          text-align: center;
+        }}
+        .bot-promo-form .bot-promo-name {{
+          grid-column: 1 / -1;
+          text-align: left;
+        }}
+        .bot-promo-form .bot-promo-apply {{
+          grid-column: 1 / -1;
+          width: 100%;
+          min-height: 34px;
+          padding: 7px 8px;
+          font-size: 12px;
+        }}
+        .bot-promo-form .bot-promo-remove {{
+          grid-column: 1 / -1;
+        }}
+        .bot-actions-cell {{
+          width: 155px;
+          min-width: 155px;
+        }}
+        .bot-actions-grid {{
+          display: grid;
+          gap: 6px;
+          min-width: 145px;
+        }}
+        .bot-actions-grid .btn {{
+          width: 100%;
+          padding: 8px 7px;
+          font-size: 12px;
+        }}
         .recharge-box {{
           border: 1px solid #dbeafe;
         }}
@@ -11017,36 +11063,66 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     </div>
                   </td>
 
-                  <td>
-                    <div style="display:grid;gap:8px;min-width:260px;">
-                      <input id="promo_name_{_esc(g["group_jid"])}" placeholder="Nombre promo">
-                      <input id="promo_clon_total_{_esc(g["group_jid"])}" type="number" min="0" step="1" placeholder="Total CLON">
-                      <input id="promo_idcif_total_{_esc(g["group_jid"])}" type="number" min="0" step="1" placeholder="Total IDCIF">
+                  <td class="bot-promo-cell">
+                    <div class="bot-promo-form">
+                
+                      <input
+                        id="promo_name_{_esc(g["group_jid"])}"
+                        class="bot-promo-name"
+                        placeholder="Nombre de bolsa"
+                      >
+                
+                      <input
+                        id="promo_clon_total_{_esc(g["group_jid"])}"
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputmode="numeric"
+                        placeholder="CLON"
+                        title="Total CLON"
+                      >
+                
+                      <input
+                        id="promo_idcif_total_{_esc(g["group_jid"])}"
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputmode="numeric"
+                        placeholder="IDCIF"
+                        title="Total IDCIF"
+                      >
+                
                       <input
                         id="promo_verifiable_total_{_esc(g["group_jid"])}"
                         type="number"
                         min="0"
                         step="1"
-                        placeholder="Total verificables"
+                        inputmode="numeric"
+                        placeholder="VERIF."
+                        title="Total verificables"
                       >
                 
-                      <button class="btn btn-success"
-                        onclick="assignBotPromo('{_esc(g["group_jid"])}')">
-                        Aplicar promo
+                      <button
+                        type="button"
+                        class="btn btn-success bot-promo-apply"
+                        onclick="
+                          assignBotPromo(
+                            '{_esc(g["group_jid"])}'
+                          )
+                        "
+                      >
+                        Aplicar bolsa
                       </button>
                 
-                      {promo_remove_btn}
+                      <div class="bot-promo-remove">
+                        {promo_remove_btn}
+                      </div>
+                
                     </div>
                   </td>
 
-                  <td>
-                    <div
-                      style="
-                        display:grid;
-                        gap:8px;
-                        min-width:190px;
-                      "
-                    >
+                  <td class="bot-actions-cell">
+                    <div class="bot-actions-grid">
                       {clon_btn}
                       {idcif_btn}
                       {verifiable_btn}
