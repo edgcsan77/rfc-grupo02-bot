@@ -7574,22 +7574,6 @@ def panel_group_detail(
             const serviceLabel =
               labels[service] || service;
         
-            const actionLabel = enabled
-              ? "activar"
-              : "desactivar";
-        
-            const confirmed = confirm(
-              "¿Deseas "
-              + actionLabel
-              + " "
-              + serviceLabel
-              + " para este grupo?"
-            );
-        
-            if (!confirmed) {{
-              return;
-            }}
-        
             try {{
               const panelToken = new URLSearchParams(
                 window.location.search
@@ -11233,22 +11217,6 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         
           const serviceLabel =
             labels[service] || service;
-        
-          const actionLabel = enabled
-            ? "activar"
-            : "desactivar";
-        
-          const confirmed = confirm(
-            "¿Deseas "
-            + actionLabel
-            + " "
-            + serviceLabel
-            + " para este grupo?"
-          );
-        
-          if (!confirmed) {
-            return;
-          }
         
           try {
             const response = await fetch(
