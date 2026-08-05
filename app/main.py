@@ -7576,7 +7576,7 @@ def panel_group_detail(
               const url =
                 "/panel/group/"
                 + encodeURIComponent(groupJid)
-                + "/service?token="
+                + "/service";
         
               const response = await fetch(
                 url,
@@ -19503,10 +19503,8 @@ def _set_group_service_enabled(
 def panel_set_group_service(
     group_jid: str,
     payload: dict = Body(...),
-    token: str = "",
     db: Session = Depends(get_db),
 ):
-
     service = (
         payload.get("service")
         or ""
