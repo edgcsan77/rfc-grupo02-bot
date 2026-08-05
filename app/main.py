@@ -12076,6 +12076,15 @@ def panel_RFC(
                     False,
                 )
             )
+
+            verifiable_provider_code = str(
+                getattr(
+                    row,
+                    "verifiable_provider_code",
+                    "",
+                )
+                or ""
+            ).strip().upper()
             
             if gid != "PRIVADO" and owner not in ("", MAIN_PANEL_INSTANCE):
                 continue
@@ -12086,6 +12095,8 @@ def panel_RFC(
                 "owner_instance": owner,
                 "verifiable_enabled":
                     verifiable_enabled,
+                "verifiable_provider_code":
+                    verifiable_provider_code,
                 "total": 0,
                 "queued": 0,
                 "processing": 0,
