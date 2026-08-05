@@ -23195,7 +23195,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                 ORDER BY instance_name
             """)).mappings().all()
 
-        html = """
+        html = f"""
         <style>
           #rfcBotControlNewBox {
             overflow: visible;
@@ -23519,13 +23519,177 @@ def panel_rfc_bot_control_fragment(request: Request):
             color: #64748b;
             font-size: .73rem;
             text-align: right;
-           }
+          }
 
-           @media (max-width: 1150px) {
-             .rfc-family-grid {
-               grid-template-columns: 1fr;
-             }
-           }
+          .rfc-compact-toolbar {
+            display: grid;
+            grid-template-columns:
+              minmax(240px, 1fr)
+              auto;
+            gap: 12px;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+          }
+        
+          .rfc-compact-search {
+            width: 100%;
+            height: 42px;
+            padding: 9px 12px;
+            box-sizing: border-box;
+            border: 1px solid #cbd5e1;
+            border-radius: 11px;
+            background: #ffffff;
+            color: #0f172a;
+            font: inherit;
+          }
+        
+          .rfc-compact-search:focus {
+            outline: none;
+            border-color: #334155;
+            box-shadow:
+              0 0 0 3px rgba(51, 65, 85, .10);
+          }
+        
+          .rfc-compact-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 34px;
+            padding: 0 11px;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            background: #ffffff;
+            color: #475569;
+            font-size: .78rem;
+            font-weight: 800;
+            white-space: nowrap;
+          }
+        
+          .rfc-bot-card,
+          .rfc-manager-price-card {
+            display: block;
+          }
+        
+          .rfc-bot-card > summary,
+          .rfc-manager-price-card > summary {
+            list-style: none;
+            cursor: pointer;
+            user-select: none;
+          }
+        
+          .rfc-bot-card > summary::-webkit-details-marker,
+          .rfc-manager-price-card
+            > summary::-webkit-details-marker {
+            display: none;
+          }
+        
+          .rfc-details-right {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-left: auto;
+          }
+        
+          .rfc-details-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 32px;
+            padding: 0 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 9px;
+            background: #ffffff;
+            color: #334155;
+            font-size: .75rem;
+            font-weight: 800;
+            white-space: nowrap;
+          }
+        
+          .rfc-details-toggle::after {
+            content: "Ver detalles";
+          }
+        
+          details[open]
+            .rfc-details-toggle::after {
+            content: "Ocultar";
+          }
+        
+          .rfc-details-toggle::before {
+            content: "▾";
+            margin-right: 6px;
+            transition: transform .18s ease;
+          }
+        
+          details[open]
+            .rfc-details-toggle::before {
+            transform: rotate(180deg);
+          }
+        
+          .rfc-bot-summary-stats {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            flex-wrap: wrap;
+          }
+        
+          .rfc-summary-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 27px;
+            padding: 0 8px;
+            border: 1px solid #dbe2ea;
+            border-radius: 8px;
+            background: #ffffff;
+            color: #475569;
+            font-size: .70rem;
+            font-weight: 800;
+            white-space: nowrap;
+          }
+        
+          .rfc-filter-empty {
+            display: none;
+            margin: 12px;
+            padding: 22px;
+            border: 1px dashed #cbd5e1;
+            border-radius: 12px;
+            background: #ffffff;
+            color: #64748b;
+            text-align: center;
+          }
+        
+          .rfc-filter-item[hidden] {
+            display: none !important;
+          }
+        
+          @media (max-width: 760px) {
+            .rfc-compact-toolbar {
+              grid-template-columns: 1fr;
+            }
+        
+            .rfc-compact-count {
+              justify-self: start;
+            }
+        
+            .rfc-bot-summary-stats {
+              width: 100%;
+              justify-content: flex-start;
+            }
+        
+            .rfc-details-right {
+              width: 100%;
+              justify-content: space-between;
+              margin-left: 0;
+            }
+          }
+
+          @media (max-width: 1150px) {
+            .rfc-family-grid {
+              grid-template-columns: 1fr;
+            }
           }
 
           @media (max-width: 600px) {
@@ -23576,16 +23740,46 @@ def panel_rfc_bot_control_fragment(request: Request):
           }
         </style>
 
-        <div class="box" id="rfcBotControlNewBox">
+        <div
+          class="box"
+          id="rfcBotControlNewBox"
+        >
           <div class="head">
-            <strong>Control por bot</strong>
-            <span class="small">
-              Cada bot conserva visibles su nombre, estado, límites,
-              recargas y acciones. 0 significa ilimitado, sujeto al saldo global.
+            <div>
+              <strong>Control por bot</strong>
+        
+              <div class="small">
+                Vista compacta. Abre solamente el bot
+                que necesites administrar.
+              </div>
+            </div>
+          </div>
+        
+          <div class="rfc-compact-toolbar">
+            <input
+              id="rfcBotControlSearch"
+              class="rfc-compact-search"
+              type="search"
+              placeholder="Buscar por nombre o instancia..."
+              autocomplete="off"
+              oninput="
+                rfcFilterCompactCards(
+                  'rfcBotControlSearch',
+                  'rfcBotControlList',
+                  'rfcBotControlEmpty'
+                )
+              "
+            >
+        
+            <span class="rfc-compact-count">
+              {len(rows)} bots
             </span>
           </div>
-
-          <div class="rfc-bot-control-list">
+        
+          <div
+            class="rfc-bot-control-list"
+            id="rfcBotControlList"
+          >
         """
 
         price_cards_html = ""
@@ -23741,18 +23935,57 @@ def panel_rfc_bot_control_fragment(request: Request):
             )
 
             html += f"""
-              <article class="rfc-bot-card">
-                <div class="rfc-bot-card-header">
+              <details
+                class="
+                  rfc-bot-card
+                  rfc-filter-item
+                "
+                data-search="{
+                  _esc(
+                    (
+                      label
+                      + ' '
+                      + inst
+                      + ' '
+                      + manager_name
+                    ).lower()
+                  )
+                }"
+              >
+                <summary class="rfc-bot-card-header">
                   <div class="rfc-bot-identity">
-                    <span class="rfc-bot-name">{label_e}</span>
-                    <span class="rfc-bot-instance">{inst_e}</span>
+                    <span class="rfc-bot-name">
+                      {label_e}
+                    </span>
+            
+                    <span class="rfc-bot-instance">
+                      {inst_e}
+                    </span>
                   </div>
-
-                  <div>
+            
+                  <div class="rfc-bot-summary-stats">
+                    <span class="rfc-summary-chip">
+                      CLON {clon_used}/{clon_limit_txt}
+                    </span>
+            
+                    <span class="rfc-summary-chip">
+                      IDCIF {idcif_used}/{idcif_limit_txt}
+                    </span>
+            
+                    <span class="rfc-summary-chip">
+                      VERIF. {verifiable_used}/{
+                        verifiable_limit_txt
+                      }
+                    </span>
+                  </div>
+            
+                  <div class="rfc-details-right">
                     {badge}
+            
+                    <span class="rfc-details-toggle"></span>
                   </div>
-                </div>
-
+                </summary>
+            
                 <div class="rfc-family-grid">
 
                   <section class="rfc-family-box">
@@ -24004,26 +24237,51 @@ def panel_rfc_bot_control_fragment(request: Request):
 
                   {block_button_html}
                 </div>
-              </article>
+              </details>
             """
 
             price_cards_html += f"""
-              <article class="rfc-manager-price-card">
-                <div class="rfc-manager-price-head">
+              <details
+                class="
+                  rfc-manager-price-card
+                  rfc-filter-item
+                "
+                data-search="{
+                  _esc(
+                    (
+                      label
+                      + ' '
+                      + inst
+                      + ' '
+                      + manager_name
+                      + ' '
+                      + price_note
+                    ).lower()
+                  )
+                }"
+              >
+                <summary class="rfc-manager-price-head">
                   <div>
                     <span class="rfc-manager-price-name">
-                      {label_e}
+                      {
+                        manager_name_e
+                        or label_e
+                      }
                     </span>
             
                     <span class="rfc-manager-price-instance">
-                      {inst_e}
+                      {label_e} · {inst_e}
                     </span>
                   </div>
             
-                  <div class="rfc-manager-price-updated">
-                    {sale_price_updated_txt}
+                  <div class="rfc-details-right">
+                    <div class="rfc-manager-price-updated">
+                      {sale_price_updated_txt}
+                    </div>
+            
+                    <span class="rfc-details-toggle"></span>
                   </div>
-                </div>
+                </summary>
             
                 <div class="rfc-manager-price-body">
                   <div class="rfc-manager-price-grid">
@@ -24103,13 +24361,20 @@ def panel_rfc_bot_control_fragment(request: Request):
                     Guardar precios
                   </button>
                 </div>
-              </article>
+              </details>
             """
 
         html += f"""
+            <div
+              class="rfc-filter-empty"
+              id="rfcBotControlEmpty"
+            >
+              No se encontraron bots con ese nombre
+              o instancia.
+            </div>
           </div>
         </div>
-
+        
         <div
           class="box"
           style="margin-top:18px;"
@@ -24120,18 +24385,148 @@ def panel_rfc_bot_control_fragment(request: Request):
               <strong>
                 💲 Precios acordados por gestor
               </strong>
-
+        
               <div class="small">
-                Precios de venta asignados a cada
-                bot o gestor.
+                Busca un gestor y abre solamente
+                su configuración comercial.
               </div>
             </div>
           </div>
-
-          <div class="rfc-manager-price-list">
+        
+          <div class="rfc-compact-toolbar">
+            <input
+              id="rfcManagerPriceSearch"
+              class="rfc-compact-search"
+              type="search"
+              placeholder="Buscar gestor, bot o instancia..."
+              autocomplete="off"
+              oninput="
+                rfcFilterCompactCards(
+                  'rfcManagerPriceSearch',
+                  'rfcManagerPriceList',
+                  'rfcManagerPriceEmpty'
+                )
+              "
+            >
+        
+            <span class="rfc-compact-count">
+              {len(rows)} gestores
+            </span>
+          </div>
+        
+          <div
+            class="rfc-manager-price-list"
+            id="rfcManagerPriceList"
+          >
             {price_cards_html}
+        
+            <div
+              class="rfc-filter-empty"
+              id="rfcManagerPriceEmpty"
+            >
+              No se encontraron gestores con ese nombre
+              o instancia.
+            </div>
           </div>
         </div>
+        """
+
+        html += """
+        <script>
+        (function () {
+          window.rfcFilterCompactCards =
+            function (
+              inputId,
+              listId,
+              emptyId
+            ) {
+              const input =
+                document.getElementById(inputId);
+        
+              const list =
+                document.getElementById(listId);
+        
+              const empty =
+                document.getElementById(emptyId);
+        
+              if (!input || !list) {
+                return;
+              }
+        
+              const query = String(
+                input.value || ""
+              )
+                .trim()
+                .toLowerCase();
+        
+              const cards = Array.from(
+                list.querySelectorAll(
+                  ":scope > .rfc-filter-item"
+                )
+              );
+        
+              let visible = 0;
+        
+              cards.forEach(function (card) {
+                const searchable = String(
+                  card.dataset.search
+                  || card.textContent
+                  || ""
+                ).toLowerCase();
+        
+                const show =
+                  !query
+                  || searchable.includes(query);
+        
+                card.hidden = !show;
+        
+                if (show) {
+                  visible += 1;
+                }
+              });
+        
+              if (empty) {
+                empty.style.display =
+                  visible === 0
+                    ? "block"
+                    : "none";
+              }
+            };
+        
+          document
+            .querySelectorAll(
+              ".rfc-bot-card, "
+              + ".rfc-manager-price-card"
+            )
+            .forEach(function (card) {
+              card.addEventListener(
+                "toggle",
+                function () {
+                  if (!card.open) {
+                    return;
+                  }
+        
+                  const parent =
+                    card.parentElement;
+        
+                  if (!parent) {
+                    return;
+                  }
+        
+                  parent
+                    .querySelectorAll(
+                      ":scope > details[open]"
+                    )
+                    .forEach(function (other) {
+                      if (other !== card) {
+                        other.open = false;
+                      }
+                    });
+                }
+              );
+            });
+        })();
+        </script>
         """
 
         return HTMLResponse(
