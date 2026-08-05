@@ -7126,6 +7126,35 @@ def panel_group_detail(
         </button>
         """
     )
+
+    remove_promo_btn = (
+        f"""
+        <button
+          type="button"
+          class="btn btn-danger"
+          style="width:100%;"
+          onclick="
+            removePromotion(
+              '{_esc(group_jid)}'
+            )
+          "
+        >
+          Quitar bolsa RFC
+        </button>
+        """
+        if (
+            promo
+            and bool(
+                getattr(
+                    promo,
+                    "is_active",
+                    False,
+                )
+            )
+            and not is_in_shared_promo
+        )
+        else ""
+    )
     
     html += f"""
         <div class="box">
@@ -7229,6 +7258,7 @@ def panel_group_detail(
     
           <div class="promo-actions">
             {save_promo_btn}
+            {remove_promo_btn}
             {shared_remove_btn}
           </div>
     
