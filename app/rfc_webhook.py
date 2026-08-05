@@ -1103,6 +1103,11 @@ def _verifiable_providers_runtime(
             or 0
         )
 
+        item["routing_mode"] = str(
+            setting.value
+            or ""
+        ).strip().upper()
+
         result.append(item)
 
     return result
@@ -1111,6 +1116,13 @@ def _verifiable_providers_runtime(
 def _choose_verifiable_provider(
     db,
 ) -> dict:
+    """
+    Selección automática normal.
+
+    Excluye proveedores marcados GROUP_ONLY,
+    porque esos únicamente pueden seleccionarse
+    expresamente para un grupo de grupo02.
+    """
     import random
 
     providers = [
@@ -1125,6 +1137,11 @@ def _choose_verifiable_provider(
             provider.get("weight")
             or 0
         ) > 0
+        and str(
+            provider.get("routing_mode")
+            or ""
+        ).strip().upper()
+        != "GROUP_ONLY"
     ]
 
     if not providers:
@@ -1143,6 +1160,190 @@ def _choose_verifiable_provider(
         weights=weights,
         k=1,
     )[0]
+
+
+def _choose_verifiable_provider_for_group(
+    db,
+    *,
+    group_jid: str,
+    instance_name: str,
+) -> dict:
+    """
+    Solo los grupos propiedad de grupo02 pueden forzar
+    un proveedor verificable.
+
+    Todas las demás instancias conservan la selección
+    automática existente.
+    """
+
+    group_jid = str(
+        group_jid or ""
+    ).strip()
+
+    instance_name = str(
+        instance_name or ""
+    ).strip()
+
+    # Cualquier instancia distinta de grupo02:
+    # comportamiento normal sin cambios.
+    if instance_name != MAIN_PANEL_INSTANCE:
+        return _choose_verifiable_provider(
+            db
+        )
+
+    group_row = (
+        db.query(AuthorizedGroup)
+        .filter(
+            AuthorizedGroup.group_jid
+            == group_jid
+        )
+        .first()
+    )
+
+    if not group_row:
+        return _choose_verifiable_provider(
+            db
+        )
+
+    owner_instance = str(
+        getattr(
+            group_row,
+            "owner_instance",
+            "",
+        )
+        or ""
+    ).strip()
+
+    # Solo permitir asignación manual a grupos
+    # realmente pertenecientes a grupo02.
+    if owner_instance != MAIN_PANEL_INSTANCE:
+        return _choose_verifiable_provider(
+            db
+        )
+
+    forced_code = str(
+        getattr(
+            group_row,
+            "verifiable_provider_code",
+            "",
+        )
+        or ""
+    ).strip().upper()
+
+    # Vacío o AUTO conserva la selección normal.
+    if forced_code in {
+        "",
+        "AUTO",
+        "AUTOMATICO",
+        "AUTOMÁTICO",
+    }:
+        return _choose_verifiable_provider(
+            db
+        )
+
+    allowed_codes = {
+        "VERIF1",
+        "VERIF2",
+        "VERIF3",
+        "VERIF4",
+    }
+
+    if forced_code not in allowed_codes:
+        print(
+            "RFC_VERIFIABLE_GROUP_PROVIDER_INVALID =",
+            {
+                "group_jid": group_jid,
+                "instance": instance_name,
+                "forced_code": forced_code,
+            },
+            flush=True,
+        )
+
+        return _choose_verifiable_provider(
+            db
+        )
+
+    providers = (
+        _verifiable_providers_runtime(
+            db
+        )
+    )
+
+    selected = next(
+        (
+            provider
+            for provider in providers
+            if str(
+                provider.get("code")
+                or ""
+            ).strip().upper()
+            == forced_code
+        ),
+        None,
+    )
+
+    if not selected:
+        print(
+            "RFC_VERIFIABLE_GROUP_PROVIDER_NOT_FOUND =",
+            {
+                "group_jid": group_jid,
+                "instance": instance_name,
+                "forced_code": forced_code,
+            },
+            flush=True,
+        )
+
+        return {}
+
+    # Aunque sea GROUP_ONLY debe estar encendido.
+    if not selected.get("enabled"):
+        print(
+            "RFC_VERIFIABLE_GROUP_PROVIDER_DISABLED =",
+            {
+                "group_jid": group_jid,
+                "instance": instance_name,
+                "forced_code": forced_code,
+                "provider_db_name": (
+                    selected.get("db_name")
+                ),
+            },
+            flush=True,
+        )
+
+        return {}
+
+    selected = dict(selected)
+
+    selected["selection_mode"] = (
+        "GROUP_FORCED"
+    )
+
+    selected["forced_group_jid"] = (
+        group_jid
+    )
+
+    print(
+        "RFC_VERIFIABLE_GROUP_PROVIDER_SELECTED =",
+        {
+            "group_jid": group_jid,
+            "instance": instance_name,
+            "provider_code": (
+                selected.get("code")
+            ),
+            "provider_name": (
+                selected.get("name")
+            ),
+            "provider_db_name": (
+                selected.get("db_name")
+            ),
+            "routing_mode": (
+                selected.get("routing_mode")
+            ),
+        },
+        flush=True,
+    )
+
+    return selected
 
 
 def _queue_verifiable_pair_for_pending(
@@ -4339,8 +4540,10 @@ async def evolution_rfc_webhook(request: Request):
                 }
 
             selected_provider = (
-                _choose_verifiable_provider(
-                    db
+                _choose_verifiable_provider_for_group(
+                    db,
+                    group_jid=remote_jid,
+                    instance_name=instance_name,
                 )
             )
             
@@ -4378,6 +4581,13 @@ async def evolution_rfc_webhook(request: Request):
             provider_code = (
                 selected_provider["code"]
             )
+
+            "provider_selection_mode": (
+                selected_provider.get(
+                    "selection_mode"
+                )
+                or "AUTO"
+            ),
             
             provider_db_name = (
                 selected_provider["db_name"]
@@ -4855,6 +5065,12 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                     "provider_code": (
                         provider_code
+                    ),
+                    "provider_selection_mode": (
+                        selected_provider.get(
+                            "selection_mode"
+                        )
+                        or "AUTO"
                     ),
                     "provider_db_name": (
                         provider_db_name
