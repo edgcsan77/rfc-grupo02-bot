@@ -12030,6 +12030,15 @@ def panel_RFC(
                         False,
                     )
                 )
+
+                verifiable_provider_code = str(
+                    getattr(
+                        row,
+                        "verifiable_provider_code",
+                        "",
+                    )
+                    or ""
+                ).strip().upper()
                 
                 if gid != "PRIVADO" and owner != MAIN_PANEL_INSTANCE:
                     continue
@@ -12040,6 +12049,8 @@ def panel_RFC(
                     "owner_instance": owner,
                     "verifiable_enabled":
                         verifiable_enabled,
+                    "verifiable_provider_code":
+                        verifiable_provider_code,
                     "total": 0,
                     "queued": 0,
                     "processing": 0,
@@ -12088,6 +12099,9 @@ def panel_RFC(
             item["owner_instance"] = owner
             item["verifiable_enabled"] = (
                 verifiable_enabled
+            )
+            item["verifiable_provider_code"] = (
+                verifiable_provider_code
             )
         
             if st == "QUEUED":
@@ -14495,6 +14509,89 @@ def panel_RFC(
                     if group_verifiable_enabled
                     else "false"
                 )
+
+                selected_provider_code = str(
+                    r.get(
+                        "verifiable_provider_code",
+                        "",
+                    )
+                    or ""
+                ).strip().upper()
+                
+                provider_options = [
+                    ("", "Automático"),
+                    ("VERIF1", "LOCA-EXPRES"),
+                    ("VERIF3", "ROMA"),
+                    ("VERIF4", "ROBERTO"),
+                ]
+                
+                provider_options_html = ""
+                
+                for code, label in provider_options:
+                    selected_attr = (
+                        " selected"
+                        if selected_provider_code == code
+                        else ""
+                    )
+                
+                    provider_options_html += (
+                        f'<option value="{_esc(code)}"'
+                        f'{selected_attr}>'
+                        f'{_esc(label)}'
+                        f'</option>'
+                    )
+                
+                provider_selector_html = f"""
+                <div
+                  style="
+                    display:grid;
+                    gap:6px;
+                    margin-top:8px;
+                    min-width:145px;
+                  "
+                >
+                  <label
+                    style="
+                      font-size:11px;
+                      color:#64748b;
+                      font-weight:700;
+                    "
+                  >
+                    Enviar a proveedor
+                  </label>
+                
+                  <select
+                    id="verifiable_provider_{_esc(r['group_jid'])}"
+                    style="
+                      width:100%;
+                      min-height:34px;
+                      padding:6px 8px;
+                      border:1px solid #cbd5e1;
+                      border-radius:9px;
+                      background:white;
+                    "
+                  >
+                    {provider_options_html}
+                  </select>
+                
+                  <button
+                    type="button"
+                    class="btn"
+                    style="
+                      width:100%;
+                      padding:7px 8px;
+                      font-size:12px;
+                    "
+                    onclick="
+                      setGroupVerifiableProvider(
+                        '{_esc(r['group_jid'])}'
+                      )
+                    "
+                  >
+                    Guardar proveedor
+                  </button>
+                </div>
+                """
                 
                 block_btn = (
                     f'<button class="btn btn-success" onclick="toggleGroupBlock(\'{r["group_jid"]}\', \'unblock\')">Desbloquear</button>'
@@ -14568,6 +14665,8 @@ def panel_RFC(
                     >
                       {group_verifiable_button}
                     </button>
+
+                    {provider_selector_html}
                   </td>
                   <td>{_esc(_fmt_dt(r["last_update"]))}</td>
                   <td>{blocked_text}</td>
@@ -15126,6 +15225,62 @@ def panel_RFC(
             alert(
               "Error de conexión al actualizar "
               + "RFC verificable."
+            );
+          }}
+        }}
+
+        async function setGroupVerifiableProvider(
+          groupJid
+        ) {{
+          const select = document.getElementById(
+            "verifiable_provider_" + groupJid
+          );
+        
+          if (!select) {{
+            alert(
+              "No se encontró el selector de proveedor."
+            );
+            return;
+          }}
+        
+          const providerCode = (
+            select.value || ""
+          ).trim();
+        
+          try {{
+            const response = await fetch(
+              "/panel/group/"
+              + encodeURIComponent(groupJid)
+              + "/verifiable-provider",
+              {{
+                method: "POST",
+                headers: {{
+                  "Content-Type":
+                    "application/json"
+                }},
+                body: JSON.stringify({{
+                  provider_code: providerCode
+                }})
+              }}
+            );
+        
+            const data = await response.json();
+        
+            if (!response.ok || !data.ok) {{
+              alert(
+                data.detail
+                || data.error
+                || "No se pudo guardar el proveedor."
+              );
+              return;
+            }}
+        
+            location.reload();
+        
+          }} catch (error) {{
+            alert(
+              "Error de conexión al guardar "
+              + "el proveedor."
             );
           }}
         }}
@@ -19752,6 +19907,91 @@ def _set_group_service_enabled(
         "service": service,
         "enabled": enabled_value,
         field_name: enabled_value,
+    }
+
+
+@app.post(
+    "/panel/group/{group_jid}/verifiable-provider"
+)
+def panel_set_group_verifiable_provider(
+    group_jid: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    group_jid = str(
+        group_jid or ""
+    ).strip()
+
+    provider_code = str(
+        payload.get("provider_code")
+        or ""
+    ).strip().upper()
+
+    if provider_code in {
+        "AUTO",
+        "AUTOMATICO",
+        "AUTOMÁTICO",
+    }:
+        provider_code = ""
+
+    allowed_codes = {
+        "",
+        "VERIF1",
+        "VERIF2",
+        "VERIF3",
+        "VERIF4",
+    }
+
+    if provider_code not in allowed_codes:
+        raise HTTPException(
+            status_code=400,
+            detail="INVALID_PROVIDER_CODE",
+        )
+
+    row = (
+        db.query(AuthorizedGroup)
+        .filter(
+            AuthorizedGroup.group_jid
+            == group_jid
+        )
+        .first()
+    )
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="GROUP_NOT_FOUND",
+        )
+
+    owner_instance = str(
+        row.owner_instance
+        or ""
+    ).strip()
+
+    if owner_instance != MAIN_PANEL_INSTANCE:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "GROUP_PROVIDER_OVERRIDE_"
+                "NOT_ALLOWED"
+            ),
+        )
+
+    row.verifiable_provider_code = (
+        provider_code or None
+    )
+
+    db.commit()
+    db.refresh(row)
+
+    _clear_panel_cache()
+
+    return {
+        "ok": True,
+        "group_jid": group_jid,
+        "provider_code": (
+            provider_code or "AUTO"
+        ),
     }
 
 
