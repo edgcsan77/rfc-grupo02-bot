@@ -6333,12 +6333,6 @@ def panel_group_detail(
     if not group_jid:
         return HTMLResponse("<pre>Falta group_jid</pre>", status_code=400)
 
-    if token != PANEL_TOKEN:
-        return HTMLResponse(
-            "<pre>Panel no autorizado</pre>",
-            status_code=403,
-        )
-
     cache_key = "panel:group_detail:" + "|".join([
         (group_jid or "").strip(),
         (view or "month").strip(),
