@@ -388,6 +388,17 @@ def _verifiable_group_balance(
     db,
     group_jid: str,
 ) -> dict:
+    """
+    La bolsa RFC es opcional para verificables.
+
+    - Sin bolsa activa: permitido; aplica únicamente
+      el límite general del bot.
+    - Bolsa activa con verifiable_total <= 0:
+      permitido; no existe límite verificable por grupo.
+    - Bolsa activa con verifiable_total > 0:
+      se respeta el saldo verificable de la bolsa.
+    """
+
     group_jid = str(
         group_jid or ""
     ).strip()
@@ -396,10 +407,11 @@ def _verifiable_group_balance(
         return {
             "found": False,
             "allowed": False,
+            "limited_by_promotion": False,
             "reason": "group_jid_empty",
             "total": 0,
             "used": 0,
-            "available": 0,
+            "available": None,
             "shared_key": "",
         }
 
@@ -418,17 +430,21 @@ def _verifiable_group_balance(
         .first()
     )
 
+    # No tener bolsa NO bloquea verificables.
     if not promo:
         return {
             "found": False,
-            "allowed": False,
+            "allowed": True,
+            "limited_by_promotion": False,
             "reason": (
-                "verifiable_group_promotion_not_found"
+                "verifiable_without_group_promotion"
             ),
             "total": 0,
             "used": 0,
-            "available": 0,
+            "available": None,
             "shared_key": "",
+            "shared_limit": 0,
+            "shared_used": 0,
         }
 
     shared_key = str(
@@ -440,7 +456,27 @@ def _verifiable_group_balance(
         or ""
     ).strip()
 
-    # Bolsa individual
+    shared_limit = int(
+        getattr(
+            promo,
+            "shared_group_limit_verifiable",
+            0,
+        )
+        or 0
+    )
+
+    shared_used = int(
+        getattr(
+            promo,
+            "shared_group_used_verifiable",
+            0,
+        )
+        or 0
+    )
+
+    # ==========================================
+    # BOLSA INDIVIDUAL
+    # ==========================================
     if not shared_key:
         total = int(
             getattr(
@@ -460,8 +496,9 @@ def _verifiable_group_balance(
             or 0
         )
 
-    # Bolsa compartida:
-    # todos los registros deben conservar el mismo total/used.
+    # ==========================================
+    # BOLSA COMPARTIDA
+    # ==========================================
     else:
         shared_rows = (
             db.query(GroupPromotion)
@@ -479,8 +516,9 @@ def _verifiable_group_balance(
 
         if not shared_rows:
             return {
-                "found": False,
+                "found": True,
                 "allowed": False,
+                "limited_by_promotion": True,
                 "reason": (
                     "verifiable_shared_promotion_not_found"
                 ),
@@ -488,6 +526,8 @@ def _verifiable_group_balance(
                 "used": 0,
                 "available": 0,
                 "shared_key": shared_key,
+                "shared_limit": shared_limit,
+                "shared_used": shared_used,
             }
 
         totals = {
@@ -518,6 +558,7 @@ def _verifiable_group_balance(
             return {
                 "found": True,
                 "allowed": False,
+                "limited_by_promotion": True,
                 "reason": (
                     "verifiable_shared_total_mismatch"
                 ),
@@ -525,12 +566,15 @@ def _verifiable_group_balance(
                 "used": 0,
                 "available": 0,
                 "shared_key": shared_key,
+                "shared_limit": shared_limit,
+                "shared_used": shared_used,
             }
 
         if len(used_values) != 1:
             return {
                 "found": True,
                 "allowed": False,
+                "limited_by_promotion": True,
                 "reason": (
                     "verifiable_shared_used_mismatch"
                 ),
@@ -538,33 +582,41 @@ def _verifiable_group_balance(
                 "used": 0,
                 "available": 0,
                 "shared_key": shared_key,
+                "shared_limit": shared_limit,
+                "shared_used": shared_used,
             }
 
         total = next(iter(totals))
         used = next(iter(used_values))
+
+    # Una bolsa puede existir únicamente para CLON/IDCIF.
+    # Si no asignó verificables, NO debe bloquearlos.
+    if total <= 0:
+        return {
+            "found": True,
+            "allowed": True,
+            "limited_by_promotion": False,
+            "reason": (
+                "verifiable_without_group_limit"
+            ),
+            "total": total,
+            "used": used,
+            "available": None,
+            "shared_key": shared_key,
+            "shared_limit": shared_limit,
+            "shared_used": shared_used,
+        }
 
     available = max(
         total - used,
         0,
     )
 
-    if total <= 0:
-        return {
-            "found": True,
-            "allowed": False,
-            "reason": (
-                "verifiable_group_not_assigned"
-            ),
-            "total": total,
-            "used": used,
-            "available": available,
-            "shared_key": shared_key,
-        }
-
     if used >= total:
         return {
             "found": True,
             "allowed": False,
+            "limited_by_promotion": True,
             "reason": (
                 "verifiable_group_limit_reached"
             ),
@@ -572,25 +624,9 @@ def _verifiable_group_balance(
             "used": used,
             "available": available,
             "shared_key": shared_key,
+            "shared_limit": shared_limit,
+            "shared_used": shared_used,
         }
-
-    shared_limit = int(
-        getattr(
-            promo,
-            "shared_group_limit_verifiable",
-            0,
-        )
-        or 0
-    )
-
-    shared_used = int(
-        getattr(
-            promo,
-            "shared_group_used_verifiable",
-            0,
-        )
-        or 0
-    )
 
     if (
         shared_limit > 0
@@ -599,6 +635,7 @@ def _verifiable_group_balance(
         return {
             "found": True,
             "allowed": False,
+            "limited_by_promotion": True,
             "reason": (
                 "verifiable_shared_group_limit_reached"
             ),
@@ -613,6 +650,7 @@ def _verifiable_group_balance(
     return {
         "found": True,
         "allowed": True,
+        "limited_by_promotion": True,
         "reason": "ok",
         "total": total,
         "used": used,
@@ -621,7 +659,7 @@ def _verifiable_group_balance(
         "shared_limit": shared_limit,
         "shared_used": shared_used,
     }
-
+    
 
 def _extract_text(message: dict, data: dict) -> str:
     if not isinstance(message, dict):
@@ -4029,6 +4067,13 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                     "query_type": (
                         original_query_type
+                    ),
+                    "reason": group_balance.get("reason"),
+                    "limited_by_promotion": (
+                        group_balance.get(
+                            "limited_by_promotion",
+                            False,
+                        )
                     ),
                     "verifiable_total": (
                         group_balance.get("total")
