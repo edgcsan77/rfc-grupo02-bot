@@ -14438,7 +14438,7 @@ def panel_RFC(
                     """
                 else:
                     promo_cell = f"""
-                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}"
+                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}&token={_esc(token)}"
                        class="btn btn-success"
                        style="color:white;display:inline-flex;align-items:center;justify-content:center;padding:6px 12px; font-size:13px; border-radius:16px; text-decoration:none;">
                        Bolsa RFC
@@ -14448,7 +14448,7 @@ def panel_RFC(
                 html += f"""
                 <tr>
                   <td>
-                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}">
+                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}&token={_esc(token)}">
                       {_esc(r["group_name"])}
                     </a>
                   </td>
