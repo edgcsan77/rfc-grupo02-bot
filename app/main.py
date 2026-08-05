@@ -23195,7 +23195,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                 ORDER BY instance_name
             """)).mappings().all()
 
-        html = f"""
+        html = """
         <style>
           #rfcBotControlNewBox {
             overflow: visible;
@@ -23772,7 +23772,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             >
         
             <span class="rfc-compact-count">
-              {len(rows)} bots
+              __RFC_BOT_COUNT__ bots
             </span>
           </div>
         
@@ -23781,6 +23781,11 @@ def panel_rfc_bot_control_fragment(request: Request):
             id="rfcBotControlList"
           >
         """
+        
+        html = html.replace(
+            "__RFC_BOT_COUNT__",
+            str(len(rows)),
+        )
 
         price_cards_html = ""
 
