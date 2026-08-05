@@ -1145,11 +1145,6 @@ def _choose_verifiable_provider(
             provider.get("weight")
             or 0
         ) > 0
-        and str(
-            provider.get("routing_mode")
-            or ""
-        ).strip().upper()
-        != "GROUP_ONLY"
     ]
 
     if not providers:
