@@ -6327,7 +6327,6 @@ def panel_group_detail(
     view: str = "month",
     date_from: str = "",
     date_to: str = "",
-    token: str = "",
     db: Session = Depends(get_db),
 ):
     if not group_jid:
@@ -6338,7 +6337,6 @@ def panel_group_detail(
         (view or "month").strip(),
         (date_from or "").strip(),
         (date_to or "").strip(),
-        (token or "").strip(),
     ])
     cached_html = redis_conn.get(cache_key)
     if cached_html:
@@ -7575,15 +7573,10 @@ def panel_group_detail(
               labels[service] || service;
         
             try {{
-              const panelToken = new URLSearchParams(
-                window.location.search
-              ).get("token") || "";
-        
               const url =
                 "/panel/group/"
                 + encodeURIComponent(groupJid)
                 + "/service?token="
-                + encodeURIComponent(panelToken);
         
               const response = await fetch(
                 url,
@@ -14438,7 +14431,7 @@ def panel_RFC(
                     """
                 else:
                     promo_cell = f"""
-                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}&token={_esc(token)}"
+                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}"
                        class="btn btn-success"
                        style="color:white;display:inline-flex;align-items:center;justify-content:center;padding:6px 12px; font-size:13px; border-radius:16px; text-decoration:none;">
                        Bolsa RFC
@@ -14448,7 +14441,7 @@ def panel_RFC(
                 html += f"""
                 <tr>
                   <td>
-                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}&token={_esc(token)}">
+                    <a href="/panel/group-detail?group_jid={r['group_jid']}&view={view}&date_from={_esc(date_from)}&date_to={_esc(date_to)}">
                       {_esc(r["group_name"])}
                     </a>
                   </td>
@@ -19513,11 +19506,6 @@ def panel_set_group_service(
     token: str = "",
     db: Session = Depends(get_db),
 ):
-    if token != PANEL_TOKEN:
-        raise HTTPException(
-            status_code=403,
-            detail="UNAUTHORIZED",
-        )
 
     service = (
         payload.get("service")
