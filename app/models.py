@@ -41,6 +41,11 @@ class AuthorizedGroup(Base):
         nullable=False,
         server_default="false",
     )
+    verifiable_provider_code = Column(
+        String(30),
+        nullable=True,
+        index=True,
+    )
 
 
 class ProviderSetting(Base):
