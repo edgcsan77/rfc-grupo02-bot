@@ -23,6 +23,18 @@ class AuthorizedGroup(Base):
     owner_instance = Column(String(50), nullable=True, index=True)
     is_hidden = Column(Boolean, default=False, nullable=False)
     hidden_in_main = Column(Boolean, default=False, nullable=False)
+    clon_enabled = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+        server_default="true",
+    )
+    idcif_enabled = Column(
+        Boolean,
+        default=True,
+        nullable=False,
+        server_default="true",
+    )
     verifiable_enabled = Column(
         Boolean,
         default=False,
