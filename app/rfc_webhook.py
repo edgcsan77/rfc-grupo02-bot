@@ -468,6 +468,72 @@ def _authorized_group_exists(db, group_jid: str, instance_name: str) -> bool:
     return True
 
 
+def _group_service_config(
+    db,
+    group_jid: str,
+    instance_name: str,
+) -> dict:
+    row = (
+        db.query(AuthorizedGroup)
+        .filter(
+            AuthorizedGroup.group_jid
+            == group_jid
+        )
+        .first()
+    )
+
+    if not row:
+        return {
+            "exists": False,
+            "owned": False,
+            "clon_enabled": False,
+            "idcif_enabled": False,
+            "verifiable_enabled": False,
+        }
+
+    owner_instance = (
+        row.owner_instance or ""
+    ).strip()
+
+    owned = bool(
+        not owner_instance
+        or owner_instance
+        == (instance_name or "").strip()
+    )
+
+    return {
+        "exists": True,
+        "owned": owned,
+
+        "clon_enabled": bool(
+            getattr(
+                row,
+                "clon_enabled",
+                True,
+            )
+        ),
+
+        "idcif_enabled": bool(
+            getattr(
+                row,
+                "idcif_enabled",
+                True,
+            )
+        ),
+
+        "verifiable_enabled": bool(
+            getattr(
+                row,
+                "verifiable_enabled",
+                False,
+            )
+        ),
+
+        "owner_instance":
+            owner_instance,
+    }
+
+
 def _upsert_authorized_group(db, group_jid: str, instance_name: str):
     row = db.query(AuthorizedGroup).filter(AuthorizedGroup.group_jid == group_jid).first()
 
@@ -4380,6 +4446,121 @@ async def evolution_rfc_webhook(request: Request):
                 print("RFC_INVALID_SEND_ERROR =", repr(e), flush=True)
 
             return {"ok": True, "ignored": "invalid_input"}
+
+        group_service = (
+            _group_service_config(
+                db,
+                remote_jid,
+                instance_name,
+            )
+        )
+        
+        parsed_type = (
+            parsed.get("type")
+            or ""
+        ).strip().upper()
+        
+        is_clon_request = (
+            parsed_type
+            in {
+                "CURP",
+                "RFC_ONLY",
+            }
+        )
+        
+        is_idcif_request = (
+            parsed_type
+            in {
+                "RFC_IDCIF",
+                "QR_TEXT",
+                "IMAGE",
+                "DOCUMENT",
+            }
+        )
+        
+        if (
+            is_clon_request
+            and not group_service[
+                "clon_enabled"
+            ]
+        ):
+            print(
+                "RFC_GROUP_SERVICE_DISABLED =",
+                {
+                    "group_jid": remote_jid,
+                    "instance": instance_name,
+                    "service": "CLON",
+                    "query_type": parsed_type,
+                },
+                flush=True,
+            )
+        
+            try:
+                send_text(
+                    remote_jid,
+                    (
+                        "⚠️ El servicio CLON está "
+                        "desactivado temporalmente "
+                        "para este grupo."
+                    ),
+                    instance_name=instance_name,
+                    fast=True,
+                )
+            except Exception as send_exc:
+                print(
+                    "RFC_GROUP_SERVICE_DISABLED_"
+                    "NOTICE_ERROR =",
+                    repr(send_exc),
+                    flush=True,
+                )
+        
+            return {
+                "ok": True,
+                "ignored":
+                    "group_clon_disabled",
+            }
+        
+        if (
+            is_idcif_request
+            and not group_service[
+                "idcif_enabled"
+            ]
+        ):
+            print(
+                "RFC_GROUP_SERVICE_DISABLED =",
+                {
+                    "group_jid": remote_jid,
+                    "instance": instance_name,
+                    "service": "IDCIF",
+                    "query_type": parsed_type,
+                },
+                flush=True,
+            )
+        
+            try:
+                send_text(
+                    remote_jid,
+                    (
+                        "⚠️ El servicio IDCIF/QR "
+                        "está desactivado temporalmente "
+                        "para este grupo."
+                    ),
+                    instance_name=instance_name,
+                    fast=True,
+                )
+            except Exception as send_exc:
+                print(
+                    "RFC_GROUP_SERVICE_DISABLED_"
+                    "NOTICE_ERROR =",
+                    repr(send_exc),
+                    flush=True,
+                )
+        
+            return {
+                "ok": True,
+                "ignored":
+                    "group_idcif_disabled",
+            }
 
         query = parsed.get("query") or ""
         requester_label = push_name or "Usuario"
