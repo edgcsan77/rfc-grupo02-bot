@@ -593,7 +593,7 @@ def parse_verifiable_request(
     )
     
     normalized_text = re.sub(
-        r"[^A-ZÑ&0-9]+",
+        r"[^A-Z&0-9]+",
         " ",
         upper,
     ).strip()
