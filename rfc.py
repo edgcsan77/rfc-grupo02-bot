@@ -2951,8 +2951,8 @@ def validacion_sat_publish(datos: dict, input_type: str) -> str | None:
         f"?D1=10&D2=1&D3={qd3_d10}"
     )
     
-    # RFC+IDCIF y QR leído:
-    # QR2 debe ser exactamente el mismo QR IDCIF_RFC que QR1.
+    # Solo los grupos configurados reutilizan QR1 como QR2.
+    # Los demás conservan QR2 con D1=26.
     if usar_mismo_qr_idcif_rfc(input_type, datos):
         url_d26 = url_d10
         datos["_QR2_SAME_AS_QR1"] = True
@@ -3265,7 +3265,8 @@ def reemplazar_en_documento(ruta_entrada, ruta_salida, datos, input_type, qr2_by
     qr_bytes, barcode_bytes = generar_qr_y_barcode(url_qr, rfc_val)
 
     # QR2
-    # Para RFC+IDCIF y QR leído, QR2 debe ser la misma imagen exacta de QR1.
+    # Solo los grupos configurados reutilizan QR1 como QR2.
+    # Los demás conservan QR2 con D1=26.
     if usar_mismo_qr_idcif_rfc(input_type, datos) or datos.get("_QR2_SAME_AS_QR1"):
         qr2_bytes = qr_bytes
     
@@ -9139,6 +9140,7 @@ def procesar_solicitud_interna_para_pdf(
                                 pass
 
                             try:
+                                datos["_CLIENT_GROUP_JID"] = str(group_jid or "").strip()
                                 pub_url = validacion_sat_publish(datos, "RFC_IDCIF")
                                 if pub_url:
                                     datos["QR_URL"] = pub_url
@@ -9230,6 +9232,7 @@ def procesar_solicitud_interna_para_pdf(
                         pass
 
                     try:
+                        datos["_CLIENT_GROUP_JID"] = str(group_jid or "").strip()
                         pub_url = validacion_sat_publish(datos, "RFC_IDCIF")
                         if pub_url:
                             datos["QR_URL"] = pub_url
@@ -10006,12 +10009,26 @@ def procesar_solicitud_interna_para_pdf(
         if not (cp_ok and reg_ok):
             raise RuntimeError("CLIENT_CHECKID_INCOMPLETE_DATA")
     
-    try:   
-        pub_url = validacion_sat_publish(datos, input_type)
+    datos["_CLIENT_GROUP_JID"] = str(
+        group_jid
+        or ""
+    ).strip()
+    
+    try:
+        pub_url = validacion_sat_publish(
+            datos,
+            input_type,
+        )
+    
         if pub_url:
             datos["QR_URL"] = pub_url
+    
     except Exception as e:
-        print("validacion_sat_publish internal fail:", repr(e), flush=True)
+        print(
+            "validacion_sat_publish internal fail:",
+            repr(e),
+            flush=True,
+        )
 
     try:
         rfc_base = (datos.get("RFC") or datos.get("rfc") or "").strip().upper()
