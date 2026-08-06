@@ -705,6 +705,18 @@ def gobmx_curp_scrape(term: str) -> dict:
     mun = (mun or "").strip().upper()
     ent = (d.get("ENTIDAD_REGISTRO") or d.get("ENTIDAD") or "").strip().upper()
 
+    entidad_es_extranjera = (
+        _norm_cmp(ent)
+        in {
+            "NACIDO EN EL EXTRANJERO",
+            "NACIDA EN EL EXTRANJERO",
+            "NACIMIENTO EN EL EXTRANJERO",
+            "EXTRANJERO",
+            "EXTRANJERA",
+            "NE",
+        }
+    )
+
     mun_lock = True
 
     ci = {
@@ -737,10 +749,68 @@ def gobmx_curp_scrape(term: str) -> dict:
         "_ADDRESS_ATOMIC_REQUIRED": True,
     }
 
-    seed_key = (ci["RFC"] or ci["CURP"] or curp).strip().upper()
-    datos = build_datos_final_from_ci(ci, seed_key=seed_key)
-
+    seed_key = (
+        ci["RFC"]
+        or ci["CURP"]
+        or curp
+    ).strip().upper()
+    
+    if entidad_es_extranjera:
+        datos = {
+            "RFC": rfc,
+            "RFC_ETIQUETA": rfc,
+            "CURP": (
+                d.get("CURP")
+                or curp
+            ),
+            "NOMBRE": (
+                d.get("NOMBRE")
+                or ""
+            ),
+            "PRIMER_APELLIDO": (
+                d.get("PRIMER_APELLIDO")
+                or ""
+            ),
+            "SEGUNDO_APELLIDO": (
+                d.get("SEGUNDO_APELLIDO")
+                or ""
+            ),
+            "FECHA_NACIMIENTO": fn,
+            "ENTIDAD": ent,
+            "MUNICIPIO": "",
+            "LOCALIDAD": "",
+            "CP": "",
+            "COLONIA": "",
+            "_RFC_CANDIDATES": (
+                [rfc]
+                if rfc
+                else []
+            ),
+            "_ORIGEN": (
+                "NUEVO_LEON_CURP_EXTRANJERO"
+            ),
+            "_FOREIGN_BIRTH": True,
+        }
+    
+        print(
+            "[GOBMX_FOREIGN_CURP_RFC_OK]",
+            {
+                "curp": curp,
+                "rfc": rfc,
+                "entidad": ent,
+            },
+            flush=True,
+        )
+    
+        return datos
+    
+    datos = build_datos_final_from_ci(
+        ci,
+        seed_key=seed_key,
+    )
+    
     datos["_ORIGEN"] = "GOBMX"
+    
     return datos
 
 def enrich_curp_with_rfc_and_satpi(datos: dict) -> dict:
