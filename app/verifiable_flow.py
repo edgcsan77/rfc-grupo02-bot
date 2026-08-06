@@ -370,82 +370,330 @@ def _near_rfc_match(
     )
 
 
-def parse_verifiable_request(text: str) -> dict[str, Any]:
-    """
-    Formatos admitidos:
+VERIFIABLE_EXACT_ALIASES = {
+    "V",
+    "VE",
+    "VER",
+    "VERI",
+    "VERIF",
+    "VERIFIC",
+    "VERIFICA",
+    "VERIFICAB",
+    "VERIFICABL",
+    "VERIFICABLE",
+    "VERIFICABLES",
+}
 
-        VERIFICABLE RAMC801125MDGMRR05
+
+def _verifiable_word_distance(
+    left: str,
+    right: str,
+) -> int:
+    """
+    Distancia de edición simple.
+
+    Permite detectar errores como:
+    - VERIFIACBLE
+    - VEIIFICABLE
+    - VEIFABLE
+    - VERIFCABLE
+    """
+    left = str(
+        left or ""
+    ).strip().upper()
+
+    right = str(
+        right or ""
+    ).strip().upper()
+
+    if left == right:
+        return 0
+
+    if not left:
+        return len(right)
+
+    if not right:
+        return len(left)
+
+    previous = list(
+        range(
+            len(right) + 1
+        )
+    )
+
+    for left_index, left_char in enumerate(
+        left,
+        start=1,
+    ):
+        current = [left_index]
+
+        for right_index, right_char in enumerate(
+            right,
+            start=1,
+        ):
+            insert_cost = (
+                current[right_index - 1]
+                + 1
+            )
+
+            delete_cost = (
+                previous[right_index]
+                + 1
+            )
+
+            replace_cost = (
+                previous[right_index - 1]
+                + (
+                    0
+                    if left_char == right_char
+                    else 1
+                )
+            )
+
+            current.append(
+                min(
+                    insert_cost,
+                    delete_cost,
+                    replace_cost,
+                )
+            )
+
+        previous = current
+
+    return previous[-1]
+
+
+def _is_verifiable_keyword(
+    token: str,
+) -> bool:
+    """
+    Reconoce abreviaciones exactas y errores comunes.
+
+    Las abreviaciones muy cortas solamente se admiten
+    cuando coinciden exactamente, para evitar que una
+    palabra cualquiera sea tomada como verificable.
+    """
+    token = re.sub(
+        r"[^A-Z]",
+        "",
+        str(token or "")
+        .strip()
+        .upper(),
+    )
+
+    if not token:
+        return False
+
+    if token in VERIFIABLE_EXACT_ALIASES:
+        return True
+
+    # Evitar fuzzy matching sobre palabras demasiado cortas.
+    # VE, VER, VERI y VERIF ya están cubiertas arriba.
+    if len(token) < 5:
+        return False
+
+    reference = "VERIFICABLE"
+
+    distance = (
+        _verifiable_word_distance(
+            token,
+            reference,
+        )
+    )
+
+    # Palabras de 5 a 7 caracteres:
+    # máximo 2 errores.
+    if len(token) <= 7:
+        return distance <= 2
+
+    # Palabras de 8 o más caracteres:
+    # máximo 3 errores.
+    return distance <= 3
+
+
+def parse_verifiable_request(
+    text: str,
+) -> dict[str, Any]:
+    """
+    Detecta una solicitud RFC verificable con una sola
+    CURP o un solo RFC.
+
+    Admite el indicador antes, después, en la misma línea
+    o en líneas separadas.
+
+    Ejemplos:
+
+        VERIFICABLE
+        RAMC801125MDGMRR05
+
+        RAMC801125MDGMRR05
+        VERIFICABLE
+
         RAMC801125MDGMRR05 VERIFICABLE
 
-        VERIFICABLE ROSA060919RA1
-        ROSA060919RA1 VERIFICABLE
+        VERIFICABLE RAMC801125MDGMRR05
 
-    Solo admite una CURP o un RFC.
-    No admite QR ni RFC + IDCIF.
+        VERI ROSA060919RA1
+        ROSA060919RA1 VERIF
+
+        VERIFIACBLE ROSA060919RA1
+        VEIFABLE ROSA060919RA1
+
+    No admite:
+    - más de una CURP/RFC;
+    - RFC + IDCIF;
+    - QR;
+    - una palabra verificable sin dato.
     """
-    raw = (text or "").strip()
-    upper = raw.upper()
+    raw = str(
+        text or ""
+    ).strip()
 
-    if not re.search(
-        r"\bVERIFICABLE(?:S)?\b",
-        upper,
-    ):
+    if not raw:
         return {
             "is_verifiable": False,
         }
 
-    clean = re.sub(
-        r"\bVERIFICABLE(?:S)?\b",
-        " ",
-        upper,
-    )
+    upper = raw.upper()
 
-    clean = re.sub(
+    # Convertimos separadores y saltos de línea en espacios,
+    # conservando únicamente tokens útiles.
+    normalized_text = re.sub(
         r"[^A-ZÑ&0-9]+",
         " ",
-        clean,
+        upper,
     ).strip()
 
     tokens = [
         token.strip()
-        for token in clean.split()
+        for token in normalized_text.split()
         if token.strip()
     ]
 
-    valid_tokens: list[tuple[str, str]] = []
+    if not tokens:
+        return {
+            "is_verifiable": False,
+        }
 
-    for token in tokens:
-        normalized = normalize_token(token)
+    keyword_indexes: set[int] = set()
 
-        if CURP_FULL_RE.fullmatch(normalized):
+    for index, token in enumerate(tokens):
+        if _is_verifiable_keyword(
+            token
+        ):
+            keyword_indexes.add(index)
+
+    # Si no hay indicador verificable, el mensaje debe
+    # continuar por el flujo normal de CURP/RFC.
+    if not keyword_indexes:
+        return {
+            "is_verifiable": False,
+        }
+
+    valid_tokens: list[
+        tuple[str, str]
+    ] = []
+
+    idcif_tokens: list[str] = []
+
+    unknown_tokens: list[str] = []
+
+    for index, token in enumerate(tokens):
+        if index in keyword_indexes:
+            continue
+
+        normalized = normalize_token(
+            token
+        )
+
+        if CURP_FULL_RE.fullmatch(
+            normalized
+        ):
             valid_tokens.append(
-                ("CURP", normalized)
+                (
+                    "CURP",
+                    normalized,
+                )
             )
 
-        elif RFC_FULL_RE.fullmatch(normalized):
+            continue
+
+        if RFC_FULL_RE.fullmatch(
+            normalized
+        ):
             valid_tokens.append(
-                ("RFC_ONLY", normalized)
+                (
+                    "RFC_ONLY",
+                    normalized,
+                )
             )
 
+            continue
+
+        if re.fullmatch(
+            r"\d{11}",
+            normalized,
+        ):
+            idcif_tokens.append(
+                normalized
+            )
+
+            continue
+
+        unknown_tokens.append(
+            normalized
+        )
+
+    # RFC + IDCIF no debe entrar como verificable.
+    if idcif_tokens:
+        return {
+            "is_verifiable": True,
+            "ok": False,
+            "error": (
+                "⚠️ Para RFC verificable envía "
+                "solamente una CURP o un RFC, "
+                "sin IDCIF."
+            ),
+        }
+
+    # Exactamente un dato válido.
     if len(valid_tokens) != 1:
         return {
             "is_verifiable": True,
             "ok": False,
             "error": (
-                "⚠️ Para RFC verificable envía únicamente:\n\n"
+                "⚠️ Para RFC verificable envía "
+                "solamente una CURP o un RFC.\n\n"
+                "Ejemplos:\n"
                 "VERIFICABLE + CURP\n"
-                "o\n"
-                "VERIFICABLE + RFC"
+                "CURP + VERIFICABLE\n"
+                "VERIFICABLE + RFC\n"
+                "RFC + VERIFICABLE"
             ),
         }
 
-    query_type, identifier = valid_tokens[0]
+    query_type, identifier = (
+        valid_tokens[0]
+    )
+
+    matched_keywords = [
+        tokens[index]
+        for index in sorted(
+            keyword_indexes
+        )
+    ]
 
     return {
         "is_verifiable": True,
         "ok": True,
         "query_type": query_type,
         "identifier": identifier,
+        "verifiable_keywords": (
+            matched_keywords
+        ),
+        "unknown_tokens": (
+            unknown_tokens
+        ),
     }
 
 
