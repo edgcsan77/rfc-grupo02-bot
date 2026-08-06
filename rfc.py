@@ -2865,21 +2865,52 @@ def datos_to_persona_sat(datos: dict, d3: str, idcif: str, rfc: str, curp: str) 
         "IDCIF_ETIQUETA": S(idcif),
     }
 
+QR2_SAME_AS_QR1_GROUPS = {
+    "120363410586441379@g.us",
+}
+
+
 def usar_mismo_qr_idcif_rfc(
     input_type: str,
     datos: dict | None = None,
 ) -> bool:
     """
-    En grupo02 nunca reutilizar QR1 como QR2.
+    Solo los grupos configurados en
+    QR2_SAME_AS_QR1_GROUPS reutilizan QR1 como QR2.
 
-    QR1:
-      conserva la URL correspondiente al tipo de solicitud.
-
-    QR2:
-      siempre se genera como D1=26 y apunta a
-      https://siat.sat-gb.com
+    Para todos los demás grupos:
+    QR2 continúa usando D1=26.
     """
-    return False
+
+    datos = datos or {}
+
+    group_jid = str(
+        datos.get("_CLIENT_GROUP_JID")
+        or datos.get("GROUP_JID")
+        or datos.get("group_jid")
+        or ""
+    ).strip()
+
+    same_qr = (
+        group_jid
+        in QR2_SAME_AS_QR1_GROUPS
+    )
+
+    print(
+        "[QR2_SAME_AS_QR1_CHECK]",
+        {
+            "group_jid": group_jid,
+            "input_type": (
+                str(input_type or "")
+                .strip()
+                .upper()
+            ),
+            "same_qr": same_qr,
+        },
+        flush=True,
+    )
+
+    return same_qr
 
 def validacion_sat_publish(datos: dict, input_type: str) -> str | None:
     if not validacion_sat_enabled():
