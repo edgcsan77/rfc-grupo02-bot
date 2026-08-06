@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import unicodedata
 import hashlib
 from typing import Any
 
@@ -463,6 +464,37 @@ def _verifiable_word_distance(
     return previous[-1]
 
 
+def _normalize_verifiable_text(
+    value: str,
+) -> str:
+    """
+    Convierte a mayúsculas y elimina acentos.
+
+    Ejemplos:
+    - verificáble  -> VERIFICABLE
+    - verifícable  -> VERIFICABLE
+    - vérificable  -> VERIFICABLE
+    - verificablé  -> VERIFICABLE
+    """
+    value = str(
+        value or ""
+    ).strip().upper()
+
+    value = unicodedata.normalize(
+        "NFD",
+        value,
+    )
+
+    value = "".join(
+        char
+        for char in value
+        if unicodedata.category(char)
+        != "Mn"
+    )
+
+    return value
+
+
 def _is_verifiable_keyword(
     token: str,
 ) -> bool:
@@ -473,12 +505,14 @@ def _is_verifiable_keyword(
     cuando coinciden exactamente, para evitar que una
     palabra cualquiera sea tomada como verificable.
     """
+    token = _normalize_verifiable_text(
+        token
+    )
+    
     token = re.sub(
         r"[^A-Z]",
         "",
-        str(token or "")
-        .strip()
-        .upper(),
+        token,
     )
 
     if not token:
@@ -554,10 +588,10 @@ def parse_verifiable_request(
             "is_verifiable": False,
         }
 
-    upper = raw.upper()
-
-    # Convertimos separadores y saltos de línea en espacios,
-    # conservando únicamente tokens útiles.
+    upper = _normalize_verifiable_text(
+        raw
+    )
+    
     normalized_text = re.sub(
         r"[^A-ZÑ&0-9]+",
         " ",
