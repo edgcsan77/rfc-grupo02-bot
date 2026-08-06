@@ -771,13 +771,40 @@ def consultar_curp_nuevo_leon(
         entidad_clave,
     )
     
-    municipio = (
-        obtener_municipio_sepomex_por_entidad(
-            entidad_registro=entidad,
-            curp=requested_curp,
-            ruta_sepomex=ruta_sepomex,
-        )
+    entidad_normalizada = normalizar_clave(
+        entidad
     )
+    
+    if entidad_normalizada in {
+        "NACIDO EN EL EXTRANJERO",
+        "NACIDA EN EL EXTRANJERO",
+        "NACIMIENTO EN EL EXTRANJERO",
+        "EXTRANJERO",
+        "EXTRANJERA",
+        "NE",
+    }:
+        municipio = ""
+    
+        print(
+            "[NL_CURP_FOREIGN_BIRTH_ACCEPTED]",
+            {
+                "curp": requested_curp,
+                "entidad_clave": entidad_clave,
+                "entidad": entidad,
+                "municipio": "",
+                "sepomex_skipped": True,
+            },
+            flush=True,
+        )
+    
+    else:
+        municipio = (
+            obtener_municipio_sepomex_por_entidad(
+                entidad_registro=entidad,
+                curp=requested_curp,
+                ruta_sepomex=ruta_sepomex,
+            )
+        )
 
     print(
         "[NL_CURP_OK]",
