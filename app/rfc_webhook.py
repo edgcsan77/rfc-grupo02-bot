@@ -3712,10 +3712,10 @@ async def evolution_rfc_webhook(request: Request):
                         remote_jid,
                         "✅ Grupo autorizado para RFC.\n\n"
                         "Ya pueden enviar:\n"
-                        "• CURP\n"
-                        "• RFC\n"
+                        "• CURP/RFC\n"
                         "• RFC + IDCIF\n"
-                        "• QR SAT",
+                        "• QR SAT\n"
+                        "• CURP/RFC VERIFICABLE",
                         instance_name=instance_name,
                     )
                 except Exception as e:
