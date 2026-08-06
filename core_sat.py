@@ -649,12 +649,67 @@ def consultar_curp_nuevo_leon(
         payload.get("curp")
         or ""
     ).strip().upper()
-
-    if returned_curp != curp:
+    
+    requested_curp = str(
+        curp
+        or ""
+    ).strip().upper()
+    
+    # Nuevo León puede devolver una CURP corregida
+    # en los últimos dos caracteres.
+    #
+    # Se acepta únicamente cuando:
+    # - ambas CURP tienen 18 caracteres;
+    # - coinciden exactamente los primeros 16;
+    # - solo cambian los últimos 2.
+    #
+    # Ejemplo permitido:
+    # HECC730503MNLRHN05
+    # HECC730503MNLRHN13
+    exact_curp_match = (
+        returned_curp
+        == requested_curp
+    )
+    
+    same_person_last2_correction = (
+        len(requested_curp) == 18
+        and len(returned_curp) == 18
+        and requested_curp[:16]
+        == returned_curp[:16]
+    )
+    
+    if not (
+        exact_curp_match
+        or same_person_last2_correction
+    ):
         raise RuntimeError(
             "NL_CURP_MISMATCH:"
-            f"requested={curp}:"
+            f"requested={requested_curp}:"
             f"returned={returned_curp}"
+        )
+    
+    curp_was_corrected = bool(
+        returned_curp
+        and returned_curp
+        != requested_curp
+    )
+    
+    if curp_was_corrected:
+        print(
+            "[NL_CURP_LAST2_CORRECTION_ACCEPTED]",
+            {
+                "requested_curp":
+                    requested_curp,
+                "returned_curp":
+                    returned_curp,
+                "matching_prefix":
+                    requested_curp[:16],
+                "requested_last2":
+                    requested_curp[16:],
+                "returned_last2":
+                    returned_curp[16:],
+            },
+            flush=True,
         )
 
     nombre = str(
@@ -719,7 +774,7 @@ def consultar_curp_nuevo_leon(
     municipio = (
         obtener_municipio_sepomex_por_entidad(
             entidad_registro=entidad,
-            curp=curp,
+            curp=requested_curp,
             ruta_sepomex=ruta_sepomex,
         )
     )
@@ -727,8 +782,16 @@ def consultar_curp_nuevo_leon(
     print(
         "[NL_CURP_OK]",
         {
-            "curp": curp,
-            "nombre": nombre,
+            "curp":
+                requested_curp,
+            "requested_curp":
+                requested_curp,
+            "returned_curp":
+                returned_curp,
+            "curp_was_corrected":
+                curp_was_corrected,
+            "nombre":
+                nombre,
             "apellido_paterno":
                 apellido_paterno,
             "apellido_materno":
@@ -748,8 +811,20 @@ def consultar_curp_nuevo_leon(
     )
 
     return {
-        "CURP": curp,
-        "NOMBRE": nombre,
+        # La CURP principal sigue siendo la enviada
+        # por el cliente para conservar la solicitud
+        # y el PDF ligados al dato original.
+        "CURP":
+            requested_curp,
+        # Campos de auditoría.
+        "CURP_SOLICITADA":
+            requested_curp,
+        "CURP_DEVUELTA_NL":
+            returned_curp,
+        "CURP_CORREGIDA_POR_NL":
+            curp_was_corrected,
+        "NOMBRE":
+            nombre,
         "PRIMER_APELLIDO":
             apellido_paterno,
         "SEGUNDO_APELLIDO":
