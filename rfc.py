@@ -2676,18 +2676,73 @@ def extraer_datos_desde_sat(
     timeout = (15, 60) if mode == "WA" else (12, 60)
 
     try:
-        print("[SIAT TRY]", "mode=", mode, "timeout=", timeout, "d3=", d3, flush=True)
-        resp = session.get(url, params=params, headers=headers, timeout=timeout)
+        print(
+            "[SIAT TRY]",
+            "mode=",
+            mode,
+            "timeout=",
+            timeout,
+            "d3=",
+            d3,
+            flush=True,
+        )
+    
+        resp = session.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=timeout,
+        )
+    
     except requests.exceptions.Timeout as e:
-        # Esto es lo más probable por tu log de ~20s
-        raise
-    except requests.exceptions.RequestException:
-        raise
+        print(
+            "[SIAT SERVICE UNAVAILABLE]",
+            {
+                "reason": "TIMEOUT",
+                "rfc": rfc,
+                "idcif": idcif,
+                "error": repr(e),
+            },
+            flush=True,
+        )
+    
+        raise RuntimeError(
+            "SAT_SERVICE_UNAVAILABLE"
+        ) from e
+    
+    except requests.exceptions.RequestException as e:
+        print(
+            "[SIAT SERVICE UNAVAILABLE]",
+            {
+                "reason": type(e).__name__,
+                "rfc": rfc,
+                "idcif": idcif,
+                "error": repr(e),
+            },
+            flush=True,
+        )
+    
+        raise RuntimeError(
+            "SAT_SERVICE_UNAVAILABLE"
+        ) from e
 
     # Manejo explícito de status (sin raise_for_status)
     if resp.status_code >= 500:
-        # SIAT caído/saturado
-        raise requests.exceptions.HTTPError(f"SIAT_{resp.status_code}", response=resp)
+        print(
+            "[SIAT SERVICE UNAVAILABLE]",
+            {
+                "reason": (
+                    f"HTTP_{resp.status_code}"
+                ),
+                "rfc": rfc,
+                "idcif": idcif,
+            },
+            flush=True,
+        )
+    
+        raise RuntimeError(
+            "SAT_SERVICE_UNAVAILABLE"
+        )
 
     if resp.status_code in (403, 429):
         # bloqueo / rate limit
@@ -7427,6 +7482,11 @@ def internal_generate_pdf():
             "SAT_STATUS_SUSPENDED",
         }
 
+        sat_text_delivery_codes = {
+            "SAT_SERVICE_UNAVAILABLE",
+            "SIN_DATOS_SAT",
+        }
+
         checkid_rejection_codes = {
             "CLIENT_RFC_CANCELLED",
             "CLIENT_RFC_SUSPENDED",
@@ -7435,6 +7495,87 @@ def internal_generate_pdf():
             "CLIENT_RFC_REGIME_EMPTY",
             "CLIENT_RFC_CP_AND_REGIME_EMPTY",
         }
+
+        # ==================================================
+        # RFC VERIFICABLE:
+        # SAT no estuvo disponible o no devolvió datos.
+        #
+        # El proveedor YA entregó RFC + IDCIF.
+        # En vez de fabricar/generar PDF, regresamos esos
+        # datos al worker para entregarlos como texto.
+        # ==================================================
+        if (
+            is_verifiable
+            and error_code in sat_text_delivery_codes
+        ):
+            fallback_rfc = str(
+                provider_rfc
+                or ""
+            ).strip().upper()
+        
+            fallback_idcif = str(
+                provider_idcif
+                or ""
+            ).strip()
+        
+            if not fallback_rfc:
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": (
+                            "RFC_VERIFICABLE_"
+                            "TEXT_RFC_EMPTY"
+                        ),
+                    }
+                ), 422
+        
+            if not fallback_idcif:
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": (
+                            "RFC_VERIFICABLE_"
+                            "TEXT_IDCIF_EMPTY"
+                        ),
+                    }
+                ), 422
+        
+            delivery_text = (
+                f"RFC: {fallback_rfc}\n"
+                f"IDCIF: {fallback_idcif}"
+            )
+        
+            print(
+                "[RFC VERIFICABLE SAT TEXT DELIVERY]",
+                {
+                    "rfc": fallback_rfc,
+                    "idcif": fallback_idcif,
+                    "sat_error": error_code,
+                    "group_jid": group_jid,
+                    "instance_name": instance_name,
+                },
+                flush=True,
+            )
+        
+            return jsonify(
+                {
+                    "ok": True,
+                    "mode": "verifiable_text",
+        
+                    "text": delivery_text,
+        
+                    "rfc": fallback_rfc,
+                    "idcif": fallback_idcif,
+        
+                    "verifiable_fallback_used": True,
+                    "verifiable_fallback_kind": (
+                        "RFC_IDCIF_TEXT"
+                    ),
+                    "verifiable_provider_warning_code": (
+                        error_code
+                    ),
+                }
+            ), 200
 
         # ==================================================
         # RFC + IDCIF rechazado por SAT
