@@ -19673,7 +19673,6 @@ def _verifiable_provider_cards_html(
                 Aplicar
               </button>
             </div>
-          </div>
 
           <div class="verifiable-provider-count">
             <div class="verifiable-provider-count-label">
