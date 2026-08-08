@@ -210,6 +210,118 @@ EVOLUTION_APIKEY = settings.EVOLUTION_API_KEY
 PANEL_TOKEN = settings.ADMIN_PANEL_TOKEN
 MAIN_PANEL_INSTANCE = os.getenv("MAIN_PANEL_INSTANCE", "grupo02").strip()
 
+# ============================================================
+# RFC VERIFICABLE:
+# formato de entrada que recibe cada proveedor
+#
+# ORIGINAL:
+#   CURP -> CURP
+#   RFC  -> RFC
+#
+# RFC:
+#   CURP -> se convierte a RFC antes de enviarse
+#   RFC  -> RFC
+# ============================================================
+
+VERIFIABLE_PROVIDER_INPUT_MODE_KEY_PREFIX = (
+    "VERIFIABLE_PROVIDER_INPUT_MODE:"
+)
+
+VERIFIABLE_PROVIDER_INPUT_MODE_ORIGINAL = (
+    "ORIGINAL"
+)
+
+VERIFIABLE_PROVIDER_INPUT_MODE_RFC = (
+    "RFC"
+)
+
+
+def _verifiable_provider_input_mode(
+    db: Session,
+    provider_code: str,
+) -> str:
+    code = (
+        provider_code
+        or ""
+    ).strip().upper()
+
+    if code not in {
+        "VERIF1",
+        "VERIF2",
+        "VERIF3",
+        "VERIF4",
+    }:
+        return (
+            VERIFIABLE_PROVIDER_INPUT_MODE_ORIGINAL
+        )
+
+    value = _get_app_setting(
+        db,
+        (
+            VERIFIABLE_PROVIDER_INPUT_MODE_KEY_PREFIX
+            + code
+        ),
+        VERIFIABLE_PROVIDER_INPUT_MODE_ORIGINAL,
+    )
+
+    value = (
+        value
+        or ""
+    ).strip().upper()
+
+    if value not in {
+        VERIFIABLE_PROVIDER_INPUT_MODE_ORIGINAL,
+        VERIFIABLE_PROVIDER_INPUT_MODE_RFC,
+    }:
+        return (
+            VERIFIABLE_PROVIDER_INPUT_MODE_ORIGINAL
+        )
+
+    return value
+
+
+def _set_verifiable_provider_input_mode(
+    db: Session,
+    provider_code: str,
+    mode: str,
+):
+    code = (
+        provider_code
+        or ""
+    ).strip().upper()
+
+    mode = (
+        mode
+        or ""
+    ).strip().upper()
+
+    if code not in {
+        "VERIF1",
+        "VERIF2",
+        "VERIF3",
+        "VERIF4",
+    }:
+        raise ValueError(
+            "Proveedor verificable inválido"
+        )
+
+    if mode not in {
+        VERIFIABLE_PROVIDER_INPUT_MODE_ORIGINAL,
+        VERIFIABLE_PROVIDER_INPUT_MODE_RFC,
+    }:
+        raise ValueError(
+            "Modo de entrada inválido"
+        )
+
+    return _set_app_setting(
+        db,
+        (
+            VERIFIABLE_PROVIDER_INPUT_MODE_KEY_PREFIX
+            + code
+        ),
+        mode,
+    )
+
 BOT_VERIFIABLE_PROVIDER_KEY_PREFIX = (
     "BOT_VERIFIABLE_PROVIDER:"
 )
@@ -11796,6 +11908,111 @@ def panel_provider_weight(payload: dict, db: Session = Depends(get_db)):
 
 
 @app.post(
+    "/panel/verifiable-provider/input-mode"
+)
+def panel_verifiable_provider_input_mode(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    provider_code = (
+        str(
+            payload.get(
+                "provider_code"
+            )
+            or ""
+        )
+        .strip()
+        .upper()
+    )
+
+    mode = (
+        str(
+            payload.get(
+                "mode"
+            )
+            or ""
+        )
+        .strip()
+        .upper()
+    )
+
+    if provider_code not in {
+        "VERIF1",
+        "VERIF2",
+        "VERIF3",
+        "VERIF4",
+    }:
+        return {
+            "ok": False,
+            "error": (
+                "Proveedor verificable inválido"
+            ),
+        }
+
+    if mode not in {
+        "ORIGINAL",
+        "RFC",
+    }:
+        return {
+            "ok": False,
+            "error": (
+                "Modo de entrada inválido"
+            ),
+        }
+
+    try:
+        _set_verifiable_provider_input_mode(
+            db,
+            provider_code,
+            mode,
+        )
+
+        db.commit()
+
+        _clear_panel_cache()
+
+    except Exception as exc:
+        db.rollback()
+
+        print(
+            "VERIFIABLE_PROVIDER_"
+            "INPUT_MODE_ERROR =",
+            {
+                "provider_code":
+                    provider_code,
+                "mode": mode,
+                "error": repr(exc),
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": False,
+            "error": str(exc),
+        }
+
+    print(
+        "VERIFIABLE_PROVIDER_"
+        "INPUT_MODE_UPDATED =",
+        {
+            "provider_code":
+                provider_code,
+            "mode":
+                mode,
+        },
+        flush=True,
+    )
+
+    return {
+        "ok": True,
+        "provider_code":
+            provider_code,
+        "mode":
+            mode,
+    }
+
+
+@app.post(
     "/panel/verifiable-provider/weight"
 )
 def panel_verifiable_provider_weight(
@@ -15071,6 +15288,71 @@ def panel_RFC(
           panelAudioBase64[target] = "";
           setPanelAudioPreview(target, null);
           setPanelAudioStatus(target, "Sin audio");
+        }}
+
+        async function setVerifiableProviderInputMode(
+          providerCode,
+          mode
+        ) {{
+          let message = "";
+
+          if (mode === "RFC") {{
+            message =
+              "¿Activar convertidor CURP → RFC para "
+              + providerCode
+              + "?\\n\\n"
+              + "Las solicitudes CURP se convertirán "
+              + "a RFC antes de enviarse al proveedor.";
+          }} else {{
+            message =
+              "¿Usar el dato original para "
+              + providerCode
+              + "?\\n\\n"
+              + "CURP llegará como CURP y RFC llegará "
+              + "como RFC.";
+          }}
+
+          if (!confirm(message)) {{
+            return;
+          }}
+
+          try {{
+            const res = await fetch(
+              "/panel/verifiable-provider/input-mode",
+              {{
+                method: "POST",
+                headers: {{
+                  "Content-Type":
+                    "application/json"
+                }},
+                body: JSON.stringify({{
+                  provider_code:
+                    providerCode,
+                  mode:
+                    mode
+                }})
+              }}
+            );
+
+            const data = await res.json();
+
+            if (!data.ok) {{
+              alert(
+                data.error
+                || "No se pudo cambiar el formato"
+              );
+              return;
+            }}
+
+            location.reload();
+
+          }} catch (e) {{
+            console.error(e);
+
+            alert(
+              "No se pudo conectar con el servidor"
+            );
+          }}
         }}
 
         async function toggleVerifiableProvider(
@@ -19217,6 +19499,39 @@ def _verifiable_provider_cards_html(
             or 0
         )
 
+        provider_code = (
+            str(
+                provider.get("code")
+                or ""
+            )
+            .strip()
+            .upper()
+        )
+
+        input_mode = (
+            _verifiable_provider_input_mode(
+                db,
+                provider_code,
+            )
+        )
+
+        uses_rfc_converter = (
+            input_mode
+            == VERIFIABLE_PROVIDER_INPUT_MODE_RFC
+        )
+
+        input_mode_text = (
+            "CONVERTIDOR CURP → RFC"
+            if uses_rfc_converter
+            else "DATO ORIGINAL"
+        )
+
+        input_mode_color = (
+            "#86efac"
+            if uses_rfc_converter
+            else "#cbd5e1"
+        )
+
         status_text = (
             "ACTIVO"
             if enabled
@@ -19311,6 +19626,71 @@ def _verifiable_provider_cards_html(
         
             <div class="verifiable-provider-count-value">
               {provider_done_count}
+            </div>
+          </div>
+
+          <div style="
+            margin-top:12px;
+            margin-bottom:12px;
+            padding:10px;
+            border:1px solid rgba(255,255,255,.15);
+            border-radius:10px;
+          ">
+            <div style="
+              font-size:12px;
+              font-weight:800;
+              margin-bottom:5px;
+            ">
+              Formato enviado al proveedor
+            </div>
+
+            <div style="
+              font-size:12px;
+              font-weight:900;
+              color:{input_mode_color};
+              margin-bottom:9px;
+            ">
+              {input_mode_text}
+            </div>
+
+            <div style="
+              display:flex;
+              gap:7px;
+              flex-wrap:wrap;
+            ">
+              <button
+                type="button"
+                class="btn {
+                    'btn-success'
+                    if not uses_rfc_converter
+                    else 'btn-primary'
+                }"
+                onclick="
+                  setVerifiableProviderInputMode(
+                    '{_esc(provider_code)}',
+                    'ORIGINAL'
+                  )
+                "
+              >
+                Dato original
+              </button>
+
+              <button
+                type="button"
+                class="btn {
+                    'btn-success'
+                    if uses_rfc_converter
+                    else 'btn-primary'
+                }"
+                onclick="
+                  setVerifiableProviderInputMode(
+                    '{_esc(provider_code)}',
+                    'RFC'
+                  )
+                "
+              >
+                CURP → RFC
+              </button>
             </div>
           </div>
 
