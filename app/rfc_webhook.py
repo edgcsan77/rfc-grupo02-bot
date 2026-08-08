@@ -75,6 +75,57 @@ DUPLICATE_NOTICE_TTL_SEC = int(
     ) or "60"
 )
 
+VERIFIABLE_PROVIDER_INPUT_MODE_KEY_PREFIX = (
+    "VERIFIABLE_PROVIDER_INPUT_MODE:"
+)
+
+
+def _verifiable_provider_uses_rfc_converter(
+    db,
+    provider_code: str,
+) -> bool:
+    code = (
+        provider_code
+        or ""
+    ).strip().upper()
+
+    if code not in {
+        "VERIF1",
+        "VERIF2",
+        "VERIF3",
+        "VERIF4",
+    }:
+        return False
+
+    key = (
+        VERIFIABLE_PROVIDER_INPUT_MODE_KEY_PREFIX
+        + code
+    )
+
+    row = (
+        db.query(AppSetting)
+        .filter(
+            AppSetting.key == key
+        )
+        .first()
+    )
+
+    if not row:
+        # DEFAULT:
+        # mandar exactamente lo recibido.
+        return False
+
+    mode = (
+        str(
+            row.value
+            or ""
+        )
+        .strip()
+        .upper()
+    )
+
+    return mode == "RFC"
+
 CURP_RE = re.compile(r"\b[A-Z][AEIOUX][A-Z]{2}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b", re.I)
 RFC_RE = re.compile(r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b", re.I)
 IDCIF_RE = re.compile(r"\b\d{11}\b")
@@ -4779,10 +4830,38 @@ async def evolution_rfc_webhook(request: Request):
                 original_identifier
             )
             
+            provider_uses_rfc_converter = (
+                _verifiable_provider_uses_rfc_converter(
+                    db,
+                    provider_code,
+                )
+            )
+
             must_convert_curp_to_rfc = (
                 original_query_type == "CURP"
-                and provider_group_jid
-                == LOCALIZACIONES_PROVIDER_GROUP
+                and provider_uses_rfc_converter
+            )
+
+            print(
+                "RFC_VERIFIABLE_PROVIDER_"
+                "INPUT_MODE =",
+                {
+                    "provider_code":
+                        provider_code,
+                    "provider_name":
+                        provider_name,
+                    "provider_group":
+                        provider_group_jid,
+                    "original_query_type":
+                        original_query_type,
+                    "original_identifier":
+                        original_identifier,
+                    "uses_rfc_converter":
+                        provider_uses_rfc_converter,
+                    "will_convert":
+                        must_convert_curp_to_rfc,
+                },
+                flush=True,
             )
             
             if must_convert_curp_to_rfc:
