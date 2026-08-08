@@ -210,6 +210,90 @@ EVOLUTION_APIKEY = settings.EVOLUTION_API_KEY
 PANEL_TOKEN = settings.ADMIN_PANEL_TOKEN
 MAIN_PANEL_INSTANCE = os.getenv("MAIN_PANEL_INSTANCE", "grupo02").strip()
 
+BOT_VERIFIABLE_PROVIDER_KEY_PREFIX = (
+    "BOT_VERIFIABLE_PROVIDER:"
+)
+
+BOT_VERIFIABLE_PROVIDER_OPTIONS = {
+    "": "Automático",
+    "VERIF1": "LOCA-EXPRES",
+    "VERIF3": "ROMA",
+    "VERIF4": "ROBERTO",
+}
+
+
+def _bot_verifiable_provider_code(
+    db: Session,
+    instance_name: str | None,
+) -> str:
+    inst = _norm_instance(
+        instance_name
+    )
+
+    if not inst:
+        return ""
+
+    code = _get_app_setting(
+        db,
+        (
+            BOT_VERIFIABLE_PROVIDER_KEY_PREFIX
+            + inst
+        ),
+        "",
+    )
+
+    code = (
+        code
+        or ""
+    ).strip().upper()
+
+    if code not in BOT_VERIFIABLE_PROVIDER_OPTIONS:
+        return ""
+
+    return code
+
+
+def _set_bot_verifiable_provider_code(
+    db: Session,
+    instance_name: str,
+    provider_code: str,
+):
+    inst = _norm_instance(
+        instance_name
+    )
+
+    if not inst:
+        raise ValueError(
+            "Instancia inválida"
+        )
+
+    code = (
+        provider_code
+        or ""
+    ).strip().upper()
+
+    if code in {
+        "AUTO",
+        "AUTOMATICO",
+        "AUTOMÁTICO",
+    }:
+        code = ""
+
+    if code not in BOT_VERIFIABLE_PROVIDER_OPTIONS:
+        raise ValueError(
+            "Proveedor verificable inválido"
+        )
+
+    return _set_app_setting(
+        db,
+        (
+            BOT_VERIFIABLE_PROVIDER_KEY_PREFIX
+            + inst
+        ),
+        code,
+    )
+    
+
 BOT_PROVIDER_MODE_KEY_PREFIX = "BOT_PROVIDER_MODE:"
 DEFAULT_BOT_PROVIDER_MODE = {
     "grupo02maya": "GLOBAL_POOL",
@@ -13990,6 +14074,97 @@ def panel_RFC(
           });
         };
 
+        window.rfcBotSaveVerifiableProvider =
+          async function (instance, button) {
+            const select =
+              document.getElementById(
+                "bot_verifiable_provider_"
+                + instance
+              );
+
+            if (!select) {
+              alert(
+                "No se encontró el selector."
+              );
+              return;
+            }
+
+            if (button) {
+              button.disabled = true;
+              button.textContent =
+                "Guardando...";
+            }
+
+            try {
+              const token =
+                new URLSearchParams(
+                  window.location.search
+                ).get("token") || "";
+
+              const response = await fetch(
+                "/panel/bot/"
+                + encodeURIComponent(instance)
+                + "/verifiable-provider"
+                + "?token="
+                + encodeURIComponent(token),
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type":
+                      "application/json"
+                  },
+                  body: JSON.stringify({
+                    provider_code:
+                      select.value || ""
+                  })
+                }
+              );
+
+              const data =
+                await response.json();
+
+              if (
+                !response.ok
+                || !data.ok
+              ) {
+                throw new Error(
+                  data.detail
+                  || data.error
+                  || "No se pudo guardar"
+                );
+              }
+
+              if (button) {
+                button.textContent =
+                  "Guardado ✓";
+
+                setTimeout(
+                  function () {
+                    button.disabled = false;
+                    button.textContent =
+                      "Guardar proveedor";
+                  },
+                  1200
+                );
+              }
+
+            } catch (error) {
+              if (button) {
+                button.disabled = false;
+                button.textContent =
+                  "Guardar proveedor";
+              }
+
+              alert(
+                "Error guardando proveedor: "
+                + (
+                  error.message
+                  || error
+                )
+              );
+            }
+          };
+
         window.rfcBotRecharge = function(inst, family) {
           const el = document.getElementById(
             family + "_add_" + inst
@@ -20007,6 +20182,100 @@ def panel_set_group_verifiable_provider(
 
 
 @app.post(
+    "/panel/bot/{instance_name}/verifiable-provider"
+)
+def panel_set_bot_verifiable_provider(
+    instance_name: str,
+    request: Request,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    if not _is_valid_admin_panel_token(
+        request
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="UNAUTHORIZED",
+        )
+
+    inst = _norm_instance(
+        instance_name
+    )
+
+    if not inst:
+        raise HTTPException(
+            status_code=400,
+            detail="INVALID_INSTANCE",
+        )
+
+    bot_row = (
+        db.query(BotControl)
+        .filter(
+            func.lower(
+                BotControl.instance_name
+            )
+            == inst
+        )
+        .first()
+    )
+
+    static_bot = (
+        inst in {
+            str(x or "").strip().lower()
+            for x in BOT_LABELS.keys()
+        }
+        or inst in {
+            str(x or "").strip().lower()
+            for x in BOT_PANEL_TOKENS.values()
+        }
+    )
+
+    if not bot_row and not static_bot:
+        raise HTTPException(
+            status_code=404,
+            detail="BOT_NOT_FOUND",
+        )
+
+    provider_code = str(
+        payload.get(
+            "provider_code"
+        )
+        or ""
+    ).strip().upper()
+
+    try:
+        _set_bot_verifiable_provider_code(
+            db,
+            inst,
+            provider_code,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    _clear_panel_cache()
+
+    saved_code = (
+        _bot_verifiable_provider_code(
+            db,
+            inst,
+        )
+    )
+
+    return {
+        "ok": True,
+        "instance_name": inst,
+        "provider_code": (
+            saved_code
+            or "AUTO"
+        ),
+    }
+
+
+@app.post(
     "/panel/group/{group_jid}/service"
 )
 def panel_set_group_service(
@@ -24994,6 +25263,34 @@ def panel_rfc_bot_control_fragment(request: Request):
 
         price_cards_html = ""
 
+        bot_verifiable_provider_map = {}
+
+        settings_session = SessionLocal()
+
+        try:
+            for bot_row in rows:
+                bot_instance = str(
+                    bot_row.get(
+                        "instance_name"
+                    )
+                    or ""
+                ).strip()
+
+                if not bot_instance:
+                    continue
+
+                bot_verifiable_provider_map[
+                    bot_instance
+                ] = (
+                    _bot_verifiable_provider_code(
+                        settings_session,
+                        bot_instance,
+                    )
+                )
+
+        finally:
+            settings_session.close()
+
         for r in rows:
             inst = r["instance_name"] or ""
             label = r["label"] or inst
@@ -25084,6 +25381,50 @@ def panel_rfc_bot_control_fragment(request: Request):
 
             inst_e = _esc(inst)
             label_e = _esc(label)
+
+            bot_verifiable_provider_code = (
+                bot_verifiable_provider_map.get(
+                    inst,
+                    "",
+                )
+                or ""
+            ).strip().upper()
+
+            bot_verifiable_provider_options = []
+
+            for (
+                provider_value,
+                provider_label,
+            ) in (
+                ("", "Automático"),
+                ("VERIF1", "LOCA-EXPRES"),
+                ("VERIF3", "ROMA"),
+                ("VERIF4", "ROBERTO"),
+            ):
+                selected_txt = (
+                    " selected"
+                    if (
+                        bot_verifiable_provider_code
+                        == provider_value
+                    )
+                    else ""
+                )
+
+                bot_verifiable_provider_options.append(
+                    (
+                        f'<option '
+                        f'value="{provider_value}"'
+                        f'{selected_txt}>'
+                        f'{provider_label}'
+                        f'</option>'
+                    )
+                )
+
+            bot_verifiable_provider_options_html = (
+                "".join(
+                    bot_verifiable_provider_options
+                )
+            )
 
             manager_name = str(r.get("manager_name") or "").strip()
             manager_name_e = _esc(manager_name)
@@ -25409,6 +25750,72 @@ def panel_rfc_bot_control_fragment(request: Request):
                       >
                         Recargar
                       </button>
+                    </div>
+
+                    <div
+                      style="
+                        margin-top:14px;
+                        padding-top:12px;
+                        border-top:1px solid #e5e7eb;
+                      "
+                    >
+                      <div
+                        style="
+                          font-size:.78rem;
+                          font-weight:800;
+                          color:#475569;
+                          margin-bottom:6px;
+                        "
+                      >
+                        Proveedor RFC verificable
+                      </div>
+
+                      <div
+                        style="
+                          display:flex;
+                          gap:8px;
+                          align-items:center;
+                          flex-wrap:wrap;
+                        "
+                      >
+                        <select
+                          id="bot_verifiable_provider_{inst_e}"
+                          style="
+                            min-width:170px;
+                            padding:8px 10px;
+                            border:1px solid #cbd5e1;
+                            border-radius:8px;
+                            background:#fff;
+                            font-weight:700;
+                          "
+                        >
+                          {bot_verifiable_provider_options_html}
+                        </select>
+
+                        <button
+                          type="button"
+                          class="btn"
+                          onclick="
+                            rfcBotSaveVerifiableProvider(
+                              '{inst_e}',
+                              this
+                            )
+                          "
+                        >
+                          Guardar proveedor
+                        </button>
+                      </div>
+
+                      <div
+                        style="
+                          margin-top:5px;
+                          font-size:.72rem;
+                          color:#64748b;
+                        "
+                      >
+                        Aplica a los RFC verificables
+                        enviados desde esta instancia.
+                      </div>
                     </div>
                   </section>
 
