@@ -1939,6 +1939,213 @@ def process_group_request_job(job_data: dict):
             kind = forced_success_kind
         mode = (result.get("mode") or "single").strip().lower()
 
+        if mode == "verifiable_text":
+            if not is_verifiable:
+                raise RuntimeError(
+                    "VERIFIABLE_TEXT_ON_"
+                    "NON_VERIFIABLE_JOB"
+                )
+        
+            delivered_rfc = str(
+                result.get("rfc")
+                or job_data.get("provider_rfc")
+                or ""
+            ).strip().upper()
+        
+            delivered_idcif = str(
+                result.get("idcif")
+                or job_data.get("provider_idcif")
+                or ""
+            ).strip()
+        
+            delivery_text = str(
+                result.get("text")
+                or ""
+            ).strip()
+        
+            if not delivered_rfc:
+                raise RuntimeError(
+                    "VERIFIABLE_TEXT_RFC_EMPTY"
+                )
+        
+            if not delivered_idcif:
+                raise RuntimeError(
+                    "VERIFIABLE_TEXT_IDCIF_EMPTY"
+                )
+        
+            if not delivery_text:
+                delivery_text = (
+                    f"RFC: {delivered_rfc}\n"
+                    f"IDCIF: {delivered_idcif}"
+                )
+        
+            delivery_item_key = (
+                f"VERIFICABLE_TEXT:"
+                f"{delivered_rfc}:"
+                f"{delivered_idcif}"
+            )
+        
+            (
+                claimed,
+                delivery_lock_key,
+                delivery_done_key,
+            ) = claim_delivery_once(
+                job_data=job_data,
+                item_key=delivery_item_key,
+            )
+        
+            if not claimed:
+                print(
+                    "[RFC VERIFICABLE TEXT "
+                    "DUPLICATE SUPPRESSED]",
+                    {
+                        "request_key":
+                            verifiable_request_key,
+                        "rfc": delivered_rfc,
+                        "idcif": delivered_idcif,
+                    },
+                    flush=True,
+                )
+                return
+        
+            elapsed_seconds = max(
+                0.0,
+                time.time()
+                - request_started_at_epoch,
+            )
+        
+            client_text = (
+                f"{delivery_text}\n\n"
+                "⚠️ La página del SAT no permitió "
+                "generar la constancia.\n"
+                "Se entrega el RFC e IDCIF "
+                "localizados por el proveedor.\n\n"
+                "⏱️ Tiempo total: "
+                f"{_format_total_time(elapsed_seconds)}"
+            )
+        
+            try:
+                evolution_send_text_to_group(
+                    group_jid,
+                    client_text,
+                    instance_name=instance_name,
+                )
+        
+            except requests.Timeout as send_exc:
+                print(
+                    "[RFC VERIFICABLE TEXT "
+                    "TIMEOUT - CLAIM RETAINED]",
+                    repr(send_exc),
+                    delivery_lock_key,
+                    flush=True,
+                )
+                return
+        
+            except Exception as send_exc:
+                release_delivery_claim(
+                    delivery_lock_key
+                )
+        
+                print(
+                    "[RFC VERIFICABLE TEXT "
+                    "SEND ERROR]",
+                    repr(send_exc),
+                    flush=True,
+                )
+        
+                raise
+        
+            try:
+                # is_verifiable ya fuerza:
+                # kind = RFC_VERIFICABLE
+                success_recorded = (
+                    record_success_once(
+                        job_data=job_data,
+                        group_jid=group_jid,
+                        group_name=group_name,
+                        kind=kind,
+                        count=1,
+                        item_key=delivery_item_key,
+                    )
+                )
+        
+                if (
+                    success_recorded
+                    and bool(
+                        job_data.get(
+                            "verifiable_count_provider_success",
+                            True,
+                        )
+                    )
+                ):
+                    record_verifiable_provider_success(
+                        job_data,
+                        count=1,
+                    )
+        
+                mark_delivery_done(
+                    delivery_lock_key,
+                    delivery_done_key,
+                )
+        
+                if (
+                    verifiable_request_key
+                ):
+                    completion_marked = (
+                        mark_verifiable_completed_24h(
+                            job_data
+                        )
+                    )
+        
+                    if not completion_marked:
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_"
+                            "COMPLETED_24H_MARK_FAILED"
+                        )
+        
+                    finish_pending(
+                        verifiable_request_key,
+                        provider_message_id=(
+                            job_data.get(
+                                "provider_request_msg_id"
+                            )
+                            or ""
+                        ),
+                    )
+        
+                    print(
+                        "[RFC VERIFICABLE TEXT "
+                        "PENDING FINISHED]",
+                        {
+                            "request_key":
+                                verifiable_request_key,
+                            "rfc": delivered_rfc,
+                            "idcif": delivered_idcif,
+                            "kind": kind,
+                        },
+                        flush=True,
+                    )
+        
+                return
+        
+            except Exception as accounting_exc:
+                print(
+                    "[RFC VERIFICABLE TEXT "
+                    "ACCOUNTING ERROR]",
+                    repr(accounting_exc),
+                    {
+                        "group_jid":
+                            group_jid,
+                        "kind":
+                            kind,
+                        "item_key":
+                            delivery_item_key,
+                    },
+                    flush=True,
+                )
+        
+                raise
+
         if mode == "batch_zip":
             zip_url = (result.get("zip_url") or "").strip()
             file_name = (result.get("filename") or "constancias_lote.zip").strip()
