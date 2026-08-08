@@ -12916,6 +12916,7 @@ def panel_RFC(
                 border-radius: 14px;
                 padding: 12px;
                 min-width: 0;
+                overflow: hidden;
               }}
             
               .provider-name {{
@@ -12928,14 +12929,21 @@ def panel_RFC(
               .provider-actions {{
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 7px;
+                gap: 6px;
                 margin-top: 10px;
+                width: 100%;
+                min-width: 0;
               }}
             
               .provider-actions .btn {{
                 width: 100%;
-                padding: 8px 8px;
-                font-size: .82rem;
+                min-width: 0;
+                max-width: 100%;
+                box-sizing: border-box;
+                padding: 8px 4px;
+                font-size: 11px;
+                line-height: 1.1;
+                overflow: hidden;
               }}
 
               .verifiable-provider-count {{
@@ -19614,16 +19622,19 @@ def _verifiable_provider_cards_html(
             {status_text}
           </div>
 
-          <div style="margin:8px 0;">
-            <div style="
-              display:grid;
-              grid-template-columns:auto 58px minmax(60px,1fr);
-              gap:6px;
-              align-items:center;
-            ">
+          <div style="
+            display:grid;
+            grid-template-columns:minmax(0,1fr) 48px 52px;
+            gap:5px;
+            align-items:center;
+            width:100%;
+            min-width:0;
+          ">
               <span style="
                 font-size:11px;
                 font-weight:800;
+                min-width:0;
+                white-space:nowrap;
               ">
                 Prioridad
               </span>
@@ -19634,8 +19645,10 @@ def _verifiable_provider_cards_html(
                 step="0.1"
                 value="{weight:g}"
                 style="
-                  width:58px;
-                  padding:6px 4px;
+                  width:100%;
+                  min-width:0;
+                  box-sizing:border-box;
+                  padding:6px 3px;
                   border-radius:7px;
                   border:1px solid #ccc;
                   text-align:center;
@@ -19645,8 +19658,11 @@ def _verifiable_provider_cards_html(
               <button
                 class="btn btn-primary"
                 style="
-                  padding:7px 8px;
-                  font-size:11px;
+                  width:100%;
+                  min-width:0;
+                  box-sizing:border-box;
+                  padding:7px 3px;
+                  font-size:10px;
                 "
                 onclick="
                   saveVerifiableProviderWeight(
