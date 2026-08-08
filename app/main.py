@@ -12913,43 +12913,87 @@ def panel_RFC(
               .provider-card {{
                 background: rgba(255,255,255,.08);
                 border: 1px solid rgba(255,255,255,.12);
-                border-radius: 16px;
-                padding: 14px;
+                border-radius: 14px;
+                padding: 12px;
+                min-width: 0;
               }}
             
               .provider-name {{
-                font-weight: 800;
-                margin-bottom: 10px;
-                font-size: .98rem;
+                font-weight: 900;
+                margin-bottom: 6px;
+                font-size: .95rem;
+                line-height: 1.15;
               }}
             
               .provider-actions {{
-                display: flex;
-                flex-wrap: wrap;
-                gap: 8px;
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 7px;
+                margin-top: 10px;
+              }}
+            
+              .provider-actions .btn {{
+                width: 100%;
+                padding: 8px 8px;
+                font-size: .82rem;
               }}
 
               .verifiable-provider-count {{
-                margin: 14px 0 12px;
-                padding: 10px 12px;
-                border-radius: 12px;
+                margin: 9px 0;
+                padding: 8px 10px;
+                border-radius: 10px;
                 background: rgba(15, 23, 42, 0.28);
                 border: 1px solid rgba(255, 255, 255, 0.12);
-                text-align: center;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
               }}
             
               .verifiable-provider-count-label {{
-                font-size: 12px;
+                font-size: 11px;
                 font-weight: 800;
                 color: #dbeafe;
               }}
             
               .verifiable-provider-count-value {{
-                margin-top: 3px;
-                font-size: 28px;
+                margin: 0;
+                font-size: 20px;
                 line-height: 1;
                 font-weight: 900;
                 color: #ffffff;
+              }}
+
+              .verifiable-format-row {{
+                display: grid;
+                grid-template-columns: auto minmax(0, 1fr);
+                align-items: center;
+                gap: 8px;
+                margin-top: 9px;
+              }}
+            
+              .verifiable-format-label {{
+                font-size: 11px;
+                font-weight: 800;
+                color: #dbeafe;
+              }}
+            
+              .verifiable-format-select {{
+                width: 100%;
+                min-width: 0;
+                padding: 7px 8px;
+                border-radius: 8px;
+                border: 1px solid rgba(255,255,255,.18);
+                background: #334155;
+                color: #ffffff;
+                font-size: 11px;
+                font-weight: 800;
+                outline: none;
+                cursor: pointer;
+              }}
+            
+              .verifiable-format-select:focus {{
+                border-color: #93c5fd;
               }}
             
               .status-panel {{
@@ -13572,6 +13616,10 @@ def panel_RFC(
                 .grid-hero {{
                   grid-template-columns: 1fr;
                 }}
+
+                .provider-grid {{
+                  grid-template-columns: repeat(2, minmax(0, 1fr));
+                }}
             
                 .broadcast-buttons {{
                   grid-template-columns: 1fr;
@@ -13629,6 +13677,10 @@ def panel_RFC(
                 .cards {{
                   grid-template-columns: 1fr;
                 }}
+
+                .provider-grid {{
+                  grid-template-columns: 1fr;
+                }}
             
                 .tool-link,
                 .btn {{
@@ -13636,9 +13688,12 @@ def panel_RFC(
                   justify-content: center;
                 }}
             
-                .provider-actions,
                 .actions-row {{
                   flex-direction: column;
+                }}
+                
+                .provider-actions {{
+                  grid-template-columns: 1fr 1fr;
                 }}
               }}
             </style>
@@ -19515,23 +19570,6 @@ def _verifiable_provider_cards_html(
             )
         )
 
-        uses_rfc_converter = (
-            input_mode
-            == VERIFIABLE_PROVIDER_INPUT_MODE_RFC
-        )
-
-        input_mode_text = (
-            "CONVERTIDOR CURP → RFC"
-            if uses_rfc_converter
-            else "DATO ORIGINAL"
-        )
-
-        input_mode_color = (
-            "#86efac"
-            if uses_rfc_converter
-            else "#cbd5e1"
-        )
-
         status_text = (
             "ACTIVO"
             if enabled
@@ -19576,21 +19614,19 @@ def _verifiable_provider_cards_html(
             {status_text}
           </div>
 
-          <div style="margin:10px 0;">
+          <div style="margin:8px 0;">
             <div style="
-              font-size:12px;
-              font-weight:700;
-              margin-bottom:5px;
-            ">
-              Prioridad de uso
-            </div>
-
-            <div style="
-              display:flex;
-              gap:8px;
+              display:grid;
+              grid-template-columns:auto 58px minmax(60px,1fr);
+              gap:6px;
               align-items:center;
-              flex-wrap:wrap;
             ">
+              <span style="
+                font-size:11px;
+                font-weight:800;
+              ">
+                Prioridad
+              </span>
               <input
                 id="weight_{_esc(db_name)}"
                 type="number"
@@ -19598,8 +19634,8 @@ def _verifiable_provider_cards_html(
                 step="0.1"
                 value="{weight:g}"
                 style="
-                  width:75px;
-                  padding:6px;
+                  width:58px;
+                  padding:6px 4px;
                   border-radius:7px;
                   border:1px solid #ccc;
                   text-align:center;
@@ -19608,6 +19644,10 @@ def _verifiable_provider_cards_html(
 
               <button
                 class="btn btn-primary"
+                style="
+                  padding:7px 8px;
+                  font-size:11px;
+                "
                 onclick="
                   saveVerifiableProviderWeight(
                     '{_esc(db_name)}'
@@ -19628,70 +19668,43 @@ def _verifiable_provider_cards_html(
               {provider_done_count}
             </div>
           </div>
-
-          <div style="
-            margin-top:12px;
-            margin-bottom:12px;
-            padding:10px;
-            border:1px solid rgba(255,255,255,.15);
-            border-radius:10px;
-          ">
-            <div style="
-              font-size:12px;
-              font-weight:800;
-              margin-bottom:5px;
-            ">
-              Formato enviado al proveedor
+          
+          <div class="verifiable-format-row">
+            <div class="verifiable-format-label">
+              Formato
             </div>
 
-            <div style="
-              font-size:12px;
-              font-weight:900;
-              color:{input_mode_color};
-              margin-bottom:9px;
-            ">
-              {input_mode_text}
-            </div>
-
-            <div style="
-              display:flex;
-              gap:7px;
-              flex-wrap:wrap;
-            ">
-              <button
-                type="button"
-                class="btn {
-                    'btn-success'
-                    if not uses_rfc_converter
-                    else 'btn-primary'
-                }"
-                onclick="
-                  setVerifiableProviderInputMode(
-                    '{_esc(provider_code)}',
-                    'ORIGINAL'
-                  )
-                "
+            <select
+              class="verifiable-format-select"
+              onchange="
+                setVerifiableProviderInputMode(
+                  '{_esc(provider_code)}',
+                  this.value
+                )
+              "
+            >
+              <option
+                value="ORIGINAL"
+                {
+                    "selected"
+                    if input_mode == "ORIGINAL"
+                    else ""
+                }
               >
                 Dato original
-              </button>
+              </option>
 
-              <button
-                type="button"
-                class="btn {
-                    'btn-success'
-                    if uses_rfc_converter
-                    else 'btn-primary'
-                }"
-                onclick="
-                  setVerifiableProviderInputMode(
-                    '{_esc(provider_code)}',
-                    'RFC'
-                  )
-                "
+              <option
+                value="RFC"
+                {
+                    "selected"
+                    if input_mode == "RFC"
+                    else ""
+                }
               >
                 CURP → RFC
-              </button>
-            </div>
+              </option>
+            </select>
           </div>
 
           <div class="provider-actions">
