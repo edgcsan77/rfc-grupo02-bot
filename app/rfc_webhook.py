@@ -213,7 +213,7 @@ def _curp_to_moffin_rfc_cached(
             )
             or {}
         )
-    
+
         print(
             "[VERIFIABLE_NL_CURP_OK]",
             {
@@ -221,8 +221,13 @@ def _curp_to_moffin_rfc_cached(
             },
             flush=True,
         )
-    
+
     except Exception as nl_error:
+        nl_error_text = str(
+            nl_error
+            or ""
+        ).strip()
+
         print(
             "[VERIFIABLE_NL_CURP_FAIL]",
             {
@@ -231,13 +236,78 @@ def _curp_to_moffin_rfc_cached(
             },
             flush=True,
         )
-    
-        datos_curp = (
-            consultar_curp_bot(
-                curp
+
+        # ==========================================
+        # CURP CONFIRMADA COMO NO LOCALIZADA
+        # ==========================================
+        #
+        # Nuevo León respondió expresamente que
+        # la CURP no existe en su base.
+        #
+        # NO intentar gob.mx.
+        # NO intentar Moffin.
+        # ==========================================
+        if (
+            "NL_CURP_NOT_FOUND"
+            in nl_error_text
+        ):
+            raise RuntimeError(
+                "VERIFIABLE_CURP_NOT_FOUND:"
+                f"{curp}"
+            ) from nl_error
+
+        # ==========================================
+        # FALLO TÉCNICO DE NUEVO LEÓN
+        # ==========================================
+        #
+        # Ejemplos:
+        # - HTTP 500
+        # - HTTP 503
+        # - timeout
+        # - error de red
+        #
+        # En esos casos SÍ intentamos gob.mx.
+        # ==========================================
+        try:
+            datos_curp = (
+                consultar_curp_bot(
+                    curp
+                )
+                or {}
             )
-            or {}
-        )
+
+            print(
+                "[VERIFIABLE_GOB_CURP_FALLBACK_OK]",
+                {
+                    "curp": curp,
+                    "nl_error": (
+                        nl_error_text
+                    ),
+                },
+                flush=True,
+            )
+
+        except Exception as gob_error:
+            print(
+                "[VERIFIABLE_GOB_CURP_FALLBACK_FAIL]",
+                {
+                    "curp": curp,
+                    "nl_error": (
+                        nl_error_text
+                    ),
+                    "gob_error": repr(
+                        gob_error
+                    ),
+                },
+                flush=True,
+            )
+
+            raise RuntimeError(
+                "VERIFIABLE_CURP_SERVICE_UNAVAILABLE:"
+                f"curp={curp}:"
+                f"nl={nl_error_text}:"
+                f"gob={str(gob_error)}"
+            ) from gob_error
 
     nombre = (
         datos_curp.get("NOMBRE")
@@ -4901,6 +4971,9 @@ async def evolution_rfc_webhook(request: Request):
                     )
             
                 except Exception as conversion_exc:
+                    # Esta solicitud NO llegó al proveedor.
+                    # Por lo tanto debe poder reintentarse
+                    # inmediatamente.
                     redis_conn.delete(
                         inflight_key
                     )
@@ -4908,7 +4981,12 @@ async def evolution_rfc_webhook(request: Request):
                     redis_conn.delete(
                         verifiable_processing_key
                     )
-            
+
+                    conversion_error_text = str(
+                        conversion_exc
+                        or ""
+                    ).strip()
+
                     print(
                         "[VERIFIABLE_PROVIDER_"
                         "CURP_TO_RFC_FAIL]",
@@ -4922,35 +5000,110 @@ async def evolution_rfc_webhook(request: Request):
                             "error": repr(
                                 conversion_exc
                             ),
+                            "inflight_released": (
+                                inflight_key
+                            ),
+                            "processing_released": (
+                                verifiable_processing_key
+                            ),
                         },
                         flush=True,
                     )
-            
+
+                    # ======================================
+                    # 1. CURP NO LOCALIZADA
+                    # ======================================
+                    if (
+                        "VERIFIABLE_CURP_NOT_FOUND"
+                        in conversion_error_text
+                    ):
+                        client_message = (
+                            f"⚠️ {requester_label}, "
+                            "la CURP "
+                            f"{original_identifier} "
+                            "no fue localizada en RENAPO.\n\n"
+                            "Verifica que esté escrita "
+                            "correctamente."
+                        )
+
+                        error_code = (
+                            "verifiable_curp_not_found"
+                        )
+
+                    # ======================================
+                    # 2. SERVICIOS CURP NO DISPONIBLES
+                    # ======================================
+                    elif (
+                        "VERIFIABLE_CURP_"
+                        "SERVICE_UNAVAILABLE"
+                        in conversion_error_text
+                    ):
+                        client_message = (
+                            f"⚠️ {requester_label}, "
+                            "no fue posible consultar la "
+                            "CURP en este momento.\n\n"
+                            "El servicio de validación "
+                            "de CURP está temporalmente "
+                            "no disponible. "
+                            "Intenta nuevamente más tarde."
+                        )
+
+                        error_code = (
+                            "verifiable_curp_"
+                            "service_unavailable"
+                        )
+
+                    # ======================================
+                    # 3. SÍ OBTUVIMOS DATOS DE LA CURP,
+                    #    PERO FALLÓ MOFFIN / CONVERSIÓN
+                    # ======================================
+                    else:
+                        client_message = (
+                            f"⚠️ {requester_label}, "
+                            "la CURP fue localizada, pero "
+                            "no fue posible convertirla "
+                            "a RFC verificable. "
+                            "Intenta nuevamente."
+                        )
+
+                        error_code = (
+                            "verifiable_curp_to_"
+                            "rfc_failed"
+                        )
+
                     try:
                         send_text(
                             remote_jid,
-                            (
-                                f"⚠️ {requester_label}, "
-                                "no fue posible convertir "
-                                "la CURP a RFC verificable. "
-                                "Intenta nuevamente."
-                            ),
+                            client_message,
                             instance_name=(
                                 instance_name
                             ),
                             fast=True,
                         )
-                    except Exception:
-                        pass
-            
+
+                    except Exception as notice_exc:
+                        print(
+                            "[VERIFIABLE_CURP_ERROR_"
+                            "NOTICE_FAIL]",
+                            {
+                                "curp": (
+                                    original_identifier
+                                ),
+                                "error_code": (
+                                    error_code
+                                ),
+                                "error": repr(
+                                    notice_exc
+                                ),
+                            },
+                            flush=True,
+                        )
+
                     return {
                         "ok": False,
-                        "error": (
-                            "verifiable_curp_to_"
-                            "rfc_failed"
-                        ),
+                        "error": error_code,
                     }
-
+                
             pending_payload = {
                 "normal_request_key": (
                     command_key
