@@ -19636,7 +19636,7 @@ def _verifiable_provider_cards_html(
                 min-width:0;
                 white-space:nowrap;
               ">
-                Prioridad
+                Nivel
               </span>
               <input
                 id="weight_{_esc(db_name)}"
