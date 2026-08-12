@@ -788,9 +788,7 @@ def notify_verifiable_provider_sat_rejection(
         f"{provider_rfc or 'N/D'}\n"
         f"IDCIF: "
         f"{provider_idcif or 'N/D'}\n\n"
-        f"Motivo: {reason_text}.\n\n"
-        "No se generó constancia y el resultado "
-        "no fue contabilizado."
+        f"Motivo: {reason_text}."
     )
 
     try:
@@ -2033,13 +2031,26 @@ def process_group_request_job(job_data: dict):
         
             except requests.Timeout as send_exc:
                 print(
-                    "[RFC VERIFICABLE TEXT "
-                    "TIMEOUT - CLAIM RETAINED]",
-                    repr(send_exc),
-                    delivery_lock_key,
+                    "[RFC VERIFICABLE TEXT TIMEOUT]",
+                    {
+                        "error": repr(send_exc),
+                        "delivery_lock_key":
+                            delivery_lock_key,
+                        "request_key":
+                            verifiable_request_key,
+                        "rfc":
+                            delivered_rfc,
+                        "idcif":
+                            delivered_idcif,
+                    },
                     flush=True,
                 )
-                return
+            
+                release_delivery_claim(
+                    delivery_lock_key
+                )
+            
+                raise
         
             except Exception as send_exc:
                 release_delivery_claim(
@@ -2191,12 +2202,69 @@ def process_group_request_job(job_data: dict):
             
             except requests.Timeout as media_err:
                 print(
-                    "[RFC BATCH ZIP TIMEOUT - CLAIM RETAINED]",
-                    repr(media_err),
-                    delivery_lock_key,
+                    "[RFC PDF TIMEOUT]",
+                    {
+                        "error": repr(media_err),
+                        "delivery_lock_key": delivery_lock_key,
+                        "is_verifiable": is_verifiable,
+                        "provider_rfc": job_data.get("provider_rfc"),
+                        "provider_idcif": job_data.get("provider_idcif"),
+                    },
                     flush=True,
                 )
-                return
+            
+                release_delivery_claim(
+                    delivery_lock_key
+                )
+            
+                if is_verifiable:
+                    fallback_rfc = (
+                        job_data.get("provider_rfc")
+                        or ""
+                    ).strip().upper()
+            
+                    fallback_idcif = (
+                        job_data.get("provider_idcif")
+                        or ""
+                    ).strip()
+            
+                    if fallback_rfc and fallback_idcif:
+                        try:
+                            evolution_send_text_to_group(
+                                group_jid,
+                                (
+                                    f"RFC: {fallback_rfc}\n"
+                                    f"IDCIF: {fallback_idcif}\n\n"
+                                    "⚠️ La constancia fue generada, "
+                                    "pero hubo un problema temporal "
+                                    "al adjuntar el PDF."
+                                ),
+                                instance_name=instance_name,
+                            )
+            
+                            print(
+                                "[RFC VERIFICABLE PDF TIMEOUT "
+                                "TEXT FALLBACK SENT]",
+                                {
+                                    "request_key":
+                                        verifiable_request_key,
+                                    "rfc": fallback_rfc,
+                                    "idcif": fallback_idcif,
+                                },
+                                flush=True,
+                            )
+            
+                        except Exception as fallback_send_exc:
+                            print(
+                                "[RFC VERIFICABLE PDF TIMEOUT "
+                                "TEXT FALLBACK ERROR]",
+                                repr(fallback_send_exc),
+                                flush=True,
+                            )
+            
+                            raise
+            
+                raise
             
             except Exception as media_err:
                 print(
@@ -2559,12 +2627,83 @@ def process_group_request_job(job_data: dict):
         
         except requests.Timeout as media_err:
             print(
-                "[RFC PDF TIMEOUT - CLAIM RETAINED]",
-                repr(media_err),
-                delivery_lock_key,
+                "[RFC PDF TIMEOUT]",
+                {
+                    "error": repr(media_err),
+                    "delivery_lock_key":
+                        delivery_lock_key,
+                    "is_verifiable":
+                        is_verifiable,
+                    "provider_rfc":
+                        job_data.get(
+                            "provider_rfc"
+                        ),
+                    "provider_idcif":
+                        job_data.get(
+                            "provider_idcif"
+                        ),
+                },
                 flush=True,
             )
-            return
+        
+            release_delivery_claim(
+                delivery_lock_key
+            )
+        
+            if is_verifiable:
+                fallback_rfc = (
+                    job_data.get(
+                        "provider_rfc"
+                    )
+                    or ""
+                ).strip().upper()
+        
+                fallback_idcif = (
+                    job_data.get(
+                        "provider_idcif"
+                    )
+                    or ""
+                ).strip()
+        
+                if (
+                    fallback_rfc
+                    and fallback_idcif
+                ):
+                    try:
+                        evolution_send_text_to_group(
+                            group_jid,
+                            (
+                                f"RFC: {fallback_rfc}\n"
+                                f"IDCIF: {fallback_idcif}\n\n"
+                                "⚠️ No fue posible adjuntar "
+                                "la constancia en este momento."
+                            ),
+                            instance_name=instance_name,
+                        )
+        
+                        print(
+                            "[RFC VERIFICABLE PDF TIMEOUT "
+                            "TEXT FALLBACK SENT]",
+                            {
+                                "request_key":
+                                    verifiable_request_key,
+                                "rfc":
+                                    fallback_rfc,
+                                "idcif":
+                                    fallback_idcif,
+                            },
+                            flush=True,
+                        )
+        
+                    except Exception as fallback_exc:
+                        print(
+                            "[RFC VERIFICABLE PDF TIMEOUT "
+                            "TEXT FALLBACK ERROR]",
+                            repr(fallback_exc),
+                            flush=True,
+                        )
+        
+            raise
         
         except Exception as media_err:
             print(
@@ -2576,6 +2715,31 @@ def process_group_request_job(job_data: dict):
             release_delivery_claim(
                 delivery_lock_key
             )
+        
+            if is_verifiable:
+                fallback_rfc = (
+                    job_data.get("provider_rfc")
+                    or ""
+                ).strip().upper()
+        
+                fallback_idcif = (
+                    job_data.get("provider_idcif")
+                    or ""
+                ).strip()
+        
+                if fallback_rfc and fallback_idcif:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        (
+                            f"RFC: {fallback_rfc}\n"
+                            f"IDCIF: {fallback_idcif}\n\n"
+                            "⚠️ No fue posible adjuntar "
+                            "la constancia."
+                        ),
+                        instance_name=instance_name,
+                    )
+        
+                raise
         
             evolution_send_text_to_group(
                 group_jid,
