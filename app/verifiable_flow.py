@@ -736,19 +736,21 @@ def extract_rfc_idcif_pairs(
 ) -> list[tuple[str, str]]:
     """
     Extrae todos los pares RFC + IDCIF respetando
-    el orden en que aparecen en el mensaje.
+    el orden lógico de los resultados.
 
-    Acepta, por ejemplo:
+    Acepta:
 
-        HEBG941101NX9
-        15030659247
-        MOCA761102SU1
-        16020381080
+        RFC IDCIF
 
-    También acepta:
+        IDCIF RFC
 
-        HEBG941101NX9 15030659247
-        MOCA761102SU1 16020381080
+        RFC
+        IDCIF
+
+        IDCIF
+        RFC
+
+    También acepta listas mixtas con varios resultados.
     """
 
     upper = (
@@ -773,30 +775,75 @@ def extract_rfc_idcif_pairs(
     ]
 
     pairs: list[tuple[str, str]] = []
+
     pending_rfc = ""
+    pending_idcif = ""
 
     for token in tokens:
+
+        # ==============================
+        # RFC
+        # ==============================
         if RFC_FULL_RE.fullmatch(token):
-            # Guardamos el RFC más reciente que todavía
-            # no tenga IDCIF asociado.
+
+            # Caso:
+            #
+            # IDCIF
+            # RFC
+            #
+            # o:
+            #
+            # IDCIF RFC
+            if pending_idcif:
+                pairs.append(
+                    (
+                        token,
+                        pending_idcif,
+                    )
+                )
+
+                pending_idcif = ""
+                pending_rfc = ""
+                continue
+
+            # Caso normal:
+            #
+            # RFC
+            # IDCIF
             pending_rfc = token
             continue
 
-        if (
-            IDCIF_SEARCH_RE.fullmatch(token)
-            and pending_rfc
-        ):
-            pairs.append(
-                (
-                    pending_rfc,
-                    token,
+        # ==============================
+        # IDCIF
+        # ==============================
+        if IDCIF_SEARCH_RE.fullmatch(token):
+
+            # Caso:
+            #
+            # RFC
+            # IDCIF
+            #
+            # o:
+            #
+            # RFC IDCIF
+            if pending_rfc:
+                pairs.append(
+                    (
+                        pending_rfc,
+                        token,
+                    )
                 )
-            )
 
-            pending_rfc = ""
+                pending_rfc = ""
+                pending_idcif = ""
+                continue
 
-    # Evitar procesar dos veces la misma pareja
-    # si viene duplicada dentro del mensaje.
+            # Todavía no apareció RFC.
+            # Lo conservamos por si viene después.
+            pending_idcif = token
+
+    # Evitar procesar dos veces exactamente
+    # la misma pareja dentro del mismo mensaje.
     unique_pairs: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
 
