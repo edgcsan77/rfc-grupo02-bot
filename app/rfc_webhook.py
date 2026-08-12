@@ -6,6 +6,7 @@ import time
 
 from datetime import timedelta
 
+from rq import Retry
 from fastapi import APIRouter, Request
 
 from app.queue import request_queue
@@ -1935,6 +1936,10 @@ def _queue_verifiable_pair_for_pending(
             job_timeout=900,
             result_ttl=86400,
             failure_ttl=86400,
+            retry=Retry(
+                max=3,
+                interval=[15, 45, 120],
+            ),
         )
 
     except Exception:
@@ -2492,6 +2497,8 @@ def _extract_verifiable_no_id_items(
         r"|NO\s+ID"
         r"|NO\s+HAY\s+ID"
         r"|NO\s+SALE"
+        r"|NO\s+RESULTADO"
+        r"|SIN\s+RESULTADO"
         r")"
     )
 
