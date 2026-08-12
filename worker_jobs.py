@@ -1740,6 +1740,8 @@ def process_group_request_job(job_data: dict):
         or ""
     ).strip()
 
+    verifiable_pdf_text_fallback_sent = False
+
     instance_name = (job_data.get("evolution_instance") or EVOLUTION_INSTANCE).strip()
     print("[WORKER EVOLUTION INSTANCE]", repr(instance_name), flush=True)
 
@@ -2253,6 +2255,8 @@ def process_group_request_job(job_data: dict):
                                 },
                                 flush=True,
                             )
+
+                            verifiable_pdf_text_fallback_sent = True
             
                         except Exception as fallback_send_exc:
                             print(
@@ -2624,10 +2628,14 @@ def process_group_request_job(job_data: dict):
                 instance_name=instance_name,
                 caption=time_caption,
             )
-        
-        except requests.Timeout as media_err:
+
+        except (
+            requests.Timeout,
+            requests.ConnectionError,
+            requests.HTTPError,
+        ) as media_err:
             print(
-                "[RFC PDF TIMEOUT]",
+                "[RFC PDF SEND FAILURE]",
                 {
                     "error": repr(media_err),
                     "delivery_lock_key":
@@ -2645,11 +2653,7 @@ def process_group_request_job(job_data: dict):
                 },
                 flush=True,
             )
-        
-            release_delivery_claim(
-                delivery_lock_key
-            )
-        
+
             if is_verifiable:
                 fallback_rfc = (
                     job_data.get(
@@ -2657,14 +2661,14 @@ def process_group_request_job(job_data: dict):
                     )
                     or ""
                 ).strip().upper()
-        
+
                 fallback_idcif = (
                     job_data.get(
                         "provider_idcif"
                     )
                     or ""
                 ).strip()
-        
+
                 if (
                     fallback_rfc
                     and fallback_idcif
@@ -2680,9 +2684,13 @@ def process_group_request_job(job_data: dict):
                             ),
                             instance_name=instance_name,
                         )
-        
+
+                        # Desde este punto el cliente YA recibió
+                        # un resultado válido por texto.
+                        verifiable_pdf_text_fallback_sent = True
+
                         print(
-                            "[RFC VERIFICABLE PDF TIMEOUT "
+                            "[RFC VERIFICABLE PDF "
                             "TEXT FALLBACK SENT]",
                             {
                                 "request_key":
@@ -2694,53 +2702,324 @@ def process_group_request_job(job_data: dict):
                             },
                             flush=True,
                         )
-        
+
                     except Exception as fallback_exc:
+                        # No se entregó ni PDF ni texto:
+                        # liberar para permitir otro intento.
+                        release_delivery_claim(
+                            delivery_lock_key
+                        )
+
                         print(
-                            "[RFC VERIFICABLE PDF TIMEOUT "
+                            "[RFC VERIFICABLE PDF "
                             "TEXT FALLBACK ERROR]",
-                            repr(fallback_exc),
+                            {
+                                "request_key":
+                                    verifiable_request_key,
+                                "error":
+                                    repr(fallback_exc),
+                            },
                             flush=True,
                         )
-        
+
+                        raise
+
+                    try:
+                        # IMPORTANTE:
+                        # is_verifiable ya fuerza kind a
+                        # RFC_VERIFICABLE más arriba.
+                        success_recorded = (
+                            record_success_once(
+                                job_data=job_data,
+                                group_jid=group_jid,
+                                group_name=group_name,
+                                kind=kind,
+                                count=1,
+                                item_key=delivery_item_key,
+                            )
+                        )
+
+                        if (
+                            success_recorded
+                            and bool(
+                                job_data.get(
+                                    "verifiable_count_provider_success",
+                                    True,
+                                )
+                            )
+                        ):
+                            record_verifiable_provider_success(
+                                job_data,
+                                count=1,
+                            )
+
+                        # La entrega lógica queda terminada aunque
+                        # haya sido RFC+IDCIF y no el PDF.
+                        mark_delivery_done(
+                            delivery_lock_key,
+                            delivery_done_key,
+                        )
+
+                        if (
+                            verifiable_request_key
+                        ):
+                            completion_marked = (
+                                mark_verifiable_completed_24h(
+                                    job_data
+                                )
+                            )
+
+                            if not completion_marked:
+                                raise RuntimeError(
+                                    "RFC_VERIFICABLE_"
+                                    "COMPLETED_24H_MARK_FAILED"
+                                )
+
+                            finish_pending(
+                                verifiable_request_key,
+                                provider_message_id=(
+                                    job_data.get(
+                                        "provider_request_msg_id"
+                                    )
+                                    or ""
+                                ),
+                            )
+
+                            print(
+                                "[RFC VERIFICABLE PDF "
+                                "TEXT FALLBACK PENDING FINISHED]",
+                                {
+                                    "request_key":
+                                        verifiable_request_key,
+                                    "rfc":
+                                        fallback_rfc,
+                                    "idcif":
+                                        fallback_idcif,
+                                    "kind":
+                                        kind,
+                                },
+                                flush=True,
+                            )
+
+                        print(
+                            "[RFC VERIFICABLE PDF "
+                            "TEXT FALLBACK COMPLETED]",
+                            {
+                                "request_key":
+                                    verifiable_request_key,
+                                "kind":
+                                    kind,
+                                "success_recorded":
+                                    success_recorded,
+                                "rfc":
+                                    fallback_rfc,
+                                "idcif":
+                                    fallback_idcif,
+                            },
+                            flush=True,
+                        )
+
+                        # Ya hubo entrega + contabilización +
+                        # cierre del pendiente.
+                        return
+
+                    except Exception as accounting_exc:
+                        print(
+                            "[RFC VERIFICABLE PDF "
+                            "TEXT FALLBACK ACCOUNTING ERROR]",
+                            {
+                                "request_key":
+                                    verifiable_request_key,
+                                "kind":
+                                    kind,
+                                "item_key":
+                                    delivery_item_key,
+                                "error":
+                                    repr(accounting_exc),
+                            },
+                            flush=True,
+                        )
+
+                        # No mandar el mensaje genérico porque
+                        # RFC+IDCIF ya llegó al cliente.
+                        raise
+
+            # Si no es verificable o faltó RFC/IDCIF,
+            # no hubo fallback válido.
+            release_delivery_claim(
+                delivery_lock_key
+            )
+
             raise
-        
+
         except Exception as media_err:
             print(
                 "[RFC PDF SEND ERROR]",
                 repr(media_err),
                 flush=True,
             )
-        
+
+            if is_verifiable:
+                fallback_rfc = (
+                    job_data.get(
+                        "provider_rfc"
+                    )
+                    or ""
+                ).strip().upper()
+
+                fallback_idcif = (
+                    job_data.get(
+                        "provider_idcif"
+                    )
+                    or ""
+                ).strip()
+
+                if (
+                    fallback_rfc
+                    and fallback_idcif
+                ):
+                    try:
+                        evolution_send_text_to_group(
+                            group_jid,
+                            (
+                                f"RFC: {fallback_rfc}\n"
+                                f"IDCIF: {fallback_idcif}\n\n"
+                                "⚠️ No fue posible adjuntar "
+                                "la constancia."
+                            ),
+                            instance_name=instance_name,
+                        )
+
+                        verifiable_pdf_text_fallback_sent = True
+
+                        print(
+                            "[RFC VERIFICABLE PDF "
+                            "TEXT FALLBACK SENT]",
+                            {
+                                "request_key":
+                                    verifiable_request_key,
+                                "rfc":
+                                    fallback_rfc,
+                                "idcif":
+                                    fallback_idcif,
+                            },
+                            flush=True,
+                        )
+
+                    except Exception as fallback_exc:
+                        release_delivery_claim(
+                            delivery_lock_key
+                        )
+
+                        print(
+                            "[RFC VERIFICABLE PDF "
+                            "TEXT FALLBACK ERROR]",
+                            repr(fallback_exc),
+                            flush=True,
+                        )
+
+                        raise
+
+                    try:
+                        success_recorded = (
+                            record_success_once(
+                                job_data=job_data,
+                                group_jid=group_jid,
+                                group_name=group_name,
+                                kind=kind,
+                                count=1,
+                                item_key=delivery_item_key,
+                            )
+                        )
+
+                        if (
+                            success_recorded
+                            and bool(
+                                job_data.get(
+                                    "verifiable_count_provider_success",
+                                    True,
+                                )
+                            )
+                        ):
+                            record_verifiable_provider_success(
+                                job_data,
+                                count=1,
+                            )
+
+                        mark_delivery_done(
+                            delivery_lock_key,
+                            delivery_done_key,
+                        )
+
+                        if verifiable_request_key:
+                            completion_marked = (
+                                mark_verifiable_completed_24h(
+                                    job_data
+                                )
+                            )
+
+                            if not completion_marked:
+                                raise RuntimeError(
+                                    "RFC_VERIFICABLE_"
+                                    "COMPLETED_24H_MARK_FAILED"
+                                )
+
+                            finish_pending(
+                                verifiable_request_key,
+                                provider_message_id=(
+                                    job_data.get(
+                                        "provider_request_msg_id"
+                                    )
+                                    or ""
+                                ),
+                            )
+
+                            print(
+                                "[RFC VERIFICABLE PDF "
+                                "TEXT FALLBACK PENDING FINISHED]",
+                                {
+                                    "request_key":
+                                        verifiable_request_key,
+                                    "rfc":
+                                        fallback_rfc,
+                                    "idcif":
+                                        fallback_idcif,
+                                    "kind":
+                                        kind,
+                                },
+                                flush=True,
+                            )
+
+                        print(
+                            "[RFC VERIFICABLE PDF "
+                            "TEXT FALLBACK COMPLETED]",
+                            {
+                                "request_key":
+                                    verifiable_request_key,
+                                "kind":
+                                    kind,
+                                "success_recorded":
+                                    success_recorded,
+                            },
+                            flush=True,
+                        )
+
+                        return
+
+                    except Exception as accounting_exc:
+                        print(
+                            "[RFC VERIFICABLE PDF "
+                            "TEXT FALLBACK ACCOUNTING ERROR]",
+                            repr(accounting_exc),
+                            flush=True,
+                        )
+
+                        raise
+
             release_delivery_claim(
                 delivery_lock_key
             )
-        
-            if is_verifiable:
-                fallback_rfc = (
-                    job_data.get("provider_rfc")
-                    or ""
-                ).strip().upper()
-        
-                fallback_idcif = (
-                    job_data.get("provider_idcif")
-                    or ""
-                ).strip()
-        
-                if fallback_rfc and fallback_idcif:
-                    evolution_send_text_to_group(
-                        group_jid,
-                        (
-                            f"RFC: {fallback_rfc}\n"
-                            f"IDCIF: {fallback_idcif}\n\n"
-                            "⚠️ No fue posible adjuntar "
-                            "la constancia."
-                        ),
-                        instance_name=instance_name,
-                    )
-        
-                raise
-        
+
             evolution_send_text_to_group(
                 group_jid,
                 (
@@ -2751,7 +3030,7 @@ def process_group_request_job(job_data: dict):
                 ),
                 instance_name=instance_name,
             )
-        
+
             return
 
         if bool(
@@ -3221,16 +3500,26 @@ def process_group_request_job(job_data: dict):
             pass
 
     except Exception as e:
-        print("process_group_request_job error:", repr(e), flush=True)
+        print(
+            "process_group_request_job error:",
+            repr(e),
+            flush=True,
+        )
         traceback.print_exc()
-        try:
-            evolution_send_text_to_group(
-                group_jid,
-                f"⚠️ {requester_label} ocurrió una interrupción procesando la solicitud. Intenta de nuevo en 2-3 minutos",
-                instance_name=instance_name
-            )
-        except Exception:
-            pass
+    
+        if not verifiable_pdf_text_fallback_sent:
+            try:
+                evolution_send_text_to_group(
+                    group_jid,
+                    (
+                        f"⚠️ {requester_label} ocurrió una "
+                        "interrupción procesando la solicitud. "
+                        "Intenta de nuevo en 2-3 minutos"
+                    ),
+                    instance_name=instance_name,
+                )
+            except Exception:
+                pass
 
     finally:
         release_request_inflight(
