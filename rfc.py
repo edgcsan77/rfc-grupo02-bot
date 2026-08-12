@@ -2744,13 +2744,31 @@ def extraer_datos_desde_sat(
             "SAT_SERVICE_UNAVAILABLE"
         )
 
-    if resp.status_code in (403, 429):
-        # bloqueo / rate limit
-        snippet = (resp.text or "")[:200].replace("\n", " ")
-        raise requests.exceptions.HTTPError(f"SIAT_{resp.status_code} body_snippet={snippet}", response=resp)
-
     if resp.status_code != 200:
-        raise requests.exceptions.HTTPError(f"SIAT_{resp.status_code}", response=resp)
+        snippet = (
+            resp.text
+            or ""
+        )[:300].replace(
+            "\n",
+            " "
+        )
+    
+        print(
+            "[SIAT SERVICE UNAVAILABLE]",
+            {
+                "reason": (
+                    f"HTTP_{resp.status_code}"
+                ),
+                "rfc": rfc,
+                "idcif": idcif,
+                "body_snippet": snippet,
+            },
+            flush=True,
+        )
+    
+        raise RuntimeError(
+            "SAT_SERVICE_UNAVAILABLE"
+        )
 
     soup = BeautifulSoup(resp.text, "html.parser")
     mapa = obtener_mapa_trs(soup)
