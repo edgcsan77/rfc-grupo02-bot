@@ -3935,6 +3935,29 @@ finally:
                     flush=True,
                 )
 
+def process_rfc_batch_child_job(
+    child_payload: dict,
+):
+    """
+    Ejecuta un hijo de un mensaje multilínea
+    fuera del webhook HTTP.
+    """
+
+    import asyncio
+
+    from app.rfc_webhook import (
+        _RFCBatchSyntheticRequest,
+        evolution_rfc_webhook,
+    )
+
+    return asyncio.run(
+        evolution_rfc_webhook(
+            _RFCBatchSyntheticRequest(
+                child_payload
+            )
+        )
+    )
+
 def evolution_get_media_base64(message_id: str, instance_name=None):
     instance_name = (instance_name or EVOLUTION_INSTANCE).strip()
 
