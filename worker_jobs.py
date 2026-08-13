@@ -1246,6 +1246,11 @@ def claim_delivery_once(
             done_key,
             flush=True,
         )
+    
+        _repair_verifiable_finalization_after_delivery(
+            job_data
+        )
+    
         return False, lock_key, done_key
 
     # Solo un worker puede obtener SET NX.
@@ -1266,7 +1271,14 @@ def claim_delivery_once(
 
     # Segunda revisión por una carrera mínima.
     if redis_stats.exists(done_key):
-        redis_stats.delete(lock_key)
+        redis_stats.delete(
+            lock_key
+        )
+    
+        _repair_verifiable_finalization_after_delivery(
+            job_data
+        )
+    
         return False, lock_key, done_key
 
     return True, lock_key, done_key
@@ -1361,6 +1373,65 @@ def mark_verifiable_completed_24h(
     )
 
     return True
+
+
+def _repair_verifiable_finalization_after_delivery(
+    job_data: dict,
+) -> None:
+    """
+    Si el documento ya fue entregado pero un intento
+    anterior falló después de marcar delivery_done,
+    repara el estado administrativo sin volver a
+    enviar ni volver a contabilizar.
+    """
+
+    if not bool(
+        job_data.get(
+            "is_verifiable"
+        )
+    ):
+        return
+
+    request_key = str(
+        job_data.get(
+            "verifiable_request_key"
+        )
+        or ""
+    ).strip()
+
+    if not request_key:
+        return
+
+    completion_marked = (
+        mark_verifiable_completed_24h(
+            job_data
+        )
+    )
+
+    if not completion_marked:
+        raise RuntimeError(
+            "RFC_VERIFIABLE_"
+            "COMPLETED_24H_REPAIR_FAILED"
+        )
+
+    finish_pending(
+        request_key,
+        provider_message_id=(
+            job_data.get(
+                "provider_request_msg_id"
+            )
+            or ""
+        ),
+    )
+
+    print(
+        "[RFC VERIFIABLE FINALIZATION REPAIRED]",
+        {
+            "request_key":
+                request_key,
+        },
+        flush=True,
+    )
 
 
 def release_request_inflight(
@@ -1518,147 +1589,110 @@ def process_verifiable_timeout_job(
                 client_group_jid,
                 _job_client_message(
                     timeout_job_data,
-                    title="⏱️ RFC verificable sin respuesta",
-                    requester_label=requester_label,
+                    title=(
+                        "⏱️ RFC verificable "
+                        "sin respuesta"
+                    ),
+                    requester_label=(
+                        requester_label
+                    ),
                     body=(
-                        "No recibimos respuesta dentro del tiempo permitido.\n"
+                        "No recibimos respuesta dentro "
+                        "del tiempo permitido.\n"
                         "Ya puedes solicitarlo nuevamente."
                     ),
                 ),
-                instance_name=client_instance,
+                instance_name=(
+                    client_instance
+                ),
             )
-
+    
         print(
             "[RFC VERIFIABLE TIMEOUT SENT]",
             {
-                "request_key": request_key,
-                "client_group": (
-                    client_group_jid
-                ),
-                "client_instance": (
-                    client_instance
-                ),
-                "original_type": original_type,
-                "original_identifier": (
-                    original_identifier
-                ),
+                "request_key":
+                    request_key,
+                "client_group":
+                    client_group_jid,
+                "client_instance":
+                    client_instance,
+                "original_type":
+                    original_type,
+                "original_identifier":
+                    original_identifier,
             },
             flush=True,
         )
-
+    
     except Exception as send_exc:
         print(
             "[RFC VERIFIABLE TIMEOUT "
-            "SEND ERROR]",
+            "SEND ERROR - RETRY]",
             {
-                "request_key": request_key,
-                "client_group": (
-                    client_group_jid
-                ),
-                "error": repr(send_exc),
+                "request_key":
+                    request_key,
+                "client_group":
+                    client_group_jid,
+                "retry_remaining":
+                    _rq_retry_remaining(),
+                "error":
+                    repr(send_exc),
             },
             flush=True,
         )
-
-    finally:
-        # Permite que el cliente vuelva a enviar
-        # la misma CURP o RFC.
-        if inflight_key:
-            try:
-                redis_stats.delete(
-                    inflight_key
-                )
-
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "INFLIGHT RELEASED]",
-                    inflight_key,
-                    flush=True,
-                )
-
-            except Exception as inflight_exc:
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "INFLIGHT RELEASE ERROR]",
-                    repr(inflight_exc),
-                    flush=True,
-                )
-
-        if verifiable_processing_key:
-            try:
-                redis_stats.delete(
-                    verifiable_processing_key
-                )
-        
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "PROCESSING RELEASED]",
-                    verifiable_processing_key,
-                    flush=True,
-                )
-        
-            except Exception as processing_exc:
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "PROCESSING RELEASE ERROR]",
-                    repr(processing_exc),
-                    flush=True,
-                )
-
-        # Elimina pendiente y asociación con
-        # el mensaje enviado al proveedor.
-        try:
-            finish_pending(
+    
+        # El cliente NO fue notificado.
+        # No borrar pending ni processing.
+        release_provider_result_claim(
+            request_key
+        )
+    
+        raise
+    
+    
+    # ==========================================
+    # EL AVISO SÍ SALIÓ.
+    # AHORA SÍ CERRAR LA SOLICITUD.
+    # ==========================================
+    
+    if inflight_key:
+        redis_stats.delete(
+            inflight_key
+        )
+    
+    if verifiable_processing_key:
+        redis_stats.delete(
+            verifiable_processing_key
+        )
+    
+    finish_pending(
+        request_key,
+        provider_message_id=(
+            provider_message_id
+        ),
+    )
+    
+    release_provider_result_claim(
+        request_key
+    )
+    
+    print(
+        "[RFC VERIFIABLE TIMEOUT FINALIZED]",
+        {
+            "request_key":
                 request_key,
-                provider_message_id=(
-                    provider_message_id
-                ),
-            )
-        
-            print(
-                "[RFC VERIFIABLE TIMEOUT "
-                "PENDING FINISHED]",
-                {
-                    "request_key": request_key,
-                    "provider_message_id": (
-                        provider_message_id
-                    ),
-                },
-                flush=True,
-            )
-        
-        finally:
-            try:
-                release_provider_result_claim(
-                    request_key
-                )
-        
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "RESULT CLAIM RELEASED]",
-                    request_key,
-                    flush=True,
-                )
-        
-            except Exception as claim_exc:
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "RESULT CLAIM RELEASE ERROR]",
-                    {
-                        "request_key": request_key,
-                        "error": repr(
-                            claim_exc
-                        ),
-                    },
-                    flush=True,
-                )
-
+            "provider_message_id":
+                provider_message_id,
+        },
+        flush=True,
+    )
+    
     return {
         "ok": True,
-        "timeout": True,
+        "timed_out": True,
         "request_key": request_key,
-        "identifier": original_identifier,
     }
+
 
 def record_verifiable_provider_success(
     job_data: dict,
@@ -2601,12 +2635,17 @@ def process_group_request_job(job_data: dict):
                     
                     except requests.Timeout as media_err:
                         print(
-                            "[RFC BATCH ITEM TIMEOUT - CLAIM RETAINED]",
+                            "[RFC BATCH ITEM TIMEOUT - RETRY]",
                             repr(media_err),
                             delivery_lock_key,
                             flush=True,
                         )
-                        continue
+                    
+                        release_delivery_claim(
+                            delivery_lock_key
+                        )
+                    
+                        raise
                     
                     except Exception as media_err:
                         print(
@@ -3414,8 +3453,39 @@ def process_group_request_job(job_data: dict):
             raise
 
     except requests.HTTPError as e:
-        print("process_group_request_job HTTPError:", repr(e), flush=True)
+        print(
+            "process_group_request_job HTTPError:",
+            repr(e),
+            flush=True,
+        )
         traceback.print_exc()
+    
+        status_code = int(
+            getattr(
+                getattr(
+                    e,
+                    "response",
+                    None,
+                ),
+                "status_code",
+                0,
+            )
+            or 0
+        )
+    
+        transient_http_error = (
+            status_code == 0
+            or status_code in {
+                408,
+                425,
+                429,
+            }
+            or status_code >= 500
+        )
+    
+        retry_remaining = (
+            _rq_retry_remaining()
+        )
     
         resp_text = ""
         err_code = ""
@@ -3425,6 +3495,23 @@ def process_group_request_job(job_data: dict):
             pass
     
         print("process_group_request_job HTTP response body:", resp_text, flush=True)
+
+        if (
+            transient_http_error
+            and retry_remaining > 0
+        ):
+            print(
+                "[RFC HTTP TRANSIENT - RQ RETRY]",
+                {
+                    "status_code":
+                        status_code,
+                    "retry_remaining":
+                        retry_remaining,
+                },
+                flush=True,
+            )
+        
+            raise
     
         try:
             try:
@@ -3767,8 +3854,15 @@ def process_group_request_job(job_data: dict):
                     ),
                     instance_name=instance_name
                 )
-        except Exception:
-            pass
+        except Exception as notice_exc:
+            print(
+                "[RFC HTTP CLIENT NOTICE ERROR]",
+                repr(notice_exc),
+                flush=True,
+            )
+
+    if transient_http_error:
+        raise
 
     except Exception as e:
         print(
@@ -3777,6 +3871,23 @@ def process_group_request_job(job_data: dict):
             flush=True,
         )
         traceback.print_exc()
+    
+        retry_remaining = (
+            _rq_retry_remaining()
+        )
+    
+        if retry_remaining > 0:
+            print(
+                "[RFC JOB EXCEPTION - RQ RETRY]",
+                {
+                    "retry_remaining":
+                        retry_remaining,
+                    "error": repr(e),
+                },
+                flush=True,
+            )
+    
+            raise
     
         if not verifiable_pdf_text_fallback_sent:
             try:
@@ -3790,8 +3901,15 @@ def process_group_request_job(job_data: dict):
                     ),
                     instance_name=instance_name,
                 )
-            except Exception:
-                pass
+        except Exception as notice_exc:
+            print(
+                "[RFC FINAL CLIENT NOTICE ERROR]",
+                repr(notice_exc),
+                flush=True,
+            )
+    raise
+
+finally:
 
     finally:
         release_request_inflight(
