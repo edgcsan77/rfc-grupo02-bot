@@ -4817,23 +4817,103 @@ async def evolution_rfc_webhook(request: Request):
                         )
                     )
 
-                    child_result = await (
-                        evolution_rfc_webhook(
-                            _RFCBatchSyntheticRequest(
-                                child_payload
+                    batch_child_job_id = (
+                        "rfc-batch-child:"
+                        + hashlib.sha1(
+                            (
+                                f"{instance_name}|"
+                                f"{remote_jid}|"
+                                f"{msg_id}|"
+                                f"{item_index}"
+                            ).encode(
+                                "utf-8"
+                            )
+                        ).hexdigest()
+                    )
+                    
+                    try:
+                        child_job = (
+                            request_queue.enqueue(
+                                "worker_jobs."
+                                "process_rfc_batch_child_job",
+                                child_payload,
+                                job_id=(
+                                    batch_child_job_id
+                                ),
+                                job_timeout=900,
+                                result_ttl=600,
+                                failure_ttl=86400,
+                                retry=Retry(
+                                    max=3,
+                                    interval=[
+                                        15,
+                                        45,
+                                        120,
+                                    ],
+                                ),
                             )
                         )
-                    )
-
+                    
+                        child_result = {
+                            "ok": True,
+                            "queued": True,
+                            "job_id": child_job.id,
+                        }
+                    
+                    except Exception as child_enqueue_exc:
+                        error_text = str(
+                            child_enqueue_exc
+                        ).lower()
+                    
+                        if (
+                            "already exists"
+                            in error_text
+                            or "duplicate"
+                            in error_text
+                        ):
+                            child_result = {
+                                "ok": True,
+                                "queued": False,
+                                "ignored": (
+                                    "batch_child_"
+                                    "already_queued"
+                                ),
+                                "job_id":
+                                    batch_child_job_id,
+                            }
+                    
+                        else:
+                            print(
+                                "RFC_BATCH_CHILD_ENQUEUE_ERROR =",
+                                {
+                                    "job_id":
+                                        batch_child_job_id,
+                                    "batch_index":
+                                        item_index,
+                                    "error":
+                                        repr(
+                                            child_enqueue_exc
+                                        ),
+                                },
+                                flush=True,
+                            )
+                    
+                            raise
+                    
+                    
                     batch_results.append({
-                        "batch_index": item_index,
-                        "batch_total": batch_total,
-                        "type": item.get("type"),
-                        "result": child_result,
+                        "batch_index":
+                            item_index,
+                        "batch_total":
+                            batch_total,
+                        "type":
+                            item.get("type"),
+                        "result":
+                            child_result,
                     })
 
                 print(
-                    "RFC_BATCH_PROCESSED =",
+                    "RFC_BATCH_QUEUED =",
                     {
                         "instance": instance_name,
                         "group_jid": remote_jid,
@@ -6320,6 +6400,14 @@ async def evolution_rfc_webhook(request: Request):
                     job_timeout=300,
                     result_ttl=86400,
                     failure_ttl=86400,
+                    retry=Retry(
+                        max=3,
+                        interval=[
+                            60,
+                            300,
+                            900,
+                        ],
+                    ),
                 )
             
                 print(
