@@ -1,5 +1,6 @@
 import os
 import re
+import copy
 import json
 import hashlib
 import time
@@ -46,6 +47,8 @@ from app.verifiable_flow import (
     verifiable_provider_by_group,
     _near_curp_rfc_match,
     _near_rfc_match,
+    _normalize_verifiable_text,
+    _verifiable_word_distance,
 )
 
 router = APIRouter()
@@ -867,6 +870,338 @@ def _parse_rfc_query(text: str, msg_type: str = "") -> dict:
         ),
     }
 
+
+def _parse_rfc_batch_requests(
+    text: str,
+    msg_type: str = "",
+) -> list[dict]:
+    """
+    Extrae TODAS las solicitudes reconocibles de un mensaje,
+    ignorando texto libre y conservando el orden de los datos.
+
+    Reglas:
+    - RFC + IDCIF e IDCIF + RFC se emparejan cuando son datos
+      reconocidos consecutivos, aunque haya texto libre entre ellos.
+    - RFC/CURP sin IDCIF quedan como solicitudes individuales.
+    - Si existe un indicador VERIFICABLE en cualquier parte del
+      mensaje, todos los RFC/CURP individuales del mensaje se tratan
+      como verificables. Los pares RFC+IDCIF conservan su flujo IDCIF.
+    - Cada línea que contenga un QR SAT textual se trata como un QR.
+    - Texto que no sea RFC, CURP, IDCIF, QR SAT o indicador
+      verificable se ignora por completo.
+    - Una imagen/documento sigue siendo una única solicitud porque
+      Evolution entrega cada archivo multimedia en su propio webhook.
+    """
+    raw = str(text or "")
+
+    if msg_type in {"image", "document"}:
+        parsed = _parse_rfc_query(
+            raw,
+            msg_type=msg_type,
+        )
+        return [{
+            "ok": bool(parsed.get("ok")),
+            "type": parsed.get("type") or "INVALID_INPUT",
+            "text": raw,
+            "query": parsed.get("query") or "",
+            "error": parsed.get("error") or "",
+        }]
+
+    normalized = (
+        raw.replace("\r\n", "\n")
+        .replace("\r", "\n")
+    )
+
+    # ----------------------------------------------------------
+    # Indicador GLOBAL VERIFICABLE para listas.
+    #
+    # IMPORTANTE:
+    # Aquí NO usamos las abreviaciones cortas del flujo individual
+    # (V, VE, VER, VERI, VERIF), porque palabras normales como
+    # "ver" podrían convertir accidentalmente toda una lista en
+    # solicitudes verificables.
+    #
+    # Para activar el modo global se exige una palabra claramente
+    # equivalente a VERIFICABLE/VERIFICABLES. Se toleran errores
+    # tipográficos razonables únicamente en palabras largas.
+    # ----------------------------------------------------------
+    global_verifiable = False
+
+    for word in re.findall(
+        r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+",
+        normalized,
+    ):
+        normalized_word = _normalize_verifiable_text(
+            word
+        )
+
+        normalized_word = re.sub(
+            r"[^A-Z]",
+            "",
+            normalized_word,
+        )
+
+        if normalized_word in {
+            "VERIFICABLE",
+            "VERIFICABLES",
+        }:
+            global_verifiable = True
+            break
+
+        # Permitir errores tipográficos solamente cuando la palabra
+        # sigue siendo suficientemente larga para ser inequívoca.
+        #
+        # Ejemplos admitidos:
+        # VERIFIACBLE
+        # VERIFCABLE
+        # VEIIFICABLE
+        if len(normalized_word) >= 8:
+            distance_to_singular = (
+                _verifiable_word_distance(
+                    normalized_word,
+                    "VERIFICABLE",
+                )
+            )
+
+            distance_to_plural = (
+                _verifiable_word_distance(
+                    normalized_word,
+                    "VERIFICABLES",
+                )
+            )
+
+            if min(
+                distance_to_singular,
+                distance_to_plural,
+            ) <= 2:
+                global_verifiable = True
+                break
+
+    # ----------------------------------------------------------
+    # Tokens reconocidos, en orden físico dentro del mensaje.
+    # El texto libre jamás se convierte en solicitud inválida.
+    # ----------------------------------------------------------
+    token_re = re.compile(
+        r"\b[A-Z][AEIOUX][A-Z]{2}"
+        r"\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b"
+        r"|"
+        r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b"
+        r"|"
+        r"\b\d{11}\b",
+        re.I,
+    )
+
+    data_tokens: list[dict] = []
+    qr_items: list[dict] = []
+    offset = 0
+
+    for raw_line in normalized.split("\n"):
+        line = str(raw_line or "")
+
+        # Un QR SAT textual conserva la línea completa para que el
+        # worker reciba todos sus parámetros. No extraemos RFC/IDCIF
+        # de esa misma línea para evitar falsos positivos del URL.
+        if SAT_QR_RE.search(line):
+            qr_items.append({
+                "position": offset,
+                "ok": True,
+                "type": "QR_TEXT",
+                "is_verifiable": False,
+                "text": line.strip(),
+                "query": line.strip(),
+                "error": "",
+            })
+            offset += len(line) + 1
+            continue
+
+        upper_line = line.upper()
+
+        for match in token_re.finditer(upper_line):
+            token = match.group(0).upper()
+
+            if CURP_RE.fullmatch(token):
+                token_type = "CURP"
+            elif RFC_RE.fullmatch(token):
+                token_type = "RFC"
+            elif IDCIF_RE.fullmatch(token):
+                token_type = "IDCIF"
+            else:
+                continue
+
+            data_tokens.append({
+                "position": offset + match.start(),
+                "kind": token_type,
+                "value": token,
+            })
+
+        offset += len(line) + 1
+
+    results_with_position: list[tuple[int, dict]] = []
+    index = 0
+
+    while index < len(data_tokens):
+        current = data_tokens[index]
+        following = (
+            data_tokens[index + 1]
+            if index + 1 < len(data_tokens)
+            else None
+        )
+
+        # RFC + IDCIF o IDCIF + RFC. "Consecutivos" significa que
+        # no existe otro RFC/CURP/IDCIF reconocido entre ambos;
+        # cualquier texto libre intermedio se ignora.
+        if (
+            following
+            and {current["kind"], following["kind"]}
+            == {"RFC", "IDCIF"}
+        ):
+            rfc = (
+                current["value"]
+                if current["kind"] == "RFC"
+                else following["value"]
+            )
+            idcif = (
+                current["value"]
+                if current["kind"] == "IDCIF"
+                else following["value"]
+            )
+
+            results_with_position.append((
+                min(current["position"], following["position"]),
+                {
+                    "ok": True,
+                    "type": "RFC_IDCIF",
+                    "is_verifiable": False,
+                    "text": f"RFC: {rfc}\nIDCIF: {idcif}",
+                    "query": f"RFC: {rfc}\nIDCIF: {idcif}",
+                    "error": "",
+                },
+            ))
+            index += 2
+            continue
+
+        if current["kind"] == "CURP":
+            identifier = current["value"]
+            if global_verifiable:
+                item = {
+                    "ok": True,
+                    "type": "RFC_VERIFICABLE",
+                    "is_verifiable": True,
+                    "text": f"VERIFICABLE {identifier}",
+                    "query": "",
+                    "error": "",
+                }
+            else:
+                item = {
+                    "ok": True,
+                    "type": "CURP",
+                    "is_verifiable": False,
+                    "text": identifier,
+                    "query": identifier,
+                    "error": "",
+                }
+
+            results_with_position.append((
+                current["position"],
+                item,
+            ))
+            index += 1
+            continue
+
+        if current["kind"] == "RFC":
+            identifier = current["value"]
+            if global_verifiable:
+                item = {
+                    "ok": True,
+                    "type": "RFC_VERIFICABLE",
+                    "is_verifiable": True,
+                    "text": f"VERIFICABLE {identifier}",
+                    "query": "",
+                    "error": "",
+                }
+            else:
+                item = {
+                    "ok": True,
+                    "type": "RFC_ONLY",
+                    "is_verifiable": False,
+                    "text": identifier,
+                    "query": identifier,
+                    "error": "",
+                }
+
+            results_with_position.append((
+                current["position"],
+                item,
+            ))
+            index += 1
+            continue
+
+        # IDCIF sin RFC vecino no es una solicitud autónoma.
+        # Se ignora igual que el texto libre.
+        index += 1
+
+    for qr_item in qr_items:
+        position = int(qr_item.pop("position"))
+        results_with_position.append((position, qr_item))
+
+    results_with_position.sort(key=lambda pair: pair[0])
+    results = [item for _, item in results_with_position]
+
+    total = len(results)
+    for item_index, item in enumerate(results, start=1):
+        item["batch_index"] = item_index
+        item["batch_total"] = total
+
+    return results
+
+
+class _RFCBatchSyntheticRequest:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    async def json(self):
+        return self._payload
+
+
+def _build_rfc_batch_child_payload(
+    *,
+    payload: dict,
+    item: dict,
+    parent_msg_id: str,
+    batch_started_at_epoch: float,
+) -> dict:
+    child_payload = copy.deepcopy(payload)
+    child_data = child_payload.setdefault("data", {})
+    child_key = child_data.setdefault("key", {})
+
+    batch_index = int(item.get("batch_index") or 1)
+    batch_total = int(item.get("batch_total") or 1)
+
+    child_msg_id = (
+        f"{parent_msg_id}:batch:{batch_index}"
+    )
+
+    child_key["id"] = child_msg_id
+    child_data["id"] = child_msg_id
+    child_data["messageId"] = child_msg_id
+
+    child_text = str(item.get("text") or "")
+    child_data["message"] = {
+        "conversation": child_text,
+    }
+    child_data["text"] = child_text
+    child_data["body"] = child_text
+
+    child_data["_rfc_batch_child"] = True
+    child_data["_rfc_batch_index"] = batch_index
+    child_data["_rfc_batch_total"] = batch_total
+    child_data["_rfc_batch_parent_msg_id"] = parent_msg_id
+    child_data["_rfc_batch_suppress_ack"] = True
+    child_data["_rfc_batch_started_at_epoch"] = float(
+        batch_started_at_epoch
+    )
+
+    return child_payload
 
 def _authorized_group_exists(db, group_jid: str, instance_name: str) -> bool:
     row = db.query(AuthorizedGroup).filter(AuthorizedGroup.group_jid == group_jid).first()
@@ -3498,6 +3833,38 @@ async def evolution_rfc_webhook(request: Request):
         key = data.get("key") or {}
         message = data.get("message") or {}
 
+        try:
+            batch_index = max(
+                int(data.get("_rfc_batch_index") or 1),
+                1,
+            )
+        except Exception:
+            batch_index = 1
+
+        try:
+            batch_total = max(
+                int(data.get("_rfc_batch_total") or 1),
+                1,
+            )
+        except Exception:
+            batch_total = 1
+
+        batch_child = bool(
+            data.get("_rfc_batch_child")
+        )
+
+        batch_suppress_ack = bool(
+            data.get("_rfc_batch_suppress_ack")
+        )
+
+        try:
+            batch_started_at_epoch = float(
+                data.get("_rfc_batch_started_at_epoch")
+                or time.time()
+            )
+        except Exception:
+            batch_started_at_epoch = time.time()
+
         from_me = bool(key.get("fromMe"))
         remote_jid = (
             key.get("remoteJid")
@@ -4211,6 +4578,188 @@ async def evolution_rfc_webhook(request: Request):
                 "instance": instance_name,
             }
 
+
+        # ======================================================
+        # MULTILÍNEA
+        # ======================================================
+        if (
+            not batch_child
+            and not msg_type
+        ):
+            batch_items = _parse_rfc_batch_requests(
+                text,
+                msg_type=msg_type,
+            )
+
+            if len(batch_items) > 1:
+                batch_started_at_epoch = time.time()
+                batch_total = len(batch_items)
+                requester_label = push_name or "Usuario"
+
+                valid_items = [
+                    item
+                    for item in batch_items
+                    if item.get("ok")
+                ]
+
+                type_counts: dict[str, int] = {}
+
+                for item in valid_items:
+                    item_type = str(
+                        item.get("type") or ""
+                    ).strip().upper()
+
+                    if item_type:
+                        type_counts[item_type] = (
+                            type_counts.get(item_type, 0)
+                            + 1
+                        )
+
+                redis_conn = request_queue.connection
+                batch_ack_key = (
+                    "rfc:ack:batch:"
+                    f"{instance_name}:{msg_id}"
+                )
+
+                if redis_conn.set(
+                    batch_ack_key,
+                    "1",
+                    nx=True,
+                    ex=300,
+                ):
+                    try:
+                        if (
+                            len(type_counts) == 1
+                            and len(valid_items) == batch_total
+                        ):
+                            only_type = next(iter(type_counts))
+                            only_count = type_counts[only_type]
+
+                            if only_type == "RFC_VERIFICABLE":
+                                ack_text = (
+                                    _client_verifiable_received_message(
+                                        requester_label=requester_label,
+                                        count=only_count,
+                                    )
+                                )
+                            else:
+                                ack_text = _client_received_message(
+                                    requester_label=requester_label,
+                                    query_type=only_type,
+                                    count=only_count,
+                                )
+                        else:
+                            ack_text = (
+                                _client_mixed_received_message(
+                                    requester_label=requester_label,
+                                    total=batch_total,
+                                    type_counts=type_counts,
+                                )
+                            )
+
+                        send_text(
+                            remote_jid,
+                            ack_text,
+                            instance_name=instance_name,
+                            fast=True,
+                        )
+                    except Exception as ack_exc:
+                        print(
+                            "RFC_BATCH_ACK_SEND_ERROR =",
+                            repr(ack_exc),
+                            flush=True,
+                        )
+
+                batch_results = []
+
+                for item in batch_items:
+                    item_index = int(
+                        item.get("batch_index") or 1
+                    )
+
+                    if not item.get("ok"):
+                        try:
+                            send_text(
+                                remote_jid,
+                                _client_status_message(
+                                    title="⚠️ Solicitud no reconocida",
+                                    requester_label=requester_label,
+                                    body=(
+                                        "Puedes enviar:\n"
+                                        "• CURP\n"
+                                        "• RFC\n"
+                                        "• RFC + IDCIF\n"
+                                        "• QR SAT\n"
+                                        "• CURP/RFC VERIFICABLE"
+                                    ),
+                                    batch_index=item_index,
+                                    batch_total=batch_total,
+                                    include_identity=False,
+                                ),
+                                instance_name=instance_name,
+                                fast=True,
+                            )
+                        except Exception as invalid_exc:
+                            print(
+                                "RFC_BATCH_INVALID_NOTICE_ERROR =",
+                                repr(invalid_exc),
+                                flush=True,
+                            )
+
+                        batch_results.append({
+                            "ok": True,
+                            "ignored": "invalid_batch_item",
+                            "batch_index": item_index,
+                            "batch_total": batch_total,
+                        })
+                        continue
+
+                    child_payload = (
+                        _build_rfc_batch_child_payload(
+                            payload=payload,
+                            item=item,
+                            parent_msg_id=msg_id,
+                            batch_started_at_epoch=(
+                                batch_started_at_epoch
+                            ),
+                        )
+                    )
+
+                    child_result = await (
+                        evolution_rfc_webhook(
+                            _RFCBatchSyntheticRequest(
+                                child_payload
+                            )
+                        )
+                    )
+
+                    batch_results.append({
+                        "batch_index": item_index,
+                        "batch_total": batch_total,
+                        "type": item.get("type"),
+                        "result": child_result,
+                    })
+
+                print(
+                    "RFC_BATCH_PROCESSED =",
+                    {
+                        "instance": instance_name,
+                        "group_jid": remote_jid,
+                        "parent_msg_id": msg_id,
+                        "batch_total": batch_total,
+                        "type_counts": type_counts,
+                        "results": batch_results,
+                    },
+                    flush=True,
+                )
+
+                return {
+                    "ok": True,
+                    "batch": True,
+                    "batch_total": batch_total,
+                    "results": batch_results,
+                }
+
         verifiable = parse_verifiable_request(
             text
         )
@@ -4869,6 +5418,8 @@ async def evolution_rfc_webhook(request: Request):
                                 "Podrás volver a solicitarla "
                                 f"aproximadamente en {remaining_hours} h."
                             ),
+                            batch_index=batch_index,
+                            batch_total=batch_total,
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -4951,6 +5502,8 @@ async def evolution_rfc_webhook(request: Request):
                                     "Esta solicitud ya está siendo procesada.\n"
                                     "No es necesario enviarla nuevamente."
                                 ),
+                                batch_index=batch_index,
+                                batch_total=batch_total,
                             ),
                             instance_name=instance_name,
                             fast=True,
@@ -5003,6 +5556,8 @@ async def evolution_rfc_webhook(request: Request):
                                     "Esta solicitud ya está siendo procesada.\n"
                                     "No es necesario enviarla nuevamente."
                                 ),
+                                batch_index=batch_index,
+                                batch_total=batch_total,
                             ),
                             instance_name=(
                                 instance_name
@@ -5332,11 +5887,11 @@ async def evolution_rfc_webhook(request: Request):
                 "requester_label": (
                     requester_label
                 ),
-                "batch_index": 1,
-                "batch_total": 1,
+                "batch_index": batch_index,
+                "batch_total": batch_total,
                 "client_msg_id": msg_id,
                 "request_started_at_epoch": (
-                    time.time()
+                    batch_started_at_epoch
                 ),
                 "original_text": text,
                 "original_query_type": (
@@ -5444,6 +5999,8 @@ async def evolution_rfc_webhook(request: Request):
                                 "Ocurrió una interrupción temporal.\n"
                                 "Intenta nuevamente."
                             ),
+                            batch_index=batch_index,
+                            batch_total=batch_total,
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -5528,6 +6085,8 @@ async def evolution_rfc_webhook(request: Request):
                                 "No fue posible iniciar el procesamiento.\n"
                                 "Intenta nuevamente."
                             ),
+                            batch_index=batch_index,
+                            batch_total=batch_total,
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -5639,22 +6198,23 @@ async def evolution_rfc_webhook(request: Request):
                 # El pendiente y processing tienen TTL propio,
                 # por lo que eventualmente se liberarán.
 
-            try:
-                send_text(
-                    remote_jid,
-                    _client_verifiable_received_message(
-                        requester_label=requester_label,
-                        count=1,
-                    ),
-                    instance_name=instance_name,
-                    fast=True,
-                )
-            except Exception as ack_exc:
-                print(
-                    "RFC_VERIFIABLE_ACK_ERROR =",
-                    repr(ack_exc),
-                    flush=True,
-                )
+            if not batch_suppress_ack:
+                try:
+                    send_text(
+                        remote_jid,
+                        _client_verifiable_received_message(
+                            requester_label=requester_label,
+                            count=1,
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+                except Exception as ack_exc:
+                    print(
+                        "RFC_VERIFIABLE_ACK_ERROR =",
+                        repr(ack_exc),
+                        flush=True,
+                    )
 
             print(
                 "RFC_VERIFIABLE_SENT_TO_PROVIDER =",
@@ -5913,6 +6473,8 @@ async def evolution_rfc_webhook(request: Request):
                                 "Esta solicitud ya está siendo procesada.\n"
                                 "No es necesario enviarla nuevamente."
                             ),
+                            batch_index=batch_index,
+                            batch_total=batch_total,
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -5937,8 +6499,8 @@ async def evolution_rfc_webhook(request: Request):
             "requester_number": requester_wa_id,
             "requester_name": push_name,
             "requester_label": requester_label,
-            "batch_index": 1,
-            "batch_total": 1,
+            "batch_index": batch_index,
+            "batch_total": batch_total,
             "group_jid": remote_jid,
             "group_name": remote_jid,
             "original_text": text,
@@ -5949,7 +6511,9 @@ async def evolution_rfc_webhook(request: Request):
             "msg_id": msg_id,
             "mime_type": mime_type,
             "evolution_instance": instance_name,
-            "request_started_at_epoch": time.time(),
+            "request_started_at_epoch": (
+                batch_started_at_epoch
+            ),
             "request_key": command_key,
             "inflight_key": inflight_key,
             "execution_key": (
@@ -6020,32 +6584,33 @@ async def evolution_rfc_webhook(request: Request):
             flush=True,
         )
 
-        ack_key = f"rfc:ack:{instance_name}:{msg_id}"
+        if not batch_suppress_ack:
+            ack_key = f"rfc:ack:{instance_name}:{msg_id}"
 
-        if redis_conn.set(
-            ack_key,
-            "1",
-            nx=True,
-            ex=300,
-        ):
-            try:
-                send_text(
-                    remote_jid,
-                    _client_received_message(
-                        requester_label=requester_label,
-                        query_type=(parsed.get("type") or ""),
-                        count=1,
-                    ),
-                    instance_name=instance_name,
-                    fast=True,
-                )
-        
-            except Exception as ack_exc:
-                print(
-                    "RFC_ACK_SEND_ERROR =",
-                    repr(ack_exc),
-                    flush=True,
-                )
+            if redis_conn.set(
+                ack_key,
+                "1",
+                nx=True,
+                ex=300,
+            ):
+                try:
+                    send_text(
+                        remote_jid,
+                        _client_received_message(
+                            requester_label=requester_label,
+                            query_type=(parsed.get("type") or ""),
+                            count=1,
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+
+                except Exception as ack_exc:
+                    print(
+                        "RFC_ACK_SEND_ERROR =",
+                        repr(ack_exc),
+                        flush=True,
+                    )
 
         return {
             "ok": True,
