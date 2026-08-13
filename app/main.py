@@ -3800,6 +3800,30 @@ def _fmt_dt(dt):
         return str(dt)
 
 
+def _fmt_recharge_dt(dt):
+    if not dt:
+        return ""
+
+    try:
+        # BotRechargeLog.created_at viene de PostgreSQL
+        # como hora local naive de PANEL_TZ.
+        if dt.tzinfo is None:
+            local_dt = dt.replace(
+                tzinfo=ZoneInfo(PANEL_TZ)
+            )
+        else:
+            local_dt = dt.astimezone(
+                ZoneInfo(PANEL_TZ)
+            )
+
+        return local_dt.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+    except Exception:
+        return str(dt)
+
+
 def _fmt_duration_seconds(seconds):
     try:
         seconds = int(max(0, seconds or 0))
@@ -11364,7 +11388,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         for r in recharge_rows:
             html += f"""
                 <tr>
-                  <td>{_esc(_fmt_dt(r.created_at))}</td>
+                  <td>{_esc(_fmt_recharge_dt(r.created_at))}</td>
                   <td class="recharge-amount">+{int(r.amount or 0)}</td>
                   <td>{int(r.previous_limit or 0)}</td>
                   <td>{int(r.new_limit or 0)}</td>
