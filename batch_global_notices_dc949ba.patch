@@ -1,0 +1,634 @@
+--- a/app/rfc_webhook.py
++++ b/app/rfc_webhook.py
+@@ -1202,6 +1202,93 @@
+     )
+ 
+     return child_payload
++
++
++def _claim_batch_global_notice(
++    *,
++    batch_child: bool,
++    batch_parent_msg_id: str,
++    instance_name: str,
++    remote_jid: str,
++    notice_code: str,
++    ttl_sec: int = 600,
++) -> bool:
++    """
++    Evita repetir un aviso GLOBAL dentro del mismo mensaje multilínea.
++
++    - Solicitud individual: siempre permite el aviso.
++    - Batch: sólo el primer hijo que encuentra el mismo notice_code
++      envía el mensaje.
++    - Si Redis falla, permite el aviso (fail-open) para no ocultarlo.
++    """
++    if not batch_child:
++        return True
++
++    parent_msg_id = str(
++        batch_parent_msg_id or ""
++    ).strip()
++
++    notice_code = str(
++        notice_code or ""
++    ).strip().lower()
++
++    if not parent_msg_id or not notice_code:
++        return True
++
++    base = "|".join(
++        [
++            str(instance_name or "").strip(),
++            str(remote_jid or "").strip(),
++            parent_msg_id,
++            notice_code,
++        ]
++    )
++
++    digest = hashlib.sha1(
++        base.encode("utf-8")
++    ).hexdigest()
++
++    redis_key = (
++        "rfc:batch:global_notice:"
++        f"{digest}"
++    )
++
++    try:
++        claimed = bool(
++            request_queue.connection.set(
++                redis_key,
++                "1",
++                nx=True,
++                ex=max(int(ttl_sec or 600), 60),
++            )
++        )
++
++        print(
++            "RFC_BATCH_GLOBAL_NOTICE_CLAIM =",
++            {
++                "parent_msg_id": parent_msg_id,
++                "notice_code": notice_code,
++                "redis_key": redis_key,
++                "claimed": claimed,
++            },
++            flush=True,
++        )
++
++        return claimed
++
++    except Exception as claim_exc:
++        print(
++            "RFC_BATCH_GLOBAL_NOTICE_CLAIM_ERROR =",
++            {
++                "parent_msg_id": parent_msg_id,
++                "notice_code": notice_code,
++                "error": repr(claim_exc),
++            },
++            flush=True,
++        )
++
++        return True
++
+ 
+ def _authorized_group_exists(db, group_jid: str, instance_name: str) -> bool:
+     row = db.query(AuthorizedGroup).filter(AuthorizedGroup.group_jid == group_jid).first()
+@@ -1499,8 +1586,8 @@
+     return (
+         f"🔎 {count} RFC verificables recibidos\n"
+         f"👤 {requester_label}\n"
+-        "⏳ Fueron enviados para procesamiento.\n"
+-        "Los resultados se entregarán individualmente."
++        "⏳ Se procesarán individualmente.\n"
++        "Te avisaremos cuando tengamos cada resultado."
+     )
+ 
+ 
+@@ -3856,6 +3943,11 @@
+         batch_suppress_ack = bool(
+             data.get("_rfc_batch_suppress_ack")
+         )
++
++        batch_parent_msg_id = str(
++            data.get("_rfc_batch_parent_msg_id")
++            or ""
++        ).strip()
+ 
+         try:
+             batch_started_at_epoch = float(
+@@ -4799,18 +4891,25 @@
+                     flush=True,
+                 )
+             
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ El servicio de RFC "
+-                            "verificable no está configurado."
+-                        ),
+-                        instance_name=instance_name,
+-                        fast=True,
+-                    )
+-                except Exception:
+-                    pass
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_providers_not_configured",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ El servicio de RFC "
++                                "verificable no está configurado."
++                            ),
++                            instance_name=instance_name,
++                            fast=True,
++                        )
++                    except Exception:
++                        pass
+             
+                 return {
+                     "ok": False,
+@@ -4849,20 +4948,27 @@
+                     flush=True,
+                 )
+ 
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ RFC verificable no disponible\n"
+-                            f"👤 {requester_label}\n\n"
+-                            "El servicio de RFC verificable no está configurado."
+-                        ),
+-                        instance_name=instance_name,
+-                        fast=True,
+-                    )
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_bot_not_configured",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ RFC verificable no disponible\n"
++                                f"👤 {requester_label}\n\n"
++                                "El servicio de RFC verificable no está configurado."
++                            ),
++                            instance_name=instance_name,
++                            fast=True,
++                        )
+                     
+-                except Exception:
+-                    pass
++                    except Exception:
++                        pass
+ 
+                 return {
+                     "ok": True,
+@@ -4884,19 +4990,26 @@
+                     flush=True,
+                 )
+ 
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ RFC verificable no disponible\n"
+-                            f"👤 {requester_label}\n\n"
+-                            "El servicio de RFC verificable no está activo actualmente."
+-                        ),
+-                        instance_name=instance_name,
+-                        fast=True,
+-                    )
+-                except Exception:
+-                    pass
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_disabled",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ RFC verificable no disponible\n"
++                                f"👤 {requester_label}\n\n"
++                                "El servicio de RFC verificable no está activo actualmente."
++                            ),
++                            instance_name=instance_name,
++                            fast=True,
++                        )
++                    except Exception:
++                        pass
+ 
+                 return {
+                     "ok": True,
+@@ -4929,20 +5042,27 @@
+                     flush=True,
+                 )
+ 
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ RFC verificable no disponible\n"
+-                            f"👤 {requester_label}\n\n"
+-                            "Este grupo no tiene configurado el servicio de RFC verificable."
+-                        ),
+-                        instance_name=
+-                            instance_name,
+-                        fast=True,
+-                    )
+-                except Exception:
+-                    pass
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_group_not_found",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ RFC verificable no disponible\n"
++                                f"👤 {requester_label}\n\n"
++                                "Este grupo no tiene configurado el servicio de RFC verificable."
++                            ),
++                            instance_name=
++                                instance_name,
++                            fast=True,
++                        )
++                    except Exception:
++                        pass
+ 
+                 return {
+                     "ok": True,
+@@ -4992,20 +5112,27 @@
+                     flush=True,
+                 )
+ 
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ RFC verificable no disponible\n"
+-                            f"👤 {requester_label}\n\n"
+-                            "Este grupo no tiene activo el servicio de RFC verificable."
+-                        ),
+-                        instance_name=
+-                            instance_name,
+-                        fast=True,
+-                    )
+-                except Exception:
+-                    pass
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_group_disabled",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ RFC verificable no disponible\n"
++                                f"👤 {requester_label}\n\n"
++                                "Este grupo no tiene activo el servicio de RFC verificable."
++                            ),
++                            instance_name=
++                                instance_name,
++                            fast=True,
++                        )
++                    except Exception:
++                        pass
+ 
+                 return {
+                     "ok": True,
+@@ -5029,19 +5156,26 @@
+                     flush=True,
+                 )
+ 
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ Servicio no disponible\n"
+-                            f"👤 {requester_label}\n\n"
+-                            "El servicio está temporalmente inactivo."
+-                        ),
+-                        instance_name=instance_name,
+-                        fast=True,
+-                    )
+-                except Exception:
+-                    pass
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_bot_inactive",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ Servicio no disponible\n"
++                                f"👤 {requester_label}\n\n"
++                                "El servicio está temporalmente inactivo."
++                            ),
++                            instance_name=instance_name,
++                            fast=True,
++                        )
++                    except Exception:
++                        pass
+ 
+                 return {
+                     "ok": True,
+@@ -5066,19 +5200,26 @@
+                     flush=True,
+                 )
+ 
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ Servicio no disponible\n"
+-                            f"👤 {requester_label}\n\n"
+-                            "El servicio está temporalmente bloqueado."
+-                        ),
+-                        instance_name=instance_name,
+-                        fast=True,
+-                    )
+-                except Exception:
+-                    pass
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_bot_blocked",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ Servicio no disponible\n"
++                                f"👤 {requester_label}\n\n"
++                                "El servicio está temporalmente bloqueado."
++                            ),
++                            instance_name=instance_name,
++                            fast=True,
++                        )
++                    except Exception:
++                        pass
+ 
+                 return {
+                     "ok": True,
+@@ -5120,19 +5261,26 @@
+                     flush=True,
+                 )
+ 
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ RFC verificable no disponible\n"
+-                            f"👤 {requester_label}\n\n"
+-                            "No hay RFC verificables disponibles en este momento."
+-                        ),
+-                        instance_name=instance_name,
+-                        fast=True,
+-                    )
+-                except Exception:
+-                    pass
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_limit_reached",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ RFC verificable no disponible\n"
++                                f"👤 {requester_label}\n\n"
++                                "No hay RFC verificables disponibles en este momento."
++                            ),
++                            instance_name=instance_name,
++                            fast=True,
++                        )
++                    except Exception:
++                        pass
+ 
+                 return {
+                     "ok": True,
+@@ -5243,24 +5391,31 @@
+                         "Intenta nuevamente en unos momentos."
+                     )
+             
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        client_message,
+-                        instance_name=instance_name,
+-                        fast=True,
+-                    )
+-                except Exception as send_exc:
+-                    print(
+-                        "RFC_VERIFIABLE_GROUP_BALANCE_"
+-                        "NOTICE_ERROR =",
+-                        {
+-                            "group_jid": remote_jid,
+-                            "reason": reason,
+-                            "error": repr(send_exc),
+-                        },
+-                        flush=True,
+-                    )
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code=("verifiable_group_balance:" + str(reason)),
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            client_message,
++                            instance_name=instance_name,
++                            fast=True,
++                        )
++                    except Exception as send_exc:
++                        print(
++                            "RFC_VERIFIABLE_GROUP_BALANCE_"
++                            "NOTICE_ERROR =",
++                            {
++                                "group_jid": remote_jid,
++                                "reason": reason,
++                                "error": repr(send_exc),
++                            },
++                            flush=True,
++                        )
+             
+                 return {
+                     "ok": True,
+@@ -5592,20 +5747,27 @@
+                     verifiable_processing_key
+                 )
+             
+-                try:
+-                    send_text(
+-                        remote_jid,
+-                        (
+-                            "⚠️ RFC verificable temporalmente no disponible\n"
+-                            f"👤 {requester_label}\n\n"
+-                            "No fue posible iniciar el procesamiento en este momento.\n"
+-                            "Intenta nuevamente más tarde."
+-                        ),
+-                        instance_name=instance_name,
+-                        fast=True,
+-                    )
+-                except Exception:
+-                    pass
++                if _claim_batch_global_notice(
++                    batch_child=batch_child,
++                    batch_parent_msg_id=batch_parent_msg_id,
++                    instance_name=instance_name,
++                    remote_jid=remote_jid,
++                    notice_code="verifiable_provider_not_available",
++                ):
++                    try:
++                        send_text(
++                            remote_jid,
++                            (
++                                "⚠️ RFC verificable temporalmente no disponible\n"
++                                f"👤 {requester_label}\n\n"
++                                "No fue posible iniciar el procesamiento en este momento.\n"
++                                "Intenta nuevamente más tarde."
++                            ),
++                            instance_name=instance_name,
++                            fast=True,
++                        )
++                    except Exception:
++                        pass
+             
+                 return {
+                     "ok": False,
+@@ -6327,24 +6489,31 @@
+                 flush=True,
+             )
+         
+-            try:
+-                send_text(
+-                    remote_jid,
+-                    (
+-                        "⚠️ El servicio CLON está "
+-                        "desactivado temporalmente "
+-                        "para este grupo."
+-                    ),
+-                    instance_name=instance_name,
+-                    fast=True,
+-                )
+-            except Exception as send_exc:
+-                print(
+-                    "RFC_GROUP_SERVICE_DISABLED_"
+-                    "NOTICE_ERROR =",
+-                    repr(send_exc),
+-                    flush=True,
+-                )
++            if _claim_batch_global_notice(
++                batch_child=batch_child,
++                batch_parent_msg_id=batch_parent_msg_id,
++                instance_name=instance_name,
++                remote_jid=remote_jid,
++                notice_code="group_clon_disabled",
++            ):
++                try:
++                    send_text(
++                        remote_jid,
++                        (
++                            "⚠️ El servicio CLON está "
++                            "desactivado temporalmente "
++                            "para este grupo."
++                        ),
++                        instance_name=instance_name,
++                        fast=True,
++                    )
++                except Exception as send_exc:
++                    print(
++                        "RFC_GROUP_SERVICE_DISABLED_"
++                        "NOTICE_ERROR =",
++                        repr(send_exc),
++                        flush=True,
++                    )
+         
+             return {
+                 "ok": True,
+@@ -6369,24 +6538,31 @@
+                 flush=True,
+             )
+         
+-            try:
+-                send_text(
+-                    remote_jid,
+-                    (
+-                        "⚠️ El servicio IDCIF/QR "
+-                        "está desactivado temporalmente "
+-                        "para este grupo."
+-                    ),
+-                    instance_name=instance_name,
+-                    fast=True,
+-                )
+-            except Exception as send_exc:
+-                print(
+-                    "RFC_GROUP_SERVICE_DISABLED_"
+-                    "NOTICE_ERROR =",
+-                    repr(send_exc),
+-                    flush=True,
+-                )
++            if _claim_batch_global_notice(
++                batch_child=batch_child,
++                batch_parent_msg_id=batch_parent_msg_id,
++                instance_name=instance_name,
++                remote_jid=remote_jid,
++                notice_code="group_idcif_disabled",
++            ):
++                try:
++                    send_text(
++                        remote_jid,
++                        (
++                            "⚠️ El servicio IDCIF/QR "
++                            "está desactivado temporalmente "
++                            "para este grupo."
++                        ),
++                        instance_name=instance_name,
++                        fast=True,
++                    )
++                except Exception as send_exc:
++                    print(
++                        "RFC_GROUP_SERVICE_DISABLED_"
++                        "NOTICE_ERROR =",
++                        repr(send_exc),
++                        flush=True,
++                    )
+         
+             return {
+                 "ok": True,
