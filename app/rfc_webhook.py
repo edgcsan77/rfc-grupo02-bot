@@ -5758,10 +5758,7 @@ async def evolution_rfc_webhook(request: Request):
                         send_text(
                             remote_jid,
                             (
-                                "⚠️ RFC verificable temporalmente no disponible\n"
-                                f"👤 {requester_label}\n\n"
-                                "No fue posible iniciar el procesamiento en este momento.\n"
-                                "Intenta nuevamente más tarde."
+                                "⚠️ El servicio RFC verificable está desactivado temporalmente para este grupo."
                             ),
                             instance_name=instance_name,
                             fast=True,
