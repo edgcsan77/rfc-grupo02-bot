@@ -10,6 +10,8 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from redis import Redis
+from rq import get_current_job
+
 from app.verifiable_flow import (
     load_pending,
     claim_provider_result,
@@ -1789,6 +1791,40 @@ def record_verifiable_provider_success(
 
     finally:
         db.close()
+
+
+def _rq_retry_remaining() -> int:
+    """
+    Devuelve cuántos reintentos RQ quedan
+    para el job que se está ejecutando.
+    """
+    try:
+        job = get_current_job()
+
+        if not job:
+            return 0
+
+        return max(
+            int(
+                getattr(
+                    job,
+                    "retries_left",
+                    0,
+                )
+                or 0
+            ),
+            0,
+        )
+
+    except Exception as retry_state_exc:
+        print(
+            "[RFC RQ RETRY STATE ERROR]",
+            repr(retry_state_exc),
+            flush=True,
+        )
+
+        return 0
+
 
 def process_group_request_job(job_data: dict):
     requester_number = job_data["requester_number"]
