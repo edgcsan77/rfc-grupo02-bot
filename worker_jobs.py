@@ -196,6 +196,100 @@ def _format_total_time(
         f"{seconds_part:.2f} segundos"
     )
 
+# ============================================================
+# MENSAJES CLIENTE RFC - WORKER
+# ============================================================
+
+def _job_batch_position(job_data: dict) -> str:
+    try:
+        index = max(int(job_data.get("batch_index") or 1), 1)
+    except Exception:
+        index = 1
+    try:
+        total = max(int(job_data.get("batch_total") or 1), 1)
+    except Exception:
+        total = 1
+    if total <= 1:
+        return ""
+    return f"📌 Solicitud {index} de {total}"
+
+
+def _job_request_identity(job_data: dict) -> dict:
+    if bool(job_data.get("is_verifiable")):
+        return {
+            "query_type": str(job_data.get("verifiable_original_type") or "").strip().upper(),
+            "identifier": str(job_data.get("verifiable_original_identifier") or "").strip().upper(),
+            "provider_rfc": str(job_data.get("provider_rfc") or "").strip().upper(),
+            "provider_idcif": str(job_data.get("provider_idcif") or "").strip(),
+        }
+    query_type = str(job_data.get("query_type") or "").strip().upper()
+    src = str(job_data.get("query") or job_data.get("original_text") or "").strip().upper()
+    curp_match = CURP_RE.search(src)
+    rfc_match = RFC_RE.search(src)
+    idcif_match = IDCIF_RE.search(src)
+    identifier = ""
+    if query_type == "CURP" and curp_match:
+        identifier = curp_match.group(0).upper()
+    elif query_type == "RFC_ONLY" and rfc_match:
+        identifier = rfc_match.group(0).upper()
+    return {
+        "query_type": query_type,
+        "identifier": identifier,
+        "rfc": rfc_match.group(0).upper() if rfc_match else "",
+        "idcif": idcif_match.group(0) if idcif_match else "",
+        "provider_rfc": "",
+        "provider_idcif": "",
+    }
+
+
+def _job_identity_lines(job_data: dict, *, result_mode: bool = False, result_rfc: str = "", result_idcif: str = "") -> str:
+    identity = _job_request_identity(job_data)
+    query_type = identity.get("query_type")
+    identifier = identity.get("identifier")
+    original_rfc = identity.get("rfc")
+    original_idcif = identity.get("idcif")
+    provider_rfc = str(result_rfc or identity.get("provider_rfc") or "").strip().upper()
+    provider_idcif = str(result_idcif or identity.get("provider_idcif") or "").strip()
+    lines = []
+    if query_type == "CURP":
+        if identifier:
+            label = "🪪 CURP solicitada:" if result_mode else "🪪 CURP:"
+            lines.append(f"{label} {identifier}")
+        if result_mode and provider_rfc:
+            lines.append(f"🧾 RFC localizado: {provider_rfc}")
+        if result_mode and provider_idcif:
+            lines.append(f"🔢 IDCIF: {provider_idcif}")
+    elif query_type in {"RFC_ONLY", "RFC_VERIFICABLE"}:
+        effective_rfc = identifier or provider_rfc
+        if effective_rfc:
+            lines.append(f"🧾 RFC: {effective_rfc}")
+        if result_mode and provider_idcif:
+            lines.append(f"🔢 IDCIF: {provider_idcif}")
+    elif query_type == "RFC_IDCIF":
+        if original_rfc:
+            lines.append(f"🧾 RFC: {original_rfc}")
+        if original_idcif:
+            lines.append(f"🔢 IDCIF: {original_idcif}")
+    elif query_type in {"QR", "QR_TEXT", "IMAGE", "DOCUMENT"}:
+        lines.append("📷 QR SAT")
+    return "\n".join(lines)
+
+
+def _job_client_message(job_data: dict, *, title: str, requester_label: str = "", body: str = "", include_identity: bool = True, result_mode: bool = False, result_rfc: str = "", result_idcif: str = "") -> str:
+    lines = [title]
+    position = _job_batch_position(job_data)
+    if position:
+        lines.append(position)
+    requester_label = str(requester_label or job_data.get("requester_label") or job_data.get("requester_name") or "Usuario").strip()
+    lines.append(f"👤 {requester_label}")
+    if include_identity:
+        identity = _job_identity_lines(job_data, result_mode=result_mode, result_rfc=result_rfc, result_idcif=result_idcif)
+        if identity:
+            lines.append(identity)
+    if body:
+        lines += ["", body.strip()]
+    return "\n".join(lines)
+
 def _panel_stats_key(group_jid: str) -> str:
     return f"panel_stats:{_panel_day_str()}:group:{group_jid}"
 
@@ -1407,32 +1501,27 @@ def process_verifiable_timeout_job(
         or ""
     ).strip()
 
-    if original_type == "CURP":
-        identifier_text = (
-            f"la CURP {original_identifier}"
-        )
-
-    elif original_type == "RFC_ONLY":
-        identifier_text = (
-            f"el RFC {original_identifier}"
-        )
-
-    else:
-        identifier_text = (
-            original_identifier
-            or "el dato solicitado"
-        )
+    timeout_job_data = {
+        "is_verifiable": True,
+        "verifiable_original_type": original_type,
+        "verifiable_original_identifier": original_identifier,
+        "requester_label": requester_label,
+        "batch_index": int(pending.get("batch_index") or 1),
+        "batch_total": int(pending.get("batch_total") or 1),
+    }
 
     try:
         if client_group_jid:
             evolution_send_text_to_group(
                 client_group_jid,
-                (
-                    f"⚠️ {requester_label}, "
-                    "la solicitud verificable no recibió "
-                    "respuesta dentro de 24 horas para "
-                    f"{identifier_text}.\n\n"
-                    "Ya puedes volver a solicitarla."
+                _job_client_message(
+                    timeout_job_data,
+                    title="⏱️ RFC verificable sin respuesta",
+                    requester_label=requester_label,
+                    body=(
+                        "No recibimos respuesta dentro del tiempo permitido.\n"
+                        "Ya puedes solicitarlo nuevamente."
+                    ),
                 ),
                 instance_name=client_instance,
             )
@@ -1821,10 +1910,14 @@ def process_group_request_job(job_data: dict):
         
             evolution_send_text_to_group(
                 group_jid,
-                (
-                    f"⚠️ {requester_label}, "
-                    "este servicio fue desactivado "
-                    "antes de procesar la solicitud."
+                _job_client_message(
+                    job_data,
+                    title="⚠️ Servicio temporalmente no disponible",
+                    requester_label=requester_label,
+                    body=(
+                        "El servicio fue desactivado antes "
+                        "de procesar esta solicitud."
+                    ),
                 ),
                 instance_name=instance_name,
             )
@@ -1926,11 +2019,27 @@ def process_group_request_job(job_data: dict):
         )
 
         if not result.get("ok"):
-            err = result.get("error") or "No fue posible generar el documento."
+            internal_error = result.get("error") or "UNKNOWN_RESULT_ERROR"
+            print(
+                "[RFC CLIENT RESULT ERROR HIDDEN]",
+                {
+                    "request_key": job_data.get("request_key"),
+                    "internal_error": internal_error,
+                },
+                flush=True,
+            )
             evolution_send_text_to_group(
                 group_jid,
-                f"❌ {requester_label} {err}",
-                instance_name=instance_name
+                _job_client_message(
+                    job_data,
+                    title="⚠️ No pudimos completar la solicitud",
+                    requester_label=requester_label,
+                    body=(
+                        "Ocurrió una interrupción temporal.\n"
+                        "Intenta nuevamente en 2-3 minutos."
+                    ),
+                ),
+                instance_name=instance_name,
             )
             return
 
@@ -2014,14 +2123,19 @@ def process_group_request_job(job_data: dict):
                 - request_started_at_epoch,
             )
         
-            client_text = (
-                f"{delivery_text}\n\n"
-                "⚠️ La página del SAT no permitió "
-                "generar la constancia.\n"
-                "Se entrega el RFC e IDCIF "
-                "localizados por el proveedor.\n\n"
-                "⏱️ Tiempo total: "
-                f"{_format_total_time(elapsed_seconds)}"
+            client_text = _job_client_message(
+                job_data,
+                title="⚠️ Constancia no disponible en SAT",
+                requester_label=requester_label,
+                body=(
+                    "El SAT no permitió generar la constancia en este momento.\n"
+                    "Se entregan los datos localizados.\n\n"
+                    "⏱️ Tiempo total: "
+                    f"{_format_total_time(elapsed_seconds)}"
+                ),
+                result_mode=True,
+                result_rfc=delivered_rfc,
+                result_idcif=delivered_idcif,
             )
         
             try:
@@ -2167,7 +2281,16 @@ def process_group_request_job(job_data: dict):
             if not zip_url:
                 evolution_send_text_to_group(
                     group_jid,
-                    f"❌ {requester_label} no se obtuvo enlace del lote.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ No pudimos entregar el lote",
+                        requester_label=requester_label,
+                        body=(
+                            "El lote fue procesado, pero no se obtuvo "
+                            "el enlace de entrega."
+                        ),
+                        include_identity=False,
+                    ),
                     instance_name=instance_name
                 )
                 return
@@ -2234,12 +2357,17 @@ def process_group_request_job(job_data: dict):
                         try:
                             evolution_send_text_to_group(
                                 group_jid,
-                                (
-                                    f"RFC: {fallback_rfc}\n"
-                                    f"IDCIF: {fallback_idcif}\n\n"
-                                    "⚠️ La constancia fue generada, "
-                                    "pero hubo un problema temporal "
-                                    "al adjuntar el PDF."
+                                _job_client_message(
+                                    job_data,
+                                    title="⚠️ Problema al adjuntar la constancia",
+                                    requester_label=requester_label,
+                                    body=(
+                                        "La constancia fue generada, pero hubo un problema "
+                                        "temporal al adjuntar el PDF."
+                                    ),
+                                    result_mode=True,
+                                    result_rfc=fallback_rfc,
+                                    result_idcif=fallback_idcif,
                                 ),
                                 instance_name=instance_name,
                             )
@@ -2283,11 +2411,16 @@ def process_group_request_job(job_data: dict):
             
                 evolution_send_text_to_group(
                     group_jid,
-                    (
-                        f"⚠️ {requester_label} "
-                        "el lote se generó, "
-                        "pero no pude adjuntarlo.\n"
-                        f"{zip_url}"
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ Problema al adjuntar el lote",
+                        requester_label=requester_label,
+                        body=(
+                            "El lote fue generado correctamente, pero no pudo adjuntarse.\n"
+                            "Puedes abrirlo desde el siguiente enlace:\n"
+                            f"{zip_url}"
+                        ),
+                        include_identity=False,
                     ),
                     instance_name=instance_name,
                 )
@@ -2453,9 +2586,12 @@ def process_group_request_job(job_data: dict):
                         evolution_send_text_to_group(
                             group_jid,
                             (
-                                f"⚠️ {requester_label} "
-                                f"no pude adjuntar "
-                                f"{file_name}.\n{pdf_url}"
+                                "⚠️ Problema al adjuntar el documento\n"
+                                f"👤 {requester_label}\n"
+                                f"🧾 RFC: {rfc or 'N/D'}"
+                                + (f"\n🔢 IDCIF: {idcif}" if idcif else "")
+                                + "\n\nEl documento fue generado, pero no pudo adjuntarse.\n"
+                                + f"{pdf_url}"
                             ),
                             instance_name=instance_name,
                         )
@@ -2499,9 +2635,21 @@ def process_group_request_job(job_data: dict):
                         raise
                 
                 else:
+                    print(
+                        "[RFC BATCH ITEM CLIENT ERROR HIDDEN]",
+                        {"rfc": rfc, "idcif": idcif, "internal_error": err},
+                        flush=True,
+                    )
                     evolution_send_text_to_group(
                         group_jid,
-                        f"❌ {requester_label} fallo {rfc} {idcif}: {err or 'error desconocido'}",
+                        (
+                            "⚠️ No pudimos completar la solicitud\n"
+                            f"👤 {requester_label}\n"
+                            f"🧾 RFC: {rfc or 'N/D'}"
+                            + (f"\n🔢 IDCIF: {idcif}" if idcif else "")
+                            + "\n\nOcurrió una interrupción temporal.\n"
+                            "Intenta nuevamente en unos minutos."
+                        ),
                         instance_name=instance_name
                     )
 
@@ -2571,7 +2719,15 @@ def process_group_request_job(job_data: dict):
         if not pdf_url:
             evolution_send_text_to_group(
                 group_jid,
-                f"❌ {requester_label} no se obtuvo enlace del PDF.",
+                _job_client_message(
+                    job_data,
+                    title="⚠️ No pudimos entregar el documento",
+                    requester_label=requester_label,
+                    body=(
+                        "El procesamiento terminó, pero no se obtuvo el enlace del PDF.\n"
+                        "Intenta nuevamente en unos minutos."
+                    ),
+                ),
                 instance_name=instance_name
             )
             return
@@ -2615,10 +2771,6 @@ def process_group_request_job(job_data: dict):
             )
         )
         
-        if is_verifiable:
-            time_caption += (
-                "\nRFC entregado"
-            )
         
         try:
             evolution_send_media_to_group(
@@ -2676,11 +2828,17 @@ def process_group_request_job(job_data: dict):
                     try:
                         evolution_send_text_to_group(
                             group_jid,
-                            (
-                                f"RFC: {fallback_rfc}\n"
-                                f"IDCIF: {fallback_idcif}\n\n"
-                                "⚠️ No fue posible adjuntar "
-                                "la constancia en este momento."
+                            _job_client_message(
+                                job_data,
+                                title="⚠️ Problema al adjuntar la constancia",
+                                requester_label=requester_label,
+                                body=(
+                                    "La constancia fue generada, pero hubo un problema "
+                                    "temporal al adjuntar el PDF."
+                                ),
+                                result_mode=True,
+                                result_rfc=fallback_rfc,
+                                result_idcif=fallback_idcif,
                             ),
                             instance_name=instance_name,
                         )
@@ -2881,11 +3039,17 @@ def process_group_request_job(job_data: dict):
                     try:
                         evolution_send_text_to_group(
                             group_jid,
-                            (
-                                f"RFC: {fallback_rfc}\n"
-                                f"IDCIF: {fallback_idcif}\n\n"
-                                "⚠️ No fue posible adjuntar "
-                                "la constancia."
+                            _job_client_message(
+                                job_data,
+                                title="⚠️ Problema al adjuntar la constancia",
+                                requester_label=requester_label,
+                                body=(
+                                    "La constancia fue generada, pero hubo un problema "
+                                    "temporal al adjuntar el PDF."
+                                ),
+                                result_mode=True,
+                                result_rfc=fallback_rfc,
+                                result_idcif=fallback_idcif,
                             ),
                             instance_name=instance_name,
                         )
@@ -3022,11 +3186,15 @@ def process_group_request_job(job_data: dict):
 
             evolution_send_text_to_group(
                 group_jid,
-                (
-                    f"⚠️ {requester_label} "
-                    "el documento se generó, "
-                    "pero no pude adjuntarlo.\n"
-                    f"{pdf_url}"
+                _job_client_message(
+                    job_data,
+                    title="⚠️ Problema al entregar el documento",
+                    requester_label=requester_label,
+                    body=(
+                        "El documento fue generado, pero no pudo adjuntarse.\n"
+                        "Puedes abrirlo desde el siguiente enlace:\n"
+                        f"{pdf_url}"
+                    ),
                 ),
                 instance_name=instance_name,
             )
@@ -3236,19 +3404,35 @@ def process_group_request_job(job_data: dict):
             if "QR_NOT_SAT_DOMAIN" in resp_text or err_code == "QR_NOT_SAT_DOMAIN":
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} el QR no corresponde a un enlace oficial del SAT.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ QR no válido para SAT",
+                        requester_label=requester_label,
+                        body="El QR no corresponde a un enlace oficial del SAT.",
+                    ),
                     instance_name=instance_name
                 )
             elif "QR_NOT_READABLE" in resp_text or err_code == "QR_NOT_READABLE":
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} no pude leer el QR. Envíalo más cerca, más nítido y con buena luz.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ No pudimos leer el QR",
+                        requester_label=requester_label,
+                        body="Envíalo más cerca, más nítido y con buena luz.",
+                    ),
                     instance_name=instance_name
                 )
             elif "MIME_NOT_SUPPORTED" in resp_text or err_code == "MIME_NOT_SUPPORTED":
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} ese tipo de archivo aún no es compatible. Envíalo como imagen.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ Archivo no compatible",
+                        requester_label=requester_label,
+                        body="Ese tipo de archivo aún no es compatible.\nEnvíalo como imagen.",
+                        include_identity=False,
+                    ),
                     instance_name=instance_name
                 )
             elif err_code in {
@@ -3315,10 +3499,11 @@ def process_group_request_job(job_data: dict):
             
                 evolution_send_text_to_group(
                     group_jid,
-                    (
-                        f"⚠️ {requester_label}, "
-                        f"{client_reason}. "
-                        "No se generó la constancia."
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ Constancia no generada",
+                        requester_label=requester_label,
+                        body=(f"{client_reason}.\nNo se generó la constancia."),
                     ),
                     instance_name=instance_name,
                 )
@@ -3355,15 +3540,23 @@ def process_group_request_job(job_data: dict):
             elif "CLIENT_CURP_NOT_FOUND_OR_WRONG" in resp_text or err_code == "CLIENT_CURP_NOT_FOUND_OR_WRONG":
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} la CURP no fue encontrada.\n\n"
-                    "Verifica que esté escrita correctamente y vuelve a enviarla.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ CURP no localizada",
+                        requester_label=requester_label,
+                        body="Verifica que esté escrita correctamente y vuelve a enviarla.",
+                    ),
                     instance_name=instance_name
                 )
             elif "CLIENT_RFC_NOT_FOUND_OR_WRONG" in resp_text or err_code == "CLIENT_RFC_NOT_FOUND_OR_WRONG":
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} el RFC no fue encontrado.\n\n"
-                    "Verifica que esté escrito correctamente y vuelve a enviarlo.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ RFC no localizado",
+                        requester_label=requester_label,
+                        body="Verifica que esté escrito correctamente y vuelve a enviarlo.",
+                    ),
                     instance_name=instance_name
                 )
             elif (
@@ -3374,11 +3567,14 @@ def process_group_request_job(job_data: dict):
             ):
                 evolution_send_text_to_group(
                     group_jid,
-                    (
-                        f"⚠️ {requester_label} "
-                        "el RFC aparece como cancelado "
-                        "en la consulta oficial.\n\n"
-                        "No se generó la constancia."
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ RFC cancelado",
+                        requester_label=requester_label,
+                        body=(
+                            "El RFC aparece como cancelado en la consulta oficial.\n"
+                            "No se generó la constancia."
+                        ),
                     ),
                     instance_name=instance_name,
                 )
@@ -3391,11 +3587,14 @@ def process_group_request_job(job_data: dict):
             ):
                 evolution_send_text_to_group(
                     group_jid,
-                    (
-                        f"⚠️ {requester_label} "
-                        "el RFC aparece como suspendido "
-                        "en la consulta oficial.\n\n"
-                        "No se generó la constancia."
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ RFC suspendido",
+                        requester_label=requester_label,
+                        body=(
+                            "El RFC aparece como suspendido en la consulta oficial.\n"
+                            "No se generó la constancia."
+                        ),
                     ),
                     instance_name=instance_name,
                 )
@@ -3408,11 +3607,14 @@ def process_group_request_job(job_data: dict):
             ):
                 evolution_send_text_to_group(
                     group_jid,
-                    (
-                        f"⚠️ {requester_label} "
-                        "el RFC aparece como no activo "
-                        "en la consulta oficial.\n\n"
-                        "No se generó la constancia."
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ RFC no activo",
+                        requester_label=requester_label,
+                        body=(
+                            "El RFC aparece como no activo en la consulta oficial.\n"
+                            "No se generó la constancia."
+                        ),
                     ),
                     instance_name=instance_name,
                 )
@@ -3449,16 +3651,31 @@ def process_group_request_job(job_data: dict):
             
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} se encontró información, pero está incompleta.\n\n"
-                    "No se generó el documento para evitar datos incorrectos.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ Información incompleta",
+                        requester_label=requester_label,
+                        body=(
+                            "Se encontró información, pero está incompleta.\n"
+                            "No se generó el documento para evitar entregar datos incorrectos."
+                        ),
+                    ),
                     instance_name=instance_name
                 )
             
             elif "CLIENT_CHECKID_INCOMPLETE_DATA" in resp_text or err_code == "CLIENT_CHECKID_INCOMPLETE_DATA":
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} se encontró información, pero está incompleta.\n\n"
-                    "No se generó el documento para evitar datos incorrectos. Verifica la CURP/RFC o intenta más tarde.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ Información incompleta",
+                        requester_label=requester_label,
+                        body=(
+                            "Se encontró información, pero está incompleta.\n"
+                            "No se generó el documento para evitar entregar datos incorrectos.\n"
+                            "Verifica la CURP/RFC o intenta nuevamente más tarde."
+                        ),
+                    ),
                     instance_name=instance_name
                 )
 
@@ -3472,8 +3689,15 @@ def process_group_request_job(job_data: dict):
             ):
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} no se encontró información para esta CURP.\n"
-                    "Verifica que esté escrita correctamente o que se encuentre certificada.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ CURP sin información suficiente",
+                        requester_label=requester_label,
+                        body=(
+                            "No se encontró información suficiente para esta CURP.\n"
+                            "Verifica que esté escrita correctamente o que se encuentre certificada."
+                        ),
+                    ),
                     instance_name=instance_name
                 )
 
@@ -3483,17 +3707,28 @@ def process_group_request_job(job_data: dict):
             ):
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label}, el servicio de consulta de CURP "
-                    "no respondió a tiempo.\n"
-                    "La CURP no fue marcada como inexistente. "
-                    "Intenta nuevamente en unos momentos.",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ Consulta de CURP sin respuesta",
+                        requester_label=requester_label,
+                        body=(
+                            "El servicio de consulta no respondió a tiempo.\n"
+                            "La CURP no fue marcada como inexistente.\n"
+                            "Intenta nuevamente en unos momentos."
+                        ),
+                    ),
                     instance_name=instance_name
                 )
 
             else:
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} ocurrió una interrupción procesando la solicitud. Intenta de nuevo en 2-3 minutos",
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ No pudimos completar la solicitud",
+                        requester_label=requester_label,
+                        body="Ocurrió una interrupción temporal.\nIntenta nuevamente en 2-3 minutos.",
+                    ),
                     instance_name=instance_name
                 )
         except Exception:
@@ -3511,10 +3746,11 @@ def process_group_request_job(job_data: dict):
             try:
                 evolution_send_text_to_group(
                     group_jid,
-                    (
-                        f"⚠️ {requester_label} ocurrió una "
-                        "interrupción procesando la solicitud. "
-                        "Intenta de nuevo en 2-3 minutos"
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ No pudimos completar la solicitud",
+                        requester_label=requester_label,
+                        body="Ocurrió una interrupción temporal.\nIntenta nuevamente en 2-3 minutos.",
                     ),
                     instance_name=instance_name,
                 )
@@ -4328,7 +4564,7 @@ def _rfc_final_check_global(
             if not wallet or not bot:
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} no hay configuración RFC para este bot.",
+                    "⚠️ Servicio no disponible\n" f"👤 {requester_label}\n\n" "No fue posible validar la configuración del servicio RFC.",
                     instance_name=instance_name
                 )
                 return False
@@ -4336,7 +4572,7 @@ def _rfc_final_check_global(
             if not bool(bot.get("is_active")):
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} este bot interno no está activo.",
+                    "⚠️ Servicio no disponible\n" f"👤 {requester_label}\n\n" "El servicio está temporalmente inactivo.",
                     instance_name=instance_name
                 )
                 return False
@@ -4344,7 +4580,7 @@ def _rfc_final_check_global(
             if bool(bot.get("is_blocked")):
                 evolution_send_text_to_group(
                     group_jid,
-                    f"⚠️ {requester_label} este bot interno está bloqueado.",
+                    "⚠️ Servicio no disponible\n" f"👤 {requester_label}\n\n" "El servicio está temporalmente bloqueado.",
                     instance_name=instance_name
                 )
                 return False
@@ -4374,7 +4610,7 @@ def _rfc_final_check_global(
                     if group_clon_total > 0 and group_clon_used >= group_clon_total:
                         evolution_send_text_to_group(
                             group_jid,
-                            f"⚠️ {requester_label} este grupo ya no tiene RFC CLON disponibles.",
+                            "⚠️ RFC CLON no disponible\n" f"👤 {requester_label}\n\n" "Este grupo ya no tiene RFC CLON disponibles.",
                             instance_name=instance_name
                         )
                         return False
@@ -4388,7 +4624,7 @@ def _rfc_final_check_global(
                 if global_balance <= 0:
                     evolution_send_text_to_group(
                         group_jid,
-                        f"⚠️ {requester_label} el panel ya no tiene RFC CLON disponibles.",
+                        "⚠️ RFC CLON no disponible\n" f"👤 {requester_label}\n\n" "No hay RFC CLON disponibles en este momento.",
                         instance_name=instance_name
                     )
                     return False
@@ -4397,7 +4633,11 @@ def _rfc_final_check_global(
                 if clon_limit > 0 and clon_used >= clon_limit:
                     evolution_send_text_to_group(
                         group_jid,
-                        f"⚠️ {requester_label} este bot ya no tiene RFC CLON disponibles.",
+                        (
+                            "⚠️ RFC CLON no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "Se alcanzó el límite disponible de RFC CLON."
+                        ),
                         instance_name=instance_name
                     )
                     return False
@@ -4437,7 +4677,11 @@ def _rfc_final_check_global(
                     if group_idcif_total > 0 and group_idcif_used >= group_idcif_total:
                         evolution_send_text_to_group(
                             group_jid,
-                            f"⚠️ {requester_label} este grupo ya no tiene RFC IDCIF disponibles.",
+                            (
+                                "⚠️ RFC IDCIF no disponible\n"
+                                f"👤 {requester_label}\n\n"
+                                "Este grupo ya no tiene RFC IDCIF disponibles."
+                            ),
                             instance_name=instance_name
                         )
                         return False
@@ -4451,7 +4695,7 @@ def _rfc_final_check_global(
                 if not bool(wallet.get("idcif_enabled")):
                     evolution_send_text_to_group(
                         group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no está activo.",
+                        "⚠️ RFC IDCIF no disponible\n" f"👤 {requester_label}\n\n" "El servicio RFC IDCIF no está activo actualmente.",
                         instance_name=instance_name
                     )
                     return False
@@ -4460,7 +4704,7 @@ def _rfc_final_check_global(
                 if not expires_at:
                     evolution_send_text_to_group(
                         group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF no tiene vigencia activa.",
+                        "⚠️ RFC IDCIF no disponible\n" f"👤 {requester_label}\n\n" "El servicio RFC IDCIF no tiene una vigencia activa.",
                         instance_name=instance_name
                     )
                     return False
@@ -4472,7 +4716,7 @@ def _rfc_final_check_global(
                 if expires_at <= now:
                     evolution_send_text_to_group(
                         group_jid,
-                        f"⚠️ {requester_label} el plan semanal RFC IDCIF venció.",
+                        "⚠️ RFC IDCIF no disponible\n" f"👤 {requester_label}\n\n" "La vigencia del servicio RFC IDCIF ha finalizado.",
                         instance_name=instance_name
                     )
                     return False
@@ -4481,7 +4725,11 @@ def _rfc_final_check_global(
                 if idcif_limit > 0 and idcif_used >= idcif_limit:
                     evolution_send_text_to_group(
                         group_jid,
-                        f"⚠️ {requester_label} este bot ya no tiene RFC IDCIF disponibles.",
+                        (
+                            "⚠️ RFC IDCIF no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "Se alcanzó el límite disponible de RFC IDCIF."
+                        ),
                         instance_name=instance_name
                     )
                     return False
@@ -4504,9 +4752,9 @@ def _rfc_final_check_global(
                     evolution_send_text_to_group(
                         group_jid,
                         (
-                            f"⚠️ {requester_label} "
-                            "RFC verificable fue desactivado "
-                            "para este bot."
+                            "⚠️ RFC verificable no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "El servicio RFC verificable no está activo actualmente."
                         ),
                         instance_name=instance_name,
                     )
@@ -4530,9 +4778,9 @@ def _rfc_final_check_global(
                     evolution_send_text_to_group(
                         group_jid,
                         (
-                            f"⚠️ {requester_label} "
-                            "este bot ya no tiene RFC "
-                            "verificables disponibles."
+                            "⚠️ RFC verificable no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "No hay RFC verificables disponibles en este momento."
                         ),
                         instance_name=instance_name,
                     )
@@ -4605,9 +4853,9 @@ def _rfc_final_check_global(
                         evolution_send_text_to_group(
                             group_jid,
                             (
-                                f"⚠️ {requester_label} "
-                                "este grupo no tiene una bolsa "
-                                "de RFC verificables asignada."
+                                "⚠️ RFC verificable no disponible\n"
+                                f"👤 {requester_label}\n\n"
+                                "Este grupo no tiene RFC verificables asignados."
                             ),
                             instance_name=instance_name,
                         )
@@ -4628,9 +4876,9 @@ def _rfc_final_check_global(
                         evolution_send_text_to_group(
                             group_jid,
                             (
-                                f"⚠️ {requester_label} "
-                                "este grupo ya no tiene "
-                                "RFC verificables disponibles."
+                                "⚠️ RFC verificable no disponible\n"
+                                f"👤 {requester_label}\n\n"
+                                "Este grupo ya no tiene RFC verificables disponibles."
                             ),
                             instance_name=instance_name,
                         )
@@ -4670,10 +4918,9 @@ def _rfc_final_check_global(
                         evolution_send_text_to_group(
                             group_jid,
                             (
-                                f"⚠️ {requester_label} "
-                                "este grupo alcanzó su "
-                                "límite de RFC verificables "
-                                "dentro de la bolsa compartida."
+                                "⚠️ RFC verificable no disponible\n"
+                                f"👤 {requester_label}\n\n"
+                                "Este grupo alcanzó su límite de RFC verificables."
                             ),
                             instance_name=instance_name,
                         )

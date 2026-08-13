@@ -857,7 +857,13 @@ def _parse_rfc_query(text: str, msg_type: str = "") -> dict:
         "ok": False,
         "type": "INVALID_INPUT",
         "error": (
-            ""
+            "⚠️ Solicitud no reconocida\n\n"
+            "Puedes enviar:\n"
+            "• CURP\n"
+            "• RFC\n"
+            "• RFC + IDCIF\n"
+            "• QR SAT\n"
+            "• CURP/RFC VERIFICABLE"
         ),
     }
 
@@ -1067,6 +1073,173 @@ def _bot_label_from_db(instance_name: str | None) -> str:
     finally:
         db.close()
 
+
+# ============================================================
+# MENSAJES CLIENTE RFC
+# ============================================================
+
+def _client_request_type_info(query_type: str, count: int = 1) -> dict:
+    query_type = str(query_type or "").strip().upper()
+    try:
+        count = max(int(count or 1), 1)
+    except Exception:
+        count = 1
+
+    if query_type == "CURP":
+        return {"label": "CURP", "received": "recibida" if count == 1 else "recibidas"}
+    if query_type == "RFC_ONLY":
+        return {"label": "RFC", "received": "recibido" if count == 1 else "recibidos"}
+    if query_type == "RFC_IDCIF":
+        return {"label": "RFC + IDCIF", "received": "recibido" if count == 1 else "recibidos"}
+    if query_type in {"QR", "QR_TEXT", "IMAGE", "DOCUMENT"}:
+        return {"label": "QR SAT", "received": "recibido" if count == 1 else "recibidos"}
+    if query_type == "RFC_VERIFICABLE":
+        return {
+            "label": "RFC verificable" if count == 1 else "RFC verificables",
+            "received": "recibido" if count == 1 else "recibidos",
+        }
+    return {
+        "label": "solicitud" if count == 1 else "solicitudes",
+        "received": "recibida" if count == 1 else "recibidas",
+    }
+
+
+def _client_received_message(*, requester_label: str, query_type: str, count: int = 1) -> str:
+    requester_label = str(requester_label or "Usuario").strip()
+    try:
+        count = max(int(count or 1), 1)
+    except Exception:
+        count = 1
+    info = _client_request_type_info(query_type, count)
+    process_text = "⏳ Se procesará individualmente." if count == 1 else "⏳ Se procesarán individualmente."
+    return (
+        f"📥 {count} {info['label']} {info['received']}\n"
+        f"👤 {requester_label}\n"
+        f"{process_text}"
+    )
+
+
+def _client_mixed_received_message(*, requester_label: str, total: int, type_counts: dict) -> str:
+    requester_label = str(requester_label or "Usuario").strip()
+    try:
+        total = max(int(total or 1), 1)
+    except Exception:
+        total = 1
+    lines = [f"📥 {total} solicitudes recibidas", f"👤 {requester_label}", ""]
+    preferred = ["CURP", "RFC_ONLY", "RFC_IDCIF", "QR", "RFC_VERIFICABLE"]
+    normalized = {}
+    for key, value in (type_counts or {}).items():
+        k = str(key or "").strip().upper()
+        if k in {"QR_TEXT", "IMAGE", "DOCUMENT"}:
+            k = "QR"
+        try:
+            value = int(value or 0)
+        except Exception:
+            value = 0
+        if value > 0:
+            normalized[k] = normalized.get(k, 0) + value
+    for key in preferred:
+        qty = normalized.get(key, 0)
+        if qty <= 0:
+            continue
+        info = _client_request_type_info(key, qty)
+        lines.append(f"• {qty} {info['label']}")
+    lines += ["", "⏳ Se procesarán individualmente."]
+    return "\n".join(lines)
+
+
+def _client_verifiable_received_message(*, requester_label: str, count: int = 1) -> str:
+    requester_label = str(requester_label or "Usuario").strip()
+    try:
+        count = max(int(count or 1), 1)
+    except Exception:
+        count = 1
+    if count == 1:
+        return (
+            "🔎 1 RFC verificable recibido\n"
+            f"👤 {requester_label}\n"
+            "⏳ Fue enviado para procesamiento.\n"
+            "Te avisaremos cuando tengamos el resultado."
+        )
+    return (
+        f"🔎 {count} RFC verificables recibidos\n"
+        f"👤 {requester_label}\n"
+        "⏳ Fueron enviados para procesamiento.\n"
+        "Los resultados se entregarán individualmente."
+    )
+
+
+def _client_position_line(*, batch_index: int = 1, batch_total: int = 1) -> str:
+    try:
+        batch_index = max(int(batch_index or 1), 1)
+    except Exception:
+        batch_index = 1
+    try:
+        batch_total = max(int(batch_total or 1), 1)
+    except Exception:
+        batch_total = 1
+    if batch_total <= 1:
+        return ""
+    return f"📌 Solicitud {batch_index} de {batch_total}"
+
+
+def _client_identity_lines(*, query_type: str, identifier: str = "", rfc: str = "", idcif: str = "", provider_rfc: str = "", provider_idcif: str = "", result_mode: bool = False) -> str:
+    query_type = str(query_type or "").strip().upper()
+    identifier = str(identifier or "").strip().upper()
+    rfc = str(rfc or "").strip().upper()
+    idcif = str(idcif or "").strip()
+    provider_rfc = str(provider_rfc or "").strip().upper()
+    provider_idcif = str(provider_idcif or "").strip()
+    lines = []
+    if query_type == "CURP":
+        if identifier:
+            label = "🪪 CURP solicitada:" if result_mode else "🪪 CURP:"
+            lines.append(f"{label} {identifier}")
+        if result_mode and provider_rfc:
+            lines.append(f"🧾 RFC localizado: {provider_rfc}")
+        if result_mode and provider_idcif:
+            lines.append(f"🔢 IDCIF: {provider_idcif}")
+    elif query_type in {"RFC_ONLY", "RFC_VERIFICABLE"}:
+        effective_rfc = identifier or rfc or provider_rfc
+        if effective_rfc:
+            lines.append(f"🧾 RFC: {effective_rfc}")
+        if result_mode and provider_idcif:
+            lines.append(f"🔢 IDCIF: {provider_idcif}")
+    elif query_type == "RFC_IDCIF":
+        effective_rfc = rfc or identifier
+        if effective_rfc:
+            lines.append(f"🧾 RFC: {effective_rfc}")
+        if idcif:
+            lines.append(f"🔢 IDCIF: {idcif}")
+    elif query_type in {"QR", "QR_TEXT", "IMAGE", "DOCUMENT"}:
+        lines.append("📷 QR SAT")
+    elif identifier:
+        lines.append(f"📄 Dato: {identifier}")
+    return "\n".join(lines)
+
+
+def _client_status_message(*, title: str, requester_label: str, query_type: str = "", identifier: str = "", rfc: str = "", idcif: str = "", provider_rfc: str = "", provider_idcif: str = "", body: str = "", batch_index: int = 1, batch_total: int = 1, include_identity: bool = True, result_mode: bool = False) -> str:
+    lines = [title]
+    position = _client_position_line(batch_index=batch_index, batch_total=batch_total)
+    if position:
+        lines.append(position)
+    requester_label = str(requester_label or "Usuario").strip()
+    lines.append(f"👤 {requester_label}")
+    if include_identity:
+        identity = _client_identity_lines(
+            query_type=query_type,
+            identifier=identifier,
+            rfc=rfc,
+            idcif=idcif,
+            provider_rfc=provider_rfc,
+            provider_idcif=provider_idcif,
+            result_mode=result_mode,
+        )
+        if identity:
+            lines.append(identity)
+    if body:
+        lines += ["", body.strip()]
+    return "\n".join(lines)
 
 def _extract_sent_message_id(
     response: dict | None,
@@ -1789,6 +1962,8 @@ def _queue_verifiable_pair_for_pending(
         "requester_number": requester_number,
         "requester_name": requester_name,
         "requester_label": requester_label,
+        "batch_index": int(pending.get("batch_index") or 1),
+        "batch_total": int(pending.get("batch_total") or 1),
         "group_jid": client_group_jid,
         "group_name": client_group_jid,
         "original_text": generated_query,
@@ -3146,11 +3321,17 @@ def _send_verifiable_no_id_to_client(
     try:
         send_text(
             client_group,
-            (
-                f"⚠️ {requester_label}, "
-                "el proveedor informó que no hay "
-                "ID disponible para "
-                f"{identifier_label}."
+            _client_status_message(
+                title="⚠️ RFC verificable sin ID disponible",
+                requester_label=requester_label,
+                query_type=original_type,
+                identifier=original_identifier,
+                body=(
+                    "No hay IDCIF disponible actualmente "
+                    "para esta solicitud."
+                ),
+                batch_index=int(pending.get("batch_index") or 1),
+                batch_total=int(pending.get("batch_total") or 1),
             ),
             instance_name=client_instance,
             fast=True,
@@ -4123,9 +4304,9 @@ async def evolution_rfc_webhook(request: Request):
                     send_text(
                         remote_jid,
                         (
-                            f"⚠️ {requester_label}, "
-                            "este bot no tiene configurado "
-                            "RFC verificable."
+                            "⚠️ RFC verificable no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "El servicio de RFC verificable no está configurado."
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -4158,9 +4339,9 @@ async def evolution_rfc_webhook(request: Request):
                     send_text(
                         remote_jid,
                         (
-                            f"⚠️ {requester_label}, "
-                            "RFC verificable no está activo "
-                            "para este bot."
+                            "⚠️ RFC verificable no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "El servicio de RFC verificable no está activo actualmente."
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -4203,9 +4384,9 @@ async def evolution_rfc_webhook(request: Request):
                     send_text(
                         remote_jid,
                         (
-                            f"⚠️ {requester_label}, "
-                            "este grupo no está configurado "
-                            "para RFC verificable."
+                            "⚠️ RFC verificable no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "Este grupo no tiene configurado el servicio de RFC verificable."
                         ),
                         instance_name=
                             instance_name,
@@ -4266,9 +4447,9 @@ async def evolution_rfc_webhook(request: Request):
                     send_text(
                         remote_jid,
                         (
-                            f"⚠️ {requester_label}, "
-                            "RFC verificable no está activo "
-                            "para este grupo."
+                            "⚠️ RFC verificable no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "Este grupo no tiene activo el servicio de RFC verificable."
                         ),
                         instance_name=
                             instance_name,
@@ -4303,8 +4484,9 @@ async def evolution_rfc_webhook(request: Request):
                     send_text(
                         remote_jid,
                         (
-                            f"⚠️ {requester_label}, "
-                            "este bot no está activo."
+                            "⚠️ Servicio no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "El servicio está temporalmente inactivo."
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -4339,8 +4521,9 @@ async def evolution_rfc_webhook(request: Request):
                     send_text(
                         remote_jid,
                         (
-                            f"⚠️ {requester_label}, "
-                            "este bot está bloqueado."
+                            "⚠️ Servicio no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "El servicio está temporalmente bloqueado."
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -4392,9 +4575,9 @@ async def evolution_rfc_webhook(request: Request):
                     send_text(
                         remote_jid,
                         (
-                            f"⚠️ {requester_label}, "
-                            "este bot ya no tiene RFC "
-                            "verificables disponibles."
+                            "⚠️ RFC verificable no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "No hay RFC verificables disponibles en este momento."
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -4471,45 +4654,44 @@ async def evolution_rfc_webhook(request: Request):
                     "verifiable_group_promotion_not_found"
                 ):
                     client_message = (
-                        f"⚠️ {requester_label}, "
-                        "este grupo no tiene una bolsa RFC "
-                        "activa."
+                        "⚠️ RFC verificable no disponible\n"
+                        f"👤 {requester_label}\n\n"
+                        "Este grupo no tiene una bolsa RFC activa."
                     )
             
                 elif reason == (
                     "verifiable_group_not_assigned"
                 ):
                     client_message = (
-                        f"⚠️ {requester_label}, "
-                        "este grupo no tiene RFC "
-                        "verificables asignados."
+                        "⚠️ RFC verificable no disponible\n"
+                        f"👤 {requester_label}\n\n"
+                        "Este grupo no tiene RFC verificables asignados."
                     )
             
                 elif reason == (
                     "verifiable_group_limit_reached"
                 ):
                     client_message = (
-                        f"⚠️ {requester_label}, "
-                        "este grupo ya no tiene RFC "
-                        "verificables disponibles."
+                        "⚠️ RFC verificable no disponible\n"
+                        f"👤 {requester_label}\n\n"
+                        "Este grupo ya no tiene RFC verificables disponibles."
                     )
             
                 elif reason == (
                     "verifiable_shared_group_limit_reached"
                 ):
                     client_message = (
-                        f"⚠️ {requester_label}, "
-                        "este grupo alcanzó su límite "
-                        "de RFC verificables dentro de "
-                        "la bolsa compartida."
+                        "⚠️ RFC verificable no disponible\n"
+                        f"👤 {requester_label}\n\n"
+                        "Este grupo alcanzó su límite de RFC verificables."
                     )
             
                 else:
                     client_message = (
-                        f"⚠️ {requester_label}, "
-                        "no fue posible validar el saldo "
-                        "de RFC verificables. "
-                        "Intenta nuevamente."
+                        "⚠️ No pudimos validar la disponibilidad\n"
+                        f"👤 {requester_label}\n\n"
+                        "No fue posible validar la disponibilidad de RFC verificables.\n"
+                        "Intenta nuevamente en unos momentos."
                     )
             
                 try:
@@ -4676,14 +4858,17 @@ async def evolution_rfc_webhook(request: Request):
                 try:
                     send_text(
                         remote_jid,
-                        (
-                            f"✅ {requester_label}, "
-                            "esta solicitud verificable "
-                            "ya fue entregada durante las "
-                            "últimas 24 horas.\n\n"
-                            "Podrás volver a solicitarla "
-                            f"aproximadamente en "
-                            f"{remaining_hours} h."
+                        _client_status_message(
+                            title="✅ Solicitud ya entregada",
+                            requester_label=requester_label,
+                            query_type=original_query_type,
+                            identifier=original_identifier,
+                            body=(
+                                "Esta solicitud verificable fue "
+                                "entregada durante las últimas 24 horas.\n"
+                                "Podrás volver a solicitarla "
+                                f"aproximadamente en {remaining_hours} h."
+                            ),
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -4757,12 +4942,15 @@ async def evolution_rfc_webhook(request: Request):
                     try:
                         send_text(
                             remote_jid,
-                            (
-                                f"⏳ {requester_label}, "
-                                "esta solicitud verificable "
-                                "ya está en proceso.\n\n"
-                                "No es necesario volver "
-                                "a enviarla."
+                            _client_status_message(
+                                title="⏳ RFC verificable en proceso",
+                                requester_label=requester_label,
+                                query_type=original_query_type,
+                                identifier=original_identifier,
+                                body=(
+                                    "Esta solicitud ya está siendo procesada.\n"
+                                    "No es necesario enviarla nuevamente."
+                                ),
                             ),
                             instance_name=instance_name,
                             fast=True,
@@ -4806,10 +4994,15 @@ async def evolution_rfc_webhook(request: Request):
                     try:
                         send_text(
                             remote_jid,
-                            (
-                                f"⏳ {requester_label}, "
-                                "este RFC verificable "
-                                "ya está siendo procesado."
+                            _client_status_message(
+                                title="⏳ RFC verificable en proceso",
+                                requester_label=requester_label,
+                                query_type=original_query_type,
+                                identifier=original_identifier,
+                                body=(
+                                    "Esta solicitud ya está siendo procesada.\n"
+                                    "No es necesario enviarla nuevamente."
+                                ),
                             ),
                             instance_name=(
                                 instance_name
@@ -4848,9 +5041,10 @@ async def evolution_rfc_webhook(request: Request):
                     send_text(
                         remote_jid,
                         (
-                            f"⚠️ {requester_label}, "
-                            "no hay proveedores de RFC "
-                            "verificable activos."
+                            "⚠️ RFC verificable temporalmente no disponible\n"
+                            f"👤 {requester_label}\n\n"
+                            "No fue posible iniciar el procesamiento en este momento.\n"
+                            "Intenta nuevamente más tarde."
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -5025,12 +5219,11 @@ async def evolution_rfc_webhook(request: Request):
                         in conversion_error_text
                     ):
                         client_message = (
-                            f"⚠️ {requester_label}, "
-                            "la CURP "
-                            f"{original_identifier} "
-                            "no fue localizada en RENAPO.\n\n"
-                            "Verifica que esté escrita "
-                            "correctamente."
+                            "⚠️ CURP no localizada\n"
+                            f"👤 {requester_label}\n"
+                            f"🪪 CURP: {original_identifier}\n\n"
+                            "No fue localizada en RENAPO.\n"
+                            "Verifica que esté escrita correctamente."
                         )
 
                         error_code = (
@@ -5046,12 +5239,10 @@ async def evolution_rfc_webhook(request: Request):
                         in conversion_error_text
                     ):
                         client_message = (
-                            f"⚠️ {requester_label}, "
-                            "no fue posible consultar la "
-                            "CURP en este momento.\n\n"
-                            "El servicio de validación "
-                            "de CURP está temporalmente "
-                            "no disponible. "
+                            "⚠️ Consulta temporalmente no disponible\n"
+                            f"👤 {requester_label}\n"
+                            f"🪪 CURP: {original_identifier}\n\n"
+                            "No fue posible consultar la CURP en este momento.\n"
                             "Intenta nuevamente más tarde."
                         )
 
@@ -5066,10 +5257,11 @@ async def evolution_rfc_webhook(request: Request):
                     # ======================================
                     else:
                         client_message = (
-                            f"⚠️ {requester_label}, "
-                            "la CURP fue localizada, pero "
-                            "no fue posible convertirla "
-                            "a RFC verificable. "
+                            "⚠️ No pudimos completar la solicitud\n"
+                            f"👤 {requester_label}\n"
+                            f"🪪 CURP: {original_identifier}\n\n"
+                            "La CURP fue localizada, pero no fue posible continuar "
+                            "con la solicitud verificable.\n"
                             "Intenta nuevamente."
                         )
 
@@ -5140,6 +5332,8 @@ async def evolution_rfc_webhook(request: Request):
                 "requester_label": (
                     requester_label
                 ),
+                "batch_index": 1,
+                "batch_total": 1,
                 "client_msg_id": msg_id,
                 "request_started_at_epoch": (
                     time.time()
@@ -5241,11 +5435,15 @@ async def evolution_rfc_webhook(request: Request):
                 try:
                     send_text(
                         remote_jid,
-                        (
-                            f"⚠️ {requester_label}, "
-                            "no fue posible registrar la "
-                            "solicitud verificable. "
-                            "Intenta nuevamente."
+                        _client_status_message(
+                            title="⚠️ No pudimos registrar la solicitud",
+                            requester_label=requester_label,
+                            query_type=original_query_type,
+                            identifier=original_identifier,
+                            body=(
+                                "Ocurrió una interrupción temporal.\n"
+                                "Intenta nuevamente."
+                            ),
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -5321,11 +5519,15 @@ async def evolution_rfc_webhook(request: Request):
                 try:
                     send_text(
                         remote_jid,
-                        (
-                            f"⚠️ {requester_label}, "
-                            "no fue posible enviar la "
-                            "solicitud al proveedor de "
-                            "RFC verificables."
+                        _client_status_message(
+                            title="⚠️ No pudimos iniciar la solicitud",
+                            requester_label=requester_label,
+                            query_type=original_query_type,
+                            identifier=original_identifier,
+                            body=(
+                                "No fue posible iniciar el procesamiento.\n"
+                                "Intenta nuevamente."
+                            ),
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -5440,10 +5642,9 @@ async def evolution_rfc_webhook(request: Request):
             try:
                 send_text(
                     remote_jid,
-                    (
-                        f"🔎 {requester_label}, "
-                        "tu RFC verificable fue enviado.\n"
-                        "Se entregará cuando el proveedor responda."
+                    _client_verifiable_received_message(
+                        requester_label=requester_label,
+                        count=1,
                     ),
                     instance_name=instance_name,
                     fast=True,
@@ -5673,10 +5874,45 @@ async def evolution_rfc_webhook(request: Request):
                 try:
                     send_text(
                         remote_jid,
-                        (
-                            f"⏳ {requester_label}, esta solicitud "
-                            "ya está siendo procesada.\n"
-                            "No es necesario volver a enviarla."
+                        _client_status_message(
+                            title="⏳ Solicitud en proceso",
+                            requester_label=requester_label,
+                            query_type=(parsed.get("type") or ""),
+                            identifier=(
+                                CURP_RE.search(normalized_query).group(0).upper()
+                                if (
+                                    parsed.get("type") == "CURP"
+                                    and CURP_RE.search(normalized_query)
+                                )
+                                else (
+                                    RFC_RE.search(normalized_query).group(0).upper()
+                                    if (
+                                        parsed.get("type") == "RFC_ONLY"
+                                        and RFC_RE.search(normalized_query)
+                                    )
+                                    else ""
+                                )
+                            ),
+                            rfc=(
+                                RFC_RE.search(normalized_query).group(0).upper()
+                                if (
+                                    parsed.get("type") == "RFC_IDCIF"
+                                    and RFC_RE.search(normalized_query)
+                                )
+                                else ""
+                            ),
+                            idcif=(
+                                IDCIF_RE.search(normalized_query).group(0)
+                                if (
+                                    parsed.get("type") == "RFC_IDCIF"
+                                    and IDCIF_RE.search(normalized_query)
+                                )
+                                else ""
+                            ),
+                            body=(
+                                "Esta solicitud ya está siendo procesada.\n"
+                                "No es necesario enviarla nuevamente."
+                            ),
                         ),
                         instance_name=instance_name,
                         fast=True,
@@ -5701,6 +5937,8 @@ async def evolution_rfc_webhook(request: Request):
             "requester_number": requester_wa_id,
             "requester_name": push_name,
             "requester_label": requester_label,
+            "batch_index": 1,
+            "batch_total": 1,
             "group_jid": remote_jid,
             "group_name": remote_jid,
             "original_text": text,
@@ -5793,10 +6031,10 @@ async def evolution_rfc_webhook(request: Request):
             try:
                 send_text(
                     remote_jid,
-                    (
-                        f"{_bot_label_from_db(instance_name)}\n"
-                        f"Solicitud recibida de {requester_label}.\n"
-                        "Esto puede tardar unos segundos..."
+                    _client_received_message(
+                        requester_label=requester_label,
+                        query_type=(parsed.get("type") or ""),
+                        count=1,
                     ),
                     instance_name=instance_name,
                     fast=True,
