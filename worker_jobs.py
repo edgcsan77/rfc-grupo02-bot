@@ -1875,6 +1875,7 @@ def process_group_request_job(job_data: dict):
         job_data.get("inflight_key")
         or ""
     ).strip()
+    keep_inflight_for_retry = False
 
     try:
         request_started_at_epoch = float(
@@ -3514,6 +3515,8 @@ def process_group_request_job(job_data: dict):
             transient_http_error
             and retry_remaining > 0
         ):
+            keep_inflight_for_retry = True
+
             print(
                 "[RFC HTTP TRANSIENT - RQ RETRY]",
                 {
@@ -3521,6 +3524,8 @@ def process_group_request_job(job_data: dict):
                         status_code,
                     "retry_remaining":
                         retry_remaining,
+                    "inflight_retained":
+                        inflight_key,
                 },
                 flush=True,
             )
@@ -3949,6 +3954,8 @@ def process_group_request_job(job_data: dict):
         )
 
         if retry_remaining > 0:
+            keep_inflight_for_retry = True
+
             print(
                 "[RFC JOB EXCEPTION - RQ RETRY]",
                 {
@@ -3956,6 +3963,8 @@ def process_group_request_job(job_data: dict):
                         retry_remaining,
                     "error":
                         repr(e),
+                    "inflight_retained":
+                        inflight_key,
                 },
                 flush=True,
             )
@@ -3995,9 +4004,22 @@ def process_group_request_job(job_data: dict):
         raise
 
     finally:
-        release_request_inflight(
-            inflight_key
-        )
+        if keep_inflight_for_retry:
+            print(
+                "[RFC REQUEST INFLIGHT RETAINED FOR RETRY]",
+                {
+                    "inflight_key":
+                        inflight_key,
+                    "retry_remaining":
+                        _rq_retry_remaining(),
+                },
+                flush=True,
+            )
+
+        else:
+            release_request_inflight(
+                inflight_key
+            )
 
         if (
             is_verifiable
