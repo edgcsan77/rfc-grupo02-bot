@@ -860,13 +860,7 @@ def _parse_rfc_query(text: str, msg_type: str = "") -> dict:
         "ok": False,
         "type": "INVALID_INPUT",
         "error": (
-            "⚠️ Solicitud no reconocida\n\n"
-            "Puedes enviar:\n"
-            "• CURP\n"
-            "• RFC\n"
-            "• RFC + IDCIF\n"
-            "• QR SAT\n"
-            "• CURP/RFC VERIFICABLE"
+            ""
         ),
     }
 
@@ -4774,15 +4768,10 @@ async def evolution_rfc_webhook(request: Request):
                             send_text(
                                 remote_jid,
                                 _client_status_message(
-                                    title="⚠️ Solicitud no reconocida",
+                                    title="",
                                     requester_label=requester_label,
                                     body=(
-                                        "Puedes enviar:\n"
-                                        "• CURP\n"
-                                        "• RFC\n"
-                                        "• RFC + IDCIF\n"
-                                        "• QR SAT\n"
-                                        "• CURP/RFC VERIFICABLE"
+                                        ""
                                     ),
                                     batch_index=item_index,
                                     batch_total=batch_total,
