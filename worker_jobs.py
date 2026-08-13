@@ -4039,23 +4039,38 @@ def process_group_request_job(job_data: dict):
             is_verifiable
             and verifiable_request_key
         ):
-            try:
-                release_provider_result_claim(
-                    verifiable_request_key
-                )
-
+            if keep_inflight_for_retry:
                 print(
-                    "[RFC VERIFIABLE RESULT CLAIM RELEASED]",
-                    verifiable_request_key,
+                    "[RFC VERIFIABLE RESULT CLAIM "
+                    "RETAINED FOR RETRY]",
+                    {
+                        "request_key":
+                            verifiable_request_key,
+                        "retry_remaining":
+                            _rq_retry_remaining(),
+                    },
                     flush=True,
                 )
-
-            except Exception as claim_release_exc:
-                print(
-                    "[RFC VERIFIABLE RESULT CLAIM RELEASE ERROR]",
-                    repr(claim_release_exc),
-                    flush=True,
-                )
+        
+            else:
+                try:
+                    release_provider_result_claim(
+                        verifiable_request_key
+                    )
+        
+                    print(
+                        "[RFC VERIFIABLE RESULT CLAIM RELEASED]",
+                        verifiable_request_key,
+                        flush=True,
+                    )
+        
+                except Exception as claim_release_exc:
+                    print(
+                        "[RFC VERIFIABLE RESULT CLAIM "
+                        "RELEASE ERROR]",
+                        repr(claim_release_exc),
+                        flush=True,
+                    )
                 
 def process_rfc_batch_child_job(
     child_payload: dict,
