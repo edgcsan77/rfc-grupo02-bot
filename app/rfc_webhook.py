@@ -6704,7 +6704,11 @@ async def evolution_rfc_webhook(request: Request):
                 job_id=rq_job_id,
                 job_timeout=900,
                 result_ttl=0,
-                failure_ttl=1200,
+                failure_ttl=86400,
+                retry=Retry(
+                    max=3,
+                    interval=[15, 45, 120],
+                ),
             )
         
         except Exception as enqueue_exc:
