@@ -697,12 +697,7 @@ def parse_verifiable_request(
             "ok": False,
             "error": (
                 "⚠️ Para RFC verificable envía "
-                "solamente una CURP o un RFC.\n\n"
-                "Ejemplos:\n"
-                "VERIFICABLE + CURP\n"
-                "CURP + VERIFICABLE\n"
-                "VERIFICABLE + RFC\n"
-                "RFC + VERIFICABLE"
+                "solamente una CURP o un RFC."
             ),
         }
 
