@@ -10,6 +10,8 @@ import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from redis import Redis
+from rq import get_current_job
+
 from app.verifiable_flow import (
     load_pending,
     claim_provider_result,
@@ -1244,6 +1246,11 @@ def claim_delivery_once(
             done_key,
             flush=True,
         )
+    
+        _repair_verifiable_finalization_after_delivery(
+            job_data
+        )
+    
         return False, lock_key, done_key
 
     # Solo un worker puede obtener SET NX.
@@ -1264,7 +1271,14 @@ def claim_delivery_once(
 
     # Segunda revisión por una carrera mínima.
     if redis_stats.exists(done_key):
-        redis_stats.delete(lock_key)
+        redis_stats.delete(
+            lock_key
+        )
+    
+        _repair_verifiable_finalization_after_delivery(
+            job_data
+        )
+    
         return False, lock_key, done_key
 
     return True, lock_key, done_key
@@ -1359,6 +1373,65 @@ def mark_verifiable_completed_24h(
     )
 
     return True
+
+
+def _repair_verifiable_finalization_after_delivery(
+    job_data: dict,
+) -> None:
+    """
+    Si el documento ya fue entregado pero un intento
+    anterior falló después de marcar delivery_done,
+    repara el estado administrativo sin volver a
+    enviar ni volver a contabilizar.
+    """
+
+    if not bool(
+        job_data.get(
+            "is_verifiable"
+        )
+    ):
+        return
+
+    request_key = str(
+        job_data.get(
+            "verifiable_request_key"
+        )
+        or ""
+    ).strip()
+
+    if not request_key:
+        return
+
+    completion_marked = (
+        mark_verifiable_completed_24h(
+            job_data
+        )
+    )
+
+    if not completion_marked:
+        raise RuntimeError(
+            "RFC_VERIFIABLE_"
+            "COMPLETED_24H_REPAIR_FAILED"
+        )
+
+    finish_pending(
+        request_key,
+        provider_message_id=(
+            job_data.get(
+                "provider_request_msg_id"
+            )
+            or ""
+        ),
+    )
+
+    print(
+        "[RFC VERIFIABLE FINALIZATION REPAIRED]",
+        {
+            "request_key":
+                request_key,
+        },
+        flush=True,
+    )
 
 
 def release_request_inflight(
@@ -1516,147 +1589,110 @@ def process_verifiable_timeout_job(
                 client_group_jid,
                 _job_client_message(
                     timeout_job_data,
-                    title="⏱️ RFC verificable sin respuesta",
-                    requester_label=requester_label,
+                    title=(
+                        "⏱️ RFC verificable "
+                        "sin respuesta"
+                    ),
+                    requester_label=(
+                        requester_label
+                    ),
                     body=(
-                        "No recibimos respuesta dentro del tiempo permitido.\n"
+                        "No recibimos respuesta dentro "
+                        "del tiempo permitido.\n"
                         "Ya puedes solicitarlo nuevamente."
                     ),
                 ),
-                instance_name=client_instance,
+                instance_name=(
+                    client_instance
+                ),
             )
-
+    
         print(
             "[RFC VERIFIABLE TIMEOUT SENT]",
             {
-                "request_key": request_key,
-                "client_group": (
-                    client_group_jid
-                ),
-                "client_instance": (
-                    client_instance
-                ),
-                "original_type": original_type,
-                "original_identifier": (
-                    original_identifier
-                ),
+                "request_key":
+                    request_key,
+                "client_group":
+                    client_group_jid,
+                "client_instance":
+                    client_instance,
+                "original_type":
+                    original_type,
+                "original_identifier":
+                    original_identifier,
             },
             flush=True,
         )
-
+    
     except Exception as send_exc:
         print(
             "[RFC VERIFIABLE TIMEOUT "
-            "SEND ERROR]",
+            "SEND ERROR - RETRY]",
             {
-                "request_key": request_key,
-                "client_group": (
-                    client_group_jid
-                ),
-                "error": repr(send_exc),
+                "request_key":
+                    request_key,
+                "client_group":
+                    client_group_jid,
+                "retry_remaining":
+                    _rq_retry_remaining(),
+                "error":
+                    repr(send_exc),
             },
             flush=True,
         )
-
-    finally:
-        # Permite que el cliente vuelva a enviar
-        # la misma CURP o RFC.
-        if inflight_key:
-            try:
-                redis_stats.delete(
-                    inflight_key
-                )
-
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "INFLIGHT RELEASED]",
-                    inflight_key,
-                    flush=True,
-                )
-
-            except Exception as inflight_exc:
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "INFLIGHT RELEASE ERROR]",
-                    repr(inflight_exc),
-                    flush=True,
-                )
-
-        if verifiable_processing_key:
-            try:
-                redis_stats.delete(
-                    verifiable_processing_key
-                )
-        
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "PROCESSING RELEASED]",
-                    verifiable_processing_key,
-                    flush=True,
-                )
-        
-            except Exception as processing_exc:
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "PROCESSING RELEASE ERROR]",
-                    repr(processing_exc),
-                    flush=True,
-                )
-
-        # Elimina pendiente y asociación con
-        # el mensaje enviado al proveedor.
-        try:
-            finish_pending(
+    
+        # El cliente NO fue notificado.
+        # No borrar pending ni processing.
+        release_provider_result_claim(
+            request_key
+        )
+    
+        raise
+    
+    
+    # ==========================================
+    # EL AVISO SÍ SALIÓ.
+    # AHORA SÍ CERRAR LA SOLICITUD.
+    # ==========================================
+    
+    if inflight_key:
+        redis_stats.delete(
+            inflight_key
+        )
+    
+    if verifiable_processing_key:
+        redis_stats.delete(
+            verifiable_processing_key
+        )
+    
+    finish_pending(
+        request_key,
+        provider_message_id=(
+            provider_message_id
+        ),
+    )
+    
+    release_provider_result_claim(
+        request_key
+    )
+    
+    print(
+        "[RFC VERIFIABLE TIMEOUT FINALIZED]",
+        {
+            "request_key":
                 request_key,
-                provider_message_id=(
-                    provider_message_id
-                ),
-            )
-        
-            print(
-                "[RFC VERIFIABLE TIMEOUT "
-                "PENDING FINISHED]",
-                {
-                    "request_key": request_key,
-                    "provider_message_id": (
-                        provider_message_id
-                    ),
-                },
-                flush=True,
-            )
-        
-        finally:
-            try:
-                release_provider_result_claim(
-                    request_key
-                )
-        
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "RESULT CLAIM RELEASED]",
-                    request_key,
-                    flush=True,
-                )
-        
-            except Exception as claim_exc:
-                print(
-                    "[RFC VERIFIABLE TIMEOUT "
-                    "RESULT CLAIM RELEASE ERROR]",
-                    {
-                        "request_key": request_key,
-                        "error": repr(
-                            claim_exc
-                        ),
-                    },
-                    flush=True,
-                )
-
+            "provider_message_id":
+                provider_message_id,
+        },
+        flush=True,
+    )
+    
     return {
         "ok": True,
-        "timeout": True,
+        "timed_out": True,
         "request_key": request_key,
-        "identifier": original_identifier,
     }
+
 
 def record_verifiable_provider_success(
     job_data: dict,
@@ -1790,6 +1826,40 @@ def record_verifiable_provider_success(
     finally:
         db.close()
 
+
+def _rq_retry_remaining() -> int:
+    """
+    Devuelve cuántos reintentos RQ quedan
+    para el job que se está ejecutando.
+    """
+    try:
+        job = get_current_job()
+
+        if not job:
+            return 0
+
+        return max(
+            int(
+                getattr(
+                    job,
+                    "retries_left",
+                    0,
+                )
+                or 0
+            ),
+            0,
+        )
+
+    except Exception as retry_state_exc:
+        print(
+            "[RFC RQ RETRY STATE ERROR]",
+            repr(retry_state_exc),
+            flush=True,
+        )
+
+        return 0
+
+
 def process_group_request_job(job_data: dict):
     requester_number = job_data["requester_number"]
     requester_name = job_data["requester_name"]
@@ -1805,6 +1875,7 @@ def process_group_request_job(job_data: dict):
         job_data.get("inflight_key")
         or ""
     ).strip()
+    keep_inflight_for_retry = False
 
     try:
         request_started_at_epoch = float(
@@ -2565,12 +2636,17 @@ def process_group_request_job(job_data: dict):
                     
                     except requests.Timeout as media_err:
                         print(
-                            "[RFC BATCH ITEM TIMEOUT - CLAIM RETAINED]",
+                            "[RFC BATCH ITEM TIMEOUT - RETRY]",
                             repr(media_err),
                             delivery_lock_key,
                             flush=True,
                         )
-                        continue
+                    
+                        release_delivery_claim(
+                            delivery_lock_key
+                        )
+                    
+                        raise
                     
                     except Exception as media_err:
                         print(
@@ -3378,63 +3454,175 @@ def process_group_request_job(job_data: dict):
             raise
 
     except requests.HTTPError as e:
-        print("process_group_request_job HTTPError:", repr(e), flush=True)
+        print(
+            "process_group_request_job HTTPError:",
+            repr(e),
+            flush=True,
+        )
         traceback.print_exc()
-    
+
+        status_code = int(
+            getattr(
+                getattr(
+                    e,
+                    "response",
+                    None,
+                ),
+                "status_code",
+                0,
+            )
+            or 0
+        )
+
+        transient_http_error = (
+            status_code == 0
+            or status_code in {
+                408,
+                425,
+                429,
+            }
+            or status_code >= 500
+        )
+
+        retry_remaining = (
+            _rq_retry_remaining()
+        )
+
         resp_text = ""
         err_code = ""
+
         try:
-            resp_text = e.response.text or ""
+            resp_text = (
+                e.response.text
+                or ""
+            )
         except Exception:
             pass
-    
-        print("process_group_request_job HTTP response body:", resp_text, flush=True)
-    
+
+        print(
+            "process_group_request_job "
+            "HTTP response body:",
+            resp_text,
+            flush=True,
+        )
+
+        # ==========================================
+        # ERROR HTTP TRANSITORIO:
+        # mientras queden retries, no avisar todavía
+        # al cliente. RQ debe reintentar.
+        # ==========================================
+        if (
+            transient_http_error
+            and retry_remaining > 0
+        ):
+            keep_inflight_for_retry = True
+
+            print(
+                "[RFC HTTP TRANSIENT - RQ RETRY]",
+                {
+                    "status_code":
+                        status_code,
+                    "retry_remaining":
+                        retry_remaining,
+                    "inflight_retained":
+                        inflight_key,
+                },
+                flush=True,
+            )
+
+            raise
+
         try:
             try:
-                obj = json.loads(resp_text) if resp_text else {}
+                obj = (
+                    json.loads(resp_text)
+                    if resp_text
+                    else {}
+                )
+
                 err_code = str(
                     obj.get("error")
                     or obj.get("detail")
                     or ""
                 ).strip().upper()
+
             except Exception:
                 err_code = ""
-    
-            if "QR_NOT_SAT_DOMAIN" in resp_text or err_code == "QR_NOT_SAT_DOMAIN":
+
+            if (
+                "QR_NOT_SAT_DOMAIN"
+                in resp_text
+                or err_code
+                == "QR_NOT_SAT_DOMAIN"
+            ):
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ QR no válido para SAT",
-                        requester_label=requester_label,
-                        body="El QR no corresponde a un enlace oficial del SAT.",
+                        title=(
+                            "⚠️ QR no válido para SAT"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
+                        body=(
+                            "El QR no corresponde a un "
+                            "enlace oficial del SAT."
+                        ),
                     ),
-                    instance_name=instance_name
+                    instance_name=instance_name,
                 )
-            elif "QR_NOT_READABLE" in resp_text or err_code == "QR_NOT_READABLE":
+
+            elif (
+                "QR_NOT_READABLE"
+                in resp_text
+                or err_code
+                == "QR_NOT_READABLE"
+            ):
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ No pudimos leer el QR",
-                        requester_label=requester_label,
-                        body="Envíalo más cerca, más nítido y con buena luz.",
+                        title=(
+                            "⚠️ No pudimos leer el QR"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
+                        body=(
+                            "Envíalo más cerca, más nítido "
+                            "y con buena luz."
+                        ),
                     ),
-                    instance_name=instance_name
+                    instance_name=instance_name,
                 )
-            elif "MIME_NOT_SUPPORTED" in resp_text or err_code == "MIME_NOT_SUPPORTED":
+
+            elif (
+                "MIME_NOT_SUPPORTED"
+                in resp_text
+                or err_code
+                == "MIME_NOT_SUPPORTED"
+            ):
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ Archivo no compatible",
-                        requester_label=requester_label,
-                        body="Ese tipo de archivo aún no es compatible.\nEnvíalo como imagen.",
+                        title=(
+                            "⚠️ Archivo no compatible"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
+                        body=(
+                            "Ese tipo de archivo aún no "
+                            "es compatible.\n"
+                            "Envíalo como imagen."
+                        ),
                         include_identity=False,
                     ),
-                    instance_name=instance_name
+                    instance_name=instance_name,
                 )
+
             elif err_code in {
                 "SIN_DATOS_SAT",
                 "SAT_CIF_NOT_ISSUED",
@@ -3492,27 +3680,36 @@ def process_group_request_job(job_data: dict):
                         "fiscal vigente"
                     ),
                 }
-            
+
                 client_reason = (
-                    client_reason_map[err_code]
+                    client_reason_map[
+                        err_code
+                    ]
                 )
-            
+
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ Constancia no generada",
-                        requester_label=requester_label,
-                        body=(f"{client_reason}.\nNo se generó la constancia."),
+                        title=(
+                            "⚠️ Constancia no generada"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
+                        body=(
+                            f"{client_reason}.\n"
+                            "No se generó la constancia."
+                        ),
                     ),
                     instance_name=instance_name,
                 )
-            
+
                 notify_verifiable_provider_sat_rejection(
                     job_data=job_data,
                     error_code=err_code,
                 )
-            
+
                 print(
                     "RFC_VERIFIABLE_SAT_REJECTED =",
                     {
@@ -3521,203 +3718,195 @@ def process_group_request_job(job_data: dict):
                                 "verifiable_request_key"
                             )
                         ),
-                        "error_code": err_code,
-                        "client_group": group_jid,
+                        "error_code":
+                            err_code,
+                        "client_group":
+                            group_jid,
                         "provider_group": (
                             job_data.get(
                                 "verifiable_provider_group"
                             )
                         ),
                         "provider_rfc": (
-                            job_data.get("provider_rfc")
+                            job_data.get(
+                                "provider_rfc"
+                            )
                         ),
                         "provider_idcif": (
-                            job_data.get("provider_idcif")
+                            job_data.get(
+                                "provider_idcif"
+                            )
                         ),
                     },
                     flush=True,
                 )
-            elif "CLIENT_CURP_NOT_FOUND_OR_WRONG" in resp_text or err_code == "CLIENT_CURP_NOT_FOUND_OR_WRONG":
-                evolution_send_text_to_group(
-                    group_jid,
-                    _job_client_message(
-                        job_data,
-                        title="⚠️ CURP no localizada",
-                        requester_label=requester_label,
-                        body="Verifica que esté escrita correctamente y vuelve a enviarla.",
-                    ),
-                    instance_name=instance_name
-                )
-            elif "CLIENT_RFC_NOT_FOUND_OR_WRONG" in resp_text or err_code == "CLIENT_RFC_NOT_FOUND_OR_WRONG":
-                evolution_send_text_to_group(
-                    group_jid,
-                    _job_client_message(
-                        job_data,
-                        title="⚠️ RFC no localizado",
-                        requester_label=requester_label,
-                        body="Verifica que esté escrito correctamente y vuelve a enviarlo.",
-                    ),
-                    instance_name=instance_name
-                )
+
             elif (
-                "CLIENT_RFC_CANCELLED"
+                "CLIENT_CURP_NOT_FOUND_OR_WRONG"
                 in resp_text
                 or err_code
-                == "CLIENT_RFC_CANCELLED"
+                == "CLIENT_CURP_NOT_FOUND_OR_WRONG"
             ):
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ RFC cancelado",
-                        requester_label=requester_label,
+                        title=(
+                            "⚠️ CURP no localizada"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
                         body=(
-                            "El RFC aparece como cancelado en la consulta oficial.\n"
-                            "No se generó la constancia."
+                            "Verifica que esté escrita "
+                            "correctamente y vuelve a enviarla."
                         ),
                     ),
                     instance_name=instance_name,
                 )
 
             elif (
-                "CLIENT_RFC_SUSPENDED"
+                "CLIENT_RFC_NOT_FOUND_OR_WRONG"
                 in resp_text
                 or err_code
-                == "CLIENT_RFC_SUSPENDED"
+                == "CLIENT_RFC_NOT_FOUND_OR_WRONG"
             ):
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ RFC suspendido",
-                        requester_label=requester_label,
+                        title=(
+                            "⚠️ RFC no localizado"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
                         body=(
-                            "El RFC aparece como suspendido en la consulta oficial.\n"
-                            "No se generó la constancia."
+                            "Verifica que esté escrito "
+                            "correctamente y vuelve a enviarlo."
                         ),
                     ),
                     instance_name=instance_name,
                 )
 
             elif (
-                "CLIENT_RFC_INACTIVE"
+                "CLIENT_CHECKID_INCOMPLETE_DATA_CLON_REQUIRED"
                 in resp_text
-                or err_code
-                == "CLIENT_RFC_INACTIVE"
+                or err_code.startswith(
+                    "CLIENT_CHECKID_"
+                    "INCOMPLETE_DATA_CLON_REQUIRED"
+                )
             ):
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ RFC no activo",
-                        requester_label=requester_label,
+                        title=(
+                            "⚠️ Información incompleta"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
                         body=(
-                            "El RFC aparece como no activo en la consulta oficial.\n"
-                            "No se generó la constancia."
+                            "Se encontró información, pero "
+                            "está incompleta.\n"
+                            "No se generó el documento para "
+                            "evitar entregar datos incorrectos."
                         ),
                     ),
                     instance_name=instance_name,
                 )
+
             elif (
-                "CLIENT_CHECKID_INCOMPLETE_DATA_CLON_REQUIRED" in resp_text
-                or err_code.startswith("CLIENT_CHECKID_INCOMPLETE_DATA_CLON_REQUIRED")
+                "CLIENT_CHECKID_INCOMPLETE_DATA"
+                in resp_text
+                or err_code
+                == "CLIENT_CHECKID_INCOMPLETE_DATA"
             ):
-                curp_req = ""
-            
-                try:
-                    obj = json.loads(resp_text) if resp_text else {}
-                    raw_error = str(
-                        obj.get("error")
-                        or obj.get("detail")
-                        or ""
-                    ).strip()
-            
-                    if ":" in raw_error:
-                        curp_req = raw_error.split(":", 1)[1].strip().upper()
-                except Exception:
-                    curp_req = ""
-            
-                if not curp_req:
-                    m = re.search(
-                        r"CLIENT_CHECKID_INCOMPLETE_DATA_CLON_REQUIRED:([A-Z0-9]{18})",
-                        resp_text,
-                        flags=re.I
-                    )
-                    if m:
-                        curp_req = m.group(1).strip().upper()
-            
-                if not curp_req:
-                    curp_req = "LA MISMA CURP"
-            
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ Información incompleta",
-                        requester_label=requester_label,
+                        title=(
+                            "⚠️ Información incompleta"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
                         body=(
-                            "Se encontró información, pero está incompleta.\n"
-                            "No se generó el documento para evitar entregar datos incorrectos."
+                            "Se encontró información, pero "
+                            "está incompleta.\n"
+                            "No se generó el documento para "
+                            "evitar entregar datos incorrectos.\n"
+                            "Verifica la CURP/RFC o intenta "
+                            "nuevamente más tarde."
                         ),
                     ),
-                    instance_name=instance_name
-                )
-            
-            elif "CLIENT_CHECKID_INCOMPLETE_DATA" in resp_text or err_code == "CLIENT_CHECKID_INCOMPLETE_DATA":
-                evolution_send_text_to_group(
-                    group_jid,
-                    _job_client_message(
-                        job_data,
-                        title="⚠️ Información incompleta",
-                        requester_label=requester_label,
-                        body=(
-                            "Se encontró información, pero está incompleta.\n"
-                            "No se generó el documento para evitar entregar datos incorrectos.\n"
-                            "Verifica la CURP/RFC o intenta nuevamente más tarde."
-                        ),
-                    ),
-                    instance_name=instance_name
+                    instance_name=instance_name,
                 )
 
             elif (
-                "FALTA APELLIDO PATERNO" in err_code
-                or "FALTA APELLIDO PATERNO" in resp_text.upper()
-                or "FALTA APELLIDO MATERNO" in err_code
-                or "FALTA APELLIDO MATERNO" in resp_text.upper()
-                or "FALTA NOMBRE" in err_code
-                or "FALTA NOMBRE" in resp_text.upper()
+                "FALTA APELLIDO PATERNO"
+                in err_code
+                or "FALTA APELLIDO PATERNO"
+                in resp_text.upper()
+                or "FALTA APELLIDO MATERNO"
+                in err_code
+                or "FALTA APELLIDO MATERNO"
+                in resp_text.upper()
+                or "FALTA NOMBRE"
+                in err_code
+                or "FALTA NOMBRE"
+                in resp_text.upper()
             ):
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ CURP sin información suficiente",
-                        requester_label=requester_label,
+                        title=(
+                            "⚠️ CURP sin información suficiente"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
                         body=(
-                            "No se encontró información suficiente para esta CURP.\n"
-                            "Verifica que esté escrita correctamente o que se encuentre certificada."
+                            "No se encontró información "
+                            "suficiente para esta CURP.\n"
+                            "Verifica que esté escrita "
+                            "correctamente o que se encuentre "
+                            "certificada."
                         ),
                     ),
-                    instance_name=instance_name
+                    instance_name=instance_name,
                 )
 
             elif (
-                "GOB_CURP_FAIL:TIMEOUTEXCEPTION" in err_code
-                or "GOB_CURP_FAIL:TIMEOUTEXCEPTION" in resp_text.upper()
+                "GOB_CURP_FAIL:TIMEOUTEXCEPTION"
+                in err_code
+                or "GOB_CURP_FAIL:TIMEOUTEXCEPTION"
+                in resp_text.upper()
             ):
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ Consulta de CURP sin respuesta",
-                        requester_label=requester_label,
+                        title=(
+                            "⚠️ Consulta de CURP "
+                            "sin respuesta"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
                         body=(
-                            "El servicio de consulta no respondió a tiempo.\n"
-                            "La CURP no fue marcada como inexistente.\n"
-                            "Intenta nuevamente en unos momentos."
+                            "El servicio de consulta no "
+                            "respondió a tiempo.\n"
+                            "La CURP no fue marcada como "
+                            "inexistente.\n"
+                            "Intenta nuevamente en unos "
+                            "momentos."
                         ),
                     ),
-                    instance_name=instance_name
+                    instance_name=instance_name,
                 )
 
             else:
@@ -3725,14 +3914,32 @@ def process_group_request_job(job_data: dict):
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ No pudimos completar la solicitud",
-                        requester_label=requester_label,
-                        body="Ocurrió una interrupción temporal.\nIntenta nuevamente en 2-3 minutos.",
+                        title=(
+                            "⚠️ No pudimos completar "
+                            "la solicitud"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
+                        body=(
+                            "Ocurrió una interrupción temporal.\n"
+                            "Intenta nuevamente en 2-3 minutos."
+                        ),
                     ),
-                    instance_name=instance_name
+                    instance_name=instance_name,
                 )
-        except Exception:
-            pass
+
+        except Exception as notice_exc:
+            print(
+                "[RFC HTTP CLIENT NOTICE ERROR]",
+                repr(notice_exc),
+                flush=True,
+            )
+
+        # Si era transitorio y ya no quedan retries,
+        # mantener el job como FAILED.
+        if transient_http_error:
+            raise
 
     except Exception as e:
         print(
@@ -3741,45 +3948,123 @@ def process_group_request_job(job_data: dict):
             flush=True,
         )
         traceback.print_exc()
-    
+
+        retry_remaining = (
+            _rq_retry_remaining()
+        )
+
+        if retry_remaining > 0:
+            keep_inflight_for_retry = True
+
+            print(
+                "[RFC JOB EXCEPTION - RQ RETRY]",
+                {
+                    "retry_remaining":
+                        retry_remaining,
+                    "error":
+                        repr(e),
+                    "inflight_retained":
+                        inflight_key,
+                },
+                flush=True,
+            )
+
+            raise
+
         if not verifiable_pdf_text_fallback_sent:
             try:
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
                         job_data,
-                        title="⚠️ No pudimos completar la solicitud",
-                        requester_label=requester_label,
-                        body="Ocurrió una interrupción temporal.\nIntenta nuevamente en 2-3 minutos.",
+                        title=(
+                            "⚠️ No pudimos completar "
+                            "la solicitud"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
+                        body=(
+                            "Ocurrió una interrupción temporal.\n"
+                            "Intenta nuevamente en 2-3 minutos."
+                        ),
                     ),
                     instance_name=instance_name,
                 )
-            except Exception:
-                pass
+
+            except Exception as notice_exc:
+                print(
+                    "[RFC FINAL CLIENT NOTICE ERROR]",
+                    repr(notice_exc),
+                    flush=True,
+                )
+
+        # No quedan retries.
+        # El job queda FAILED.
+        raise
 
     finally:
-        release_request_inflight(
-            inflight_key
-        )
-    
-        if is_verifiable and verifiable_request_key:
+        if keep_inflight_for_retry:
+            print(
+                "[RFC REQUEST INFLIGHT RETAINED FOR RETRY]",
+                {
+                    "inflight_key":
+                        inflight_key,
+                    "retry_remaining":
+                        _rq_retry_remaining(),
+                },
+                flush=True,
+            )
+
+        else:
+            release_request_inflight(
+                inflight_key
+            )
+
+        if (
+            is_verifiable
+            and verifiable_request_key
+        ):
             try:
                 release_provider_result_claim(
                     verifiable_request_key
                 )
-        
+
                 print(
                     "[RFC VERIFIABLE RESULT CLAIM RELEASED]",
                     verifiable_request_key,
                     flush=True,
                 )
-        
+
             except Exception as claim_release_exc:
                 print(
                     "[RFC VERIFIABLE RESULT CLAIM RELEASE ERROR]",
                     repr(claim_release_exc),
                     flush=True,
                 )
+                
+def process_rfc_batch_child_job(
+    child_payload: dict,
+):
+    """
+    Ejecuta un hijo de un mensaje multilínea
+    fuera del webhook HTTP.
+    """
+
+    import asyncio
+
+    from app.rfc_webhook import (
+        _RFCBatchSyntheticRequest,
+        evolution_rfc_webhook,
+    )
+
+    return asyncio.run(
+        evolution_rfc_webhook(
+            _RFCBatchSyntheticRequest(
+                child_payload
+            )
+        )
+    )
 
 def evolution_get_media_base64(message_id: str, instance_name=None):
     instance_name = (instance_name or EVOLUTION_INSTANCE).strip()
