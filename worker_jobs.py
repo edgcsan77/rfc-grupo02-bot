@@ -1225,6 +1225,8 @@ def _delivery_fingerprint(
 def claim_delivery_once(
     job_data: dict,
     item_key: str = "",
+    *,
+    repair_verifiable_after_done: bool = True,
 ) -> tuple[bool, str, str]:
     fingerprint = _delivery_fingerprint(
         job_data,
@@ -1247,9 +1249,10 @@ def claim_delivery_once(
             flush=True,
         )
     
-        _repair_verifiable_finalization_after_delivery(
-            job_data
-        )
+        if repair_verifiable_after_done:
+            _repair_verifiable_finalization_after_delivery(
+                job_data
+            )
     
         return False, lock_key, done_key
 
@@ -1275,9 +1278,10 @@ def claim_delivery_once(
             lock_key
         )
     
-        _repair_verifiable_finalization_after_delivery(
-            job_data
-        )
+        if repair_verifiable_after_done:
+            _repair_verifiable_finalization_after_delivery(
+                job_data
+            )
     
         return False, lock_key, done_key
 
@@ -2593,6 +2597,7 @@ def process_group_request_job(job_data: dict):
             items = result.get("items") or []
             provider_success_count = 0
             delivered_success_count = 0
+            batch_had_done_delivery = False
 
             for item in items:
                 pdf_url = (item.get("pdf_url") or "").strip()
@@ -2616,9 +2621,15 @@ def process_group_request_job(job_data: dict):
                     ) = claim_delivery_once(
                         job_data=job_data,
                         item_key=item_key,
+                        repair_verifiable_after_done=False,
                     )
                 
                     if not claimed:
+                        if redis_stats.exists(
+                            delivery_done_key
+                        ):
+                            batch_had_done_delivery = True
+                    
                         print(
                             "[RFC BATCH ITEM DUPLICATE SUPPRESSED]",
                             item_key,
@@ -2744,7 +2755,10 @@ def process_group_request_job(job_data: dict):
                 )
             
             if (
-                delivered_success_count > 0
+                (
+                    delivered_success_count > 0
+                    or batch_had_done_delivery
+                )
                 and is_verifiable
                 and verifiable_request_key
             ):
