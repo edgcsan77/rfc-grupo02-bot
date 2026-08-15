@@ -3089,6 +3089,7 @@ def _extract_verifiable_no_id_items(
         r"|NO\s+HAY\s+ID"
         r"|NO\s+SALE"
         r"|NO\s+RESULTADO"
+        r"|NO\s+RESULTAO"
         r"|SIN\s+RESULTADO"
         r")"
     )

@@ -1305,6 +1305,35 @@ def find_pending_request_by_provider_rfc(
                 flush=True,
             )
 
+    # RFC_MATCH_PRIORITY_V1
+    # Si existe una coincidencia exacta del dato
+    # enviado al proveedor, ésta siempre tiene
+    # prioridad sobre matches aproximados.
+    exact_provider_matches = [
+        item
+        for item in matches
+        if (
+            item.get("matched_by")
+            == "exact_provider_identifier"
+        )
+    ]
+
+    if exact_provider_matches:
+        matches = exact_provider_matches
+
+    else:
+        exact_rfc_matches = [
+            item
+            for item in matches
+            if (
+                item.get("matched_by")
+                == "exact_rfc"
+            )
+        ]
+
+        if exact_rfc_matches:
+            matches = exact_rfc_matches
+
     if len(matches) == 1:
         return {
             "ok": True,

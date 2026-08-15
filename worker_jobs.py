@@ -776,6 +776,153 @@ def evolution_send_text_to_group(group_jid: str, text: str, instance_name=None):
     r.raise_for_status()
     return r.json()
 
+# RFC_TERMINAL_REJECTION_FINALIZE_V1
+def _finalize_verifiable_terminal_rejection(
+    job_data: dict,
+) -> bool:
+    """
+    Cierra únicamente una solicitud VERIFICABLE
+    que ya recibió una respuesta terminal y para
+    la cual SAT rechazó la generación.
+
+    No contabiliza.
+    No marca completed_24h.
+    No vuelve a enviar.
+    No cambia proveedor.
+    """
+
+    if not bool(
+        job_data.get("is_verifiable")
+    ):
+        return False
+
+    request_key = str(
+        job_data.get(
+            "verifiable_request_key"
+        )
+        or ""
+    ).strip()
+
+    if not request_key:
+        print(
+            "[RFC VERIFIABLE TERMINAL "
+            "REJECTION FINALIZE SKIP]",
+            {
+                "reason":
+                    "request_key_empty",
+            },
+            flush=True,
+        )
+
+        return False
+
+    inflight_key = str(
+        job_data.get("inflight_key")
+        or ""
+    ).strip()
+
+    processing_key = str(
+        job_data.get(
+            "verifiable_processing_key"
+        )
+        or ""
+    ).strip()
+
+    provider_message_id = str(
+        job_data.get(
+            "provider_request_msg_id"
+        )
+        or ""
+    ).strip()
+
+    cleanup_errors = []
+
+    redis_keys = [
+        key
+        for key in (
+            inflight_key,
+            processing_key,
+        )
+        if key
+    ]
+
+    if redis_keys:
+        try:
+            redis_stats.delete(
+                *redis_keys
+            )
+        except Exception as exc:
+            cleanup_errors.append(
+                "redis_keys:"
+                + repr(exc)
+            )
+
+    pending_finished = False
+
+    try:
+        finish_pending(
+            request_key,
+            provider_message_id=(
+                provider_message_id
+            ),
+        )
+
+        pending_finished = True
+
+    except Exception as exc:
+        cleanup_errors.append(
+            "finish_pending:"
+            + repr(exc)
+        )
+
+    # Sólo liberar el result claim cuando
+    # el pending sí pudo eliminarse.
+    # Así no abrimos una carrera si Redis
+    # falla en medio de la finalización.
+    if pending_finished:
+        try:
+            release_provider_result_claim(
+                request_key
+            )
+        except Exception as exc:
+            cleanup_errors.append(
+                "release_result_claim:"
+                + repr(exc)
+            )
+
+    if cleanup_errors:
+        print(
+            "[RFC VERIFIABLE TERMINAL "
+            "REJECTION FINALIZE WARN]",
+            {
+                "request_key":
+                    request_key,
+                "errors":
+                    cleanup_errors,
+            },
+            flush=True,
+        )
+
+        return False
+
+    print(
+        "[RFC VERIFIABLE TERMINAL "
+        "REJECTION FINALIZED]",
+        {
+            "request_key":
+                request_key,
+            "inflight_key":
+                inflight_key,
+            "processing_key":
+                processing_key,
+            "provider_message_id":
+                provider_message_id,
+        },
+        flush=True,
+    )
+
+    return True
+
 def notify_verifiable_provider_sat_rejection(
     *,
     job_data: dict,
@@ -3753,6 +3900,9 @@ def process_group_request_job(job_data: dict):
                         ),
                     },
                     flush=True,
+                )
+                _finalize_verifiable_terminal_rejection(
+                    job_data
                 )
 
             elif (
