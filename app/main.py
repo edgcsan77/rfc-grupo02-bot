@@ -12642,7 +12642,7 @@ def panel_RFC(
         )
 
         loca_pos = verifiable_provider_cards.find(
-            "ID LOCA-EXPRES"
+            "ID LUPITA EXPRES"
         )
         
         loca_block = (
@@ -15010,9 +15010,9 @@ def panel_RFC(
                 
                 provider_options = [
                     ("", "Automático"),
-                    ("VERIF1", "LOCA-EXPRES"),
-                    ("VERIF3", "ROMA"),
-                    ("VERIF4", "ROBERTO"),
+                    ("VERIF1", "LUPITA EXPRES"),
+                    ("VERIF3", "ROMA EXPRES"),
+                    ("VERIF4", "ROBERTO LENTO"),
                 ]
                 
                 provider_options_html = ""
@@ -16877,7 +16877,7 @@ def panel_RFC(
     """
         try:
             final_loca_pos = html.find(
-                "ID LOCA-EXPRES"
+                "ID LUPITA EXPRES"
             )
             
             final_loca_block = (
@@ -25829,9 +25829,9 @@ def panel_rfc_bot_control_fragment(request: Request):
                 provider_label,
             ) in (
                 ("", "Automático"),
-                ("VERIF1", "LOCA-EXPRES"),
-                ("VERIF3", "ROMA"),
-                ("VERIF4", "ROBERTO"),
+                ("VERIF1", "LUPITA EXPRES"),
+                ("VERIF3", "ROMA EXPRES"),
+                ("VERIF4", "ROBERTO LENTO"),
             ):
                 selected_txt = (
                     " selected"
