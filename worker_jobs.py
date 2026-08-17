@@ -33,6 +33,7 @@ from app.db import (
 )
 
 from app.models import AuthorizedGroup, BotControl
+from app.curp_validation import analyze_curp
 
 class VerifiableProviderStat(Base):
     __tablename__ = "verifiable_provider_stats"
@@ -1604,6 +1605,92 @@ def _delivery_fingerprint(
     ).hexdigest()
 
 
+
+def _delivery_accounting_payload(
+    job_data: dict,
+    group_jid: str,
+    group_name: str,
+    kind: str,
+    count: int,
+    item_key: str,
+) -> dict:
+    return {
+        "status": "DELIVERED_PENDING_ACCOUNTING",
+        "job_data": dict(job_data or {}),
+        "group_jid": group_jid,
+        "group_name": group_name,
+        "kind": kind,
+        "count": int(count or 1),
+        "item_key": item_key or "",
+        "delivered_at": _panel_now().isoformat(),
+    }
+
+
+def _reconcile_delivery_accounting(
+    done_key: str,
+    current_job_data: dict | None = None,
+) -> bool:
+    raw = redis_stats.get(done_key)
+    if not raw:
+        return False
+
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        # Compatibilidad con done_key antiguos que guardaban sólo fecha.
+        return False
+
+    if not isinstance(payload, dict):
+        return False
+
+    if payload.get("status") == "ACCOUNTED":
+        return True
+
+    if payload.get("status") != "DELIVERED_PENDING_ACCOUNTING":
+        return False
+
+    stored_job_data = payload.get("job_data") or {}
+    if not isinstance(stored_job_data, dict):
+        stored_job_data = {}
+
+    merged_job_data = {
+        **stored_job_data,
+        **(current_job_data or {}),
+    }
+
+    try:
+        record_success_once(
+            job_data=merged_job_data,
+            group_jid=str(payload.get("group_jid") or merged_job_data.get("group_jid") or ""),
+            group_name=str(payload.get("group_name") or payload.get("group_jid") or ""),
+            kind=str(payload.get("kind") or ""),
+            count=int(payload.get("count") or 1),
+            item_key=str(payload.get("item_key") or ""),
+        )
+
+        payload["status"] = "ACCOUNTED"
+        payload["accounted_at"] = _panel_now().isoformat()
+        payload["job_data"] = merged_job_data
+        redis_stats.set(
+            done_key,
+            json.dumps(payload, ensure_ascii=False, default=str),
+            ex=DELIVERY_DONE_TTL_SEC,
+        )
+
+        print("[RFC DELIVERY ACCOUNTING RECONCILED]", {
+            "done_key": done_key,
+            "kind": payload.get("kind"),
+            "item_key": payload.get("item_key"),
+        }, flush=True)
+        return True
+
+    except Exception as exc:
+        print("[RFC DELIVERY ACCOUNTING RECONCILE ERROR]", repr(exc), {
+            "done_key": done_key,
+        }, flush=True)
+        raise
+
+
 def claim_delivery_once(
     job_data: dict,
     item_key: str = "",
@@ -1623,12 +1710,18 @@ def claim_delivery_once(
         f"rfc:delivery:done:{fingerprint}"
     )
 
-    # Ya fue entregado recientemente.
+    # Ya fue entregado recientemente. Antes de impedir el reenvío, repara
+    # cualquier contabilización que haya quedado pendiente tras un crash/fallo DB.
     if redis_stats.exists(done_key):
         print(
             "[RFC DELIVERY ALREADY DONE]",
             done_key,
             flush=True,
+        )
+
+        _reconcile_delivery_accounting(
+            done_key,
+            current_job_data=job_data,
         )
     
         if repair_verifiable_after_done:
@@ -1659,6 +1752,11 @@ def claim_delivery_once(
         redis_stats.delete(
             lock_key
         )
+
+        _reconcile_delivery_accounting(
+            done_key,
+            current_job_data=job_data,
+        )
     
         if repair_verifiable_after_done:
             _repair_verifiable_finalization_after_delivery(
@@ -1673,17 +1771,77 @@ def claim_delivery_once(
 def mark_delivery_done(
     lock_key: str,
     done_key: str,
+    *,
+    accounting_payload: dict | None = None,
 ):
     pipe = redis_stats.pipeline()
 
+    value = (
+        json.dumps(
+            accounting_payload,
+            ensure_ascii=False,
+            default=str,
+        )
+        if accounting_payload
+        else _panel_now().isoformat()
+    )
+
     pipe.set(
         done_key,
-        _panel_now().isoformat(),
+        value,
         ex=DELIVERY_DONE_TTL_SEC,
     )
 
     pipe.delete(lock_key)
     pipe.execute()
+
+
+def mark_delivery_pending_accounting(
+    lock_key: str,
+    done_key: str,
+    *,
+    job_data: dict,
+    group_jid: str,
+    group_name: str,
+    kind: str,
+    count: int,
+    item_key: str,
+):
+    payload = _delivery_accounting_payload(
+        job_data=job_data,
+        group_jid=group_jid,
+        group_name=group_name,
+        kind=kind,
+        count=count,
+        item_key=item_key,
+    )
+    mark_delivery_done(
+        lock_key,
+        done_key,
+        accounting_payload=payload,
+    )
+
+
+def mark_delivery_accounted(done_key: str):
+    raw = redis_stats.get(done_key)
+    if not raw:
+        return
+
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return
+
+    if not isinstance(payload, dict):
+        return
+
+    payload["status"] = "ACCOUNTED"
+    payload["accounted_at"] = _panel_now().isoformat()
+    redis_stats.set(
+        done_key,
+        json.dumps(payload, ensure_ascii=False, default=str),
+        ex=DELIVERY_DONE_TTL_SEC,
+    )
 
 
 def release_delivery_claim(lock_key: str):
@@ -2348,6 +2506,62 @@ def process_group_request_job(job_data: dict):
         if forced_success_kind:
             requested_kind = forced_success_kind
 
+        if requested_kind == "CURP":
+            curp_result = analyze_curp(
+                query or original_text or "",
+                allow_repair=True,
+            )
+
+            if not curp_result.get("valid"):
+                error_code = str(
+                    curp_result.get("error")
+                    or "INVALID_CURP"
+                )
+
+                if error_code == "INVALID_CHECK_DIGIT":
+                    body = (
+                        "La CURP tiene un dígito verificador incorrecto. "
+                        "Revisa el último carácter antes de reenviarla."
+                    )
+                elif error_code == "INVALID_DATE":
+                    body = "La fecha contenida en la CURP no es válida."
+                else:
+                    body = "La CURP no cumple con la estructura oficial esperada."
+
+                evolution_send_text_to_group(
+                    group_jid,
+                    _job_client_message(
+                        job_data,
+                        title="⚠️ CURP no válida",
+                        requester_label=requester_label,
+                        body=body,
+                        family="result",
+                        status="ERROR",
+                    ),
+                    instance_name=instance_name,
+                )
+                return
+
+            normalized_curp = str(
+                curp_result.get("normalized")
+                or ""
+            ).upper()
+
+            if normalized_curp:
+                query = normalized_curp
+                job_data["query"] = normalized_curp
+
+                if curp_result.get("corrected"):
+                    print(
+                        "[RFC CURP SAFE TYPO CORRECTED]",
+                        {
+                            "original": curp_result.get("original"),
+                            "normalized": normalized_curp,
+                            "corrections": curp_result.get("corrections"),
+                        },
+                        flush=True,
+                    )
+
         if not _group_service_enabled_for_job(
             group_jid=group_jid,
             kind=requested_kind,
@@ -2641,6 +2855,19 @@ def process_group_request_job(job_data: dict):
                 raise
         
             try:
+                # Marcar ENTREGA antes de contabilizar. Si PostgreSQL falla
+                # después del envío, el retry repara contabilidad sin reenviar.
+                mark_delivery_pending_accounting(
+                    delivery_lock_key,
+                    delivery_done_key,
+                    job_data=job_data,
+                    group_jid=group_jid,
+                    group_name=group_name,
+                    kind=kind,
+                    count=1,
+                    item_key=delivery_item_key,
+                )
+
                 # is_verifiable ya fuerza:
                 # kind = RFC_VERIFICABLE
                 success_recorded = (
@@ -2668,9 +2895,8 @@ def process_group_request_job(job_data: dict):
                         count=1,
                     )
         
-                mark_delivery_done(
-                    delivery_lock_key,
-                    delivery_done_key,
+                mark_delivery_accounted(
+                    delivery_done_key
                 )
         
                 if (
@@ -2886,6 +3112,25 @@ def process_group_request_job(job_data: dict):
                 return
 
             try:
+                if ok_count > 0:
+                    mark_delivery_pending_accounting(
+                        delivery_lock_key,
+                        delivery_done_key,
+                        job_data=job_data,
+                        group_jid=group_jid,
+                        group_name=group_name,
+                        kind=kind,
+                        count=ok_count,
+                        item_key=delivery_item_key,
+                    )
+                else:
+                    # Conserva la idempotencia de entrega aunque el lote no
+                    # tenga elementos comercialmente contabilizables.
+                    mark_delivery_done(
+                        delivery_lock_key,
+                        delivery_done_key,
+                    )
+
                 success_recorded = False
             
                 if ok_count > 0:
@@ -2914,10 +3159,10 @@ def process_group_request_job(job_data: dict):
                         count=1,
                     )
             
-                mark_delivery_done(
-                    delivery_lock_key,
-                    delivery_done_key,
-                )
+                if ok_count > 0:
+                    mark_delivery_accounted(
+                        delivery_done_key
+                    )
 
                 if (
                     ok_count > 0
@@ -3078,6 +3323,17 @@ def process_group_request_job(job_data: dict):
                         continue
 
                     try:
+                        mark_delivery_pending_accounting(
+                            delivery_lock_key,
+                            delivery_done_key,
+                            job_data=job_data,
+                            group_jid=group_jid,
+                            group_name=group_name,
+                            kind=kind,
+                            count=1,
+                            item_key=item_key,
+                        )
+
                         success_recorded = (
                             record_success_once(
                                 job_data=job_data,
@@ -3092,9 +3348,8 @@ def process_group_request_job(job_data: dict):
                         if success_recorded:
                             provider_success_count += 1
                     
-                        mark_delivery_done(
-                            delivery_lock_key,
-                            delivery_done_key,
+                        mark_delivery_accounted(
+                            delivery_done_key
                         )
 
                         delivered_success_count += 1
@@ -3374,6 +3629,17 @@ def process_group_request_job(job_data: dict):
                         raise
 
                     try:
+                        mark_delivery_pending_accounting(
+                            delivery_lock_key,
+                            delivery_done_key,
+                            job_data=job_data,
+                            group_jid=group_jid,
+                            group_name=group_name,
+                            kind=kind,
+                            count=1,
+                            item_key=delivery_item_key,
+                        )
+
                         # IMPORTANTE:
                         # is_verifiable ya fuerza kind a
                         # RFC_VERIFICABLE más arriba.
@@ -3402,11 +3668,9 @@ def process_group_request_job(job_data: dict):
                                 count=1,
                             )
 
-                        # La entrega lógica queda terminada aunque
-                        # haya sido RFC+IDCIF y no el PDF.
-                        mark_delivery_done(
-                            delivery_lock_key,
-                            delivery_done_key,
+                        # La entrega lógica ya se marcó antes de accounting.
+                        mark_delivery_accounted(
+                            delivery_done_key
                         )
 
                         if (
@@ -3576,6 +3840,17 @@ def process_group_request_job(job_data: dict):
                         raise
 
                     try:
+                        mark_delivery_pending_accounting(
+                            delivery_lock_key,
+                            delivery_done_key,
+                            job_data=job_data,
+                            group_jid=group_jid,
+                            group_name=group_name,
+                            kind=kind,
+                            count=1,
+                            item_key=delivery_item_key,
+                        )
+
                         success_recorded = (
                             record_success_once(
                                 job_data=job_data,
@@ -3601,9 +3876,8 @@ def process_group_request_job(job_data: dict):
                                 count=1,
                             )
 
-                        mark_delivery_done(
-                            delivery_lock_key,
-                            delivery_done_key,
+                        mark_delivery_accounted(
+                            delivery_done_key
                         )
 
                         if verifiable_request_key:
@@ -3771,6 +4045,17 @@ def process_group_request_job(job_data: dict):
                 )
 
         try:
+            mark_delivery_pending_accounting(
+                delivery_lock_key,
+                delivery_done_key,
+                job_data=job_data,
+                group_jid=group_jid,
+                group_name=group_name,
+                kind=kind,
+                count=1,
+                item_key=delivery_item_key,
+            )
+
             success_recorded = record_success_once(
                 job_data=job_data,
                 group_jid=group_jid,
@@ -3805,9 +4090,8 @@ def process_group_request_job(job_data: dict):
                     error_code=verifiable_warning_code,
                 )
         
-            mark_delivery_done(
-                delivery_lock_key,
-                delivery_done_key,
+            mark_delivery_accounted(
+                delivery_done_key
             )
         
             # Una vez entregado y contabilizado correctamente,
@@ -4425,6 +4709,31 @@ def process_group_request_job(job_data: dict):
         raise
 
     finally:
+        reservation_key = str(
+            job_data.get("_rfc_quota_reservation_key")
+            or ""
+        ).strip()
+
+        if (
+            reservation_key
+            and not bool(job_data.get("_rfc_quota_committed"))
+        ):
+            if keep_inflight_for_retry:
+                print(
+                    "[RFC QUOTA RESERVATION RETAINED FOR RETRY]",
+                    reservation_key,
+                    flush=True,
+                )
+            else:
+                try:
+                    _rfc_release_quota_reservation(job_data)
+                except Exception as quota_release_exc:
+                    print(
+                        "[RFC QUOTA RESERVATION RELEASE ERROR]",
+                        repr(quota_release_exc),
+                        flush=True,
+                    )
+
         if keep_inflight_for_retry:
             print(
                 "[RFC REQUEST INFLIGHT RETAINED FOR RETRY]",
@@ -5213,6 +5522,428 @@ def _rfc_final_ensure_wallet_and_bot(conn, owner: str, instance_name: str):
     })
 
 
+
+def _rfc_quota_reservation_key(job_data: dict, family: str) -> str:
+    execution_key = (
+        job_data.get("execution_key")
+        or job_data.get("msg_id")
+        or job_data.get("request_key")
+        or ""
+    ).strip()
+    instance = (
+        job_data.get("evolution_instance")
+        or job_data.get("instance_name")
+        or EVOLUTION_INSTANCE
+        or ""
+    ).strip()
+    group_jid = str(job_data.get("group_jid") or "").strip()
+    requester = str(job_data.get("requester_number") or "").strip()
+    query = re.sub(
+        r"\s+",
+        " ",
+        str(job_data.get("query") or job_data.get("original_text") or "").strip().upper(),
+    )
+
+    if not execution_key:
+        raise RuntimeError("RFC_QUOTA_RESERVATION_IDENTITY_EMPTY")
+
+    raw = "|".join([
+        instance,
+        group_jid,
+        requester,
+        execution_key,
+        family,
+        query,
+    ])
+    return "rfc_quota:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _rfc_quota_ensure_table(conn):
+    from sqlalchemy import text
+
+    exists = conn.execute(
+        text("SELECT to_regclass('public.rfc_quota_reservations')")
+    ).scalar()
+
+    if not exists:
+        raise RuntimeError(
+            "RFC_QUOTA_RESERVATIONS_TABLE_MISSING"
+        )
+
+
+def _rfc_try_reserve_quota(
+    conn,
+    *,
+    job_data: dict,
+    owner: str,
+    instance_name: str,
+    group_jid: str,
+    family: str,
+    count: int,
+) -> tuple[bool, str]:
+    """Reserva cupo ANTES de llamar proveedores o entregar archivos.
+
+    CLON descuenta el saldo global al reservar y lo devuelve si el job termina
+    sin éxito. Los límites por bot/grupo usan esta tabla para contar reservas
+    activas sin inflar los contadores visibles de "used".
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+
+    count = max(int(count or 1), 1)
+    reservation_key = _rfc_quota_reservation_key(job_data, family)
+    _rfc_quota_ensure_table(conn)
+
+    # Recupera reservas huérfanas de procesos terminados a la fuerza.
+    # Los jobs RFC tienen timeout muy inferior a 2 horas.
+    stale_rows = conn.execute(text("""
+        SELECT
+            reservation_key,
+            owner_instance,
+            family,
+            count,
+            wallet_clon_reserved
+        FROM rfc_quota_reservations
+        WHERE status = 'RESERVED'
+          AND (
+                (
+                    family = 'VERIFICABLE'
+                    AND updated_at < now() - interval '26 hours'
+                )
+                OR
+                (
+                    family <> 'VERIFICABLE'
+                    AND updated_at < now() - interval '2 hours'
+                )
+              )
+        FOR UPDATE SKIP LOCKED
+    """)).mappings().all()
+
+    for stale in stale_rows:
+        if bool(stale.get("wallet_clon_reserved")):
+            conn.execute(text("""
+                UPDATE rfc_owner_wallets
+                SET clon_balance = clon_balance + :count,
+                    updated_at = now()
+                WHERE owner_instance = :owner
+            """), {
+                "count": int(stale.get("count") or 1),
+                "owner": stale.get("owner_instance"),
+            })
+
+        conn.execute(text("""
+            UPDATE rfc_quota_reservations
+            SET status = 'RELEASED', updated_at = now()
+            WHERE reservation_key = :reservation_key
+              AND status = 'RESERVED'
+        """), {
+            "reservation_key": stale.get("reservation_key"),
+        })
+
+    existing = conn.execute(text("""
+        SELECT status
+        FROM rfc_quota_reservations
+        WHERE reservation_key = :reservation_key
+        FOR UPDATE
+    """), {"reservation_key": reservation_key}).mappings().first()
+
+    if existing and str(existing.get("status") or "").upper() in {"RESERVED", "COMMITTED"}:
+        job_data["_rfc_quota_reservation_key"] = reservation_key
+        job_data["_rfc_quota_family"] = family
+        return True, "EXISTING"
+
+    # Serializa el recurso lógico para que dos workers no puedan reservar el
+    # último cupo al mismo tiempo.
+    conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"), {
+        "lock_key": f"RFC_QUOTA|{owner}|{instance_name}|{group_jid}|{family}",
+    })
+
+    wallet = conn.execute(text("""
+        SELECT clon_balance, idcif_enabled, idcif_expires_at
+        FROM rfc_owner_wallets
+        WHERE owner_instance = :owner
+        LIMIT 1
+        FOR UPDATE
+    """), {"owner": owner}).mappings().first()
+
+    bot = conn.execute(text("""
+        SELECT
+            COALESCE(clon_limit, 0) AS clon_limit,
+            COALESCE(clon_used, 0) AS clon_used,
+            COALESCE(idcif_limit, 0) AS idcif_limit,
+            COALESCE(idcif_used, 0) AS idcif_used,
+            COALESCE(verifiable_limit, 0) AS verifiable_limit,
+            COALESCE(verifiable_used, 0) AS verifiable_used,
+            COALESCE(verifiable_enabled, FALSE) AS verifiable_enabled,
+            is_active,
+            is_blocked
+        FROM bot_control
+        WHERE instance_name = :instance_name
+        LIMIT 1
+        FOR UPDATE
+    """), {"instance_name": instance_name}).mappings().first()
+
+    if not wallet or not bot or not bool(bot.get("is_active")) or bool(bot.get("is_blocked")):
+        return False, "SERVICE_NOT_AVAILABLE"
+
+    active_instance = int(conn.execute(text("""
+        SELECT COALESCE(SUM(count), 0)
+        FROM rfc_quota_reservations
+        WHERE status = 'RESERVED'
+          AND family = :family
+          AND instance_name = :instance_name
+          AND reservation_key <> :reservation_key
+    """), {
+        "family": family,
+        "instance_name": instance_name,
+        "reservation_key": reservation_key,
+    }).scalar() or 0)
+
+    group_promo = conn.execute(text("""
+        SELECT
+            id,
+            COALESCE(clon_total, 0) AS clon_total,
+            COALESCE(clon_used, 0) AS clon_used,
+            COALESCE(idcif_total, 0) AS idcif_total,
+            COALESCE(idcif_used, 0) AS idcif_used,
+            COALESCE(verifiable_total, 0) AS verifiable_total,
+            COALESCE(verifiable_used, 0) AS verifiable_used,
+            COALESCE(shared_group_limit_verifiable, 0) AS shared_limit_verifiable,
+            COALESCE(shared_group_used_verifiable, 0) AS shared_used_verifiable,
+            COALESCE(shared_key, '') AS shared_key
+        FROM group_promotions
+        WHERE group_jid = :group_jid
+          AND is_active = TRUE
+        ORDER BY updated_at DESC NULLS LAST, id DESC
+        LIMIT 1
+        FOR UPDATE
+    """), {"group_jid": group_jid}).mappings().first()
+
+    active_group = int(conn.execute(text("""
+        SELECT COALESCE(SUM(count), 0)
+        FROM rfc_quota_reservations
+        WHERE status = 'RESERVED'
+          AND family = :family
+          AND group_jid = :group_jid
+          AND reservation_key <> :reservation_key
+    """), {
+        "family": family,
+        "group_jid": group_jid,
+        "reservation_key": reservation_key,
+    }).scalar() or 0)
+
+    shared_key = ""
+
+    if family == "CLON":
+        if int(wallet.get("clon_balance") or 0) < count:
+            return False, "GLOBAL_CLON_EXHAUSTED"
+
+        bot_limit = int(bot.get("clon_limit") or 0)
+        bot_used = int(bot.get("clon_used") or 0)
+        if bot_limit > 0 and bot_used + active_instance + count > bot_limit:
+            return False, "BOT_CLON_LIMIT"
+
+        if group_promo:
+            total = int(group_promo.get("clon_total") or 0)
+            used = int(group_promo.get("clon_used") or 0)
+            if total > 0 and used + active_group + count > total:
+                return False, "GROUP_CLON_LIMIT"
+
+        updated = conn.execute(text("""
+            UPDATE rfc_owner_wallets
+            SET clon_balance = clon_balance - :count,
+                updated_at = now()
+            WHERE owner_instance = :owner
+              AND clon_balance >= :count
+        """), {"owner": owner, "count": count})
+        if updated.rowcount != 1:
+            return False, "GLOBAL_CLON_EXHAUSTED"
+
+        wallet_clon_reserved = True
+
+    elif family == "IDCIF":
+        if not bool(wallet.get("idcif_enabled")):
+            return False, "IDCIF_DISABLED"
+
+        expires_at = wallet.get("idcif_expires_at")
+        if not expires_at:
+            return False, "IDCIF_NOT_ACTIVE"
+
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+        if expires_at <= datetime.now(timezone.utc):
+            return False, "IDCIF_EXPIRED"
+
+        bot_limit = int(bot.get("idcif_limit") or 0)
+        bot_used = int(bot.get("idcif_used") or 0)
+        if bot_limit > 0 and bot_used + active_instance + count > bot_limit:
+            return False, "BOT_IDCIF_LIMIT"
+
+        if group_promo:
+            total = int(group_promo.get("idcif_total") or 0)
+            used = int(group_promo.get("idcif_used") or 0)
+            if total > 0 and used + active_group + count > total:
+                return False, "GROUP_IDCIF_LIMIT"
+
+        wallet_clon_reserved = False
+
+    elif family == "VERIFICABLE":
+        if not bool(bot.get("verifiable_enabled")):
+            return False, "VERIFIABLE_DISABLED"
+
+        bot_limit = int(bot.get("verifiable_limit") or 0)
+        bot_used = int(bot.get("verifiable_used") or 0)
+        if bot_limit > 0 and bot_used + active_instance + count > bot_limit:
+            return False, "BOT_VERIFIABLE_LIMIT"
+
+        if group_promo:
+            total = int(group_promo.get("verifiable_total") or 0)
+            used = int(group_promo.get("verifiable_used") or 0)
+            if total > 0 and used + active_group + count > total:
+                return False, "GROUP_VERIFIABLE_LIMIT"
+
+            shared_key = str(group_promo.get("shared_key") or "").strip()
+            shared_limit = int(group_promo.get("shared_limit_verifiable") or 0)
+            shared_used = int(group_promo.get("shared_used_verifiable") or 0)
+
+            if shared_key and shared_limit > 0:
+                conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"), {
+                    "lock_key": f"RFC_QUOTA_SHARED|{shared_key}|VERIFICABLE",
+                })
+                active_shared = int(conn.execute(text("""
+                    SELECT COALESCE(SUM(count), 0)
+                    FROM rfc_quota_reservations
+                    WHERE status = 'RESERVED'
+                      AND family = 'VERIFICABLE'
+                      AND shared_key = :shared_key
+                      AND reservation_key <> :reservation_key
+                """), {
+                    "shared_key": shared_key,
+                    "reservation_key": reservation_key,
+                }).scalar() or 0)
+                if shared_used + active_shared + count > shared_limit:
+                    return False, "SHARED_VERIFIABLE_LIMIT"
+
+        wallet_clon_reserved = False
+
+    else:
+        return True, "UNKNOWN_NO_RESERVATION"
+
+    conn.execute(text("""
+        INSERT INTO rfc_quota_reservations (
+            reservation_key,
+            family,
+            owner_instance,
+            instance_name,
+            group_jid,
+            shared_key,
+            count,
+            wallet_clon_reserved,
+            status,
+            created_at,
+            updated_at
+        ) VALUES (
+            :reservation_key,
+            :family,
+            :owner,
+            :instance_name,
+            :group_jid,
+            :shared_key,
+            :count,
+            :wallet_clon_reserved,
+            'RESERVED',
+            now(),
+            now()
+        )
+        ON CONFLICT (reservation_key)
+        DO UPDATE SET
+            status = 'RESERVED',
+            shared_key = EXCLUDED.shared_key,
+            count = EXCLUDED.count,
+            wallet_clon_reserved = EXCLUDED.wallet_clon_reserved,
+            updated_at = now()
+    """), {
+        "reservation_key": reservation_key,
+        "family": family,
+        "owner": owner,
+        "instance_name": instance_name,
+        "group_jid": group_jid,
+        "shared_key": shared_key,
+        "count": count,
+        "wallet_clon_reserved": wallet_clon_reserved,
+    })
+
+    job_data["_rfc_quota_reservation_key"] = reservation_key
+    job_data["_rfc_quota_family"] = family
+
+    print("[RFC QUOTA RESERVED]", {
+        "reservation_key": reservation_key,
+        "family": family,
+        "instance_name": instance_name,
+        "group_jid": group_jid,
+        "count": count,
+    }, flush=True)
+
+    return True, "RESERVED"
+
+
+def _rfc_release_quota_reservation(job_data: dict) -> bool:
+    reservation_key = str(job_data.get("_rfc_quota_reservation_key") or "").strip()
+    if not reservation_key:
+        return False
+
+    from sqlalchemy import text
+
+    engine = _rfc_final_engine()
+    with engine.begin() as conn:
+        _rfc_quota_ensure_table(conn)
+        row = conn.execute(text("""
+            SELECT reservation_key, owner_instance, count, wallet_clon_reserved, status
+            FROM rfc_quota_reservations
+            WHERE reservation_key = :reservation_key
+            FOR UPDATE
+        """), {"reservation_key": reservation_key}).mappings().first()
+
+        if not row or str(row.get("status") or "").upper() != "RESERVED":
+            return False
+
+        if bool(row.get("wallet_clon_reserved")):
+            conn.execute(text("""
+                UPDATE rfc_owner_wallets
+                SET clon_balance = clon_balance + :count,
+                    updated_at = now()
+                WHERE owner_instance = :owner
+            """), {
+                "count": int(row.get("count") or 1),
+                "owner": row.get("owner_instance"),
+            })
+
+        conn.execute(text("""
+            UPDATE rfc_quota_reservations
+            SET status = 'RELEASED', updated_at = now()
+            WHERE reservation_key = :reservation_key
+              AND status = 'RESERVED'
+        """), {"reservation_key": reservation_key})
+
+    print("[RFC QUOTA RELEASED]", reservation_key, flush=True)
+    return True
+
+
+def _rfc_mark_quota_committed(conn, reservation_key: str) -> bool:
+    from sqlalchemy import text
+    if not reservation_key:
+        return False
+    _rfc_quota_ensure_table(conn)
+    result = conn.execute(text("""
+        UPDATE rfc_quota_reservations
+        SET status = 'COMMITTED', updated_at = now()
+        WHERE reservation_key = :reservation_key
+          AND status IN ('RESERVED', 'COMMITTED')
+    """), {"reservation_key": reservation_key})
+    return bool(result.rowcount)
+
+
 def _rfc_final_check_global(
     job_data: dict,
     group_jid: str,
@@ -5401,6 +6132,31 @@ def _rfc_final_check_global(
                     )
                     return False
 
+                reserved, reserve_reason = _rfc_try_reserve_quota(
+                    conn,
+                    job_data=job_data,
+                    owner=owner,
+                    instance_name=instance_name,
+                    group_jid=group_jid,
+                    family=family,
+                    count=count,
+                )
+                if not reserved:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        _job_client_message(
+                            job_data,
+                            title='⚠️ RFC CLON no disponible',
+                            requester_label=requester_label,
+                            body='El último cupo disponible fue tomado por otra solicitud. Intenta nuevamente.',
+                            family="service",
+                            status='LÍMITE ALCANZADO',
+                        ),
+                        instance_name=instance_name,
+                    )
+                    print("[RFC_CLON_ATOMIC_RESERVATION_REJECTED]", reserve_reason, flush=True)
+                    return False
+
                 print("[RFC_CLON_BOT_AND_GLOBAL_CHECK_OK]", {
                     "owner": owner,
                     "instance_name": instance_name,
@@ -5408,6 +6164,7 @@ def _rfc_final_check_global(
                     "clon_limit": clon_limit,
                     "clon_used": clon_used,
                     "kind": kind,
+                    "reservation": reserve_reason,
                 }, flush=True)
 
                 return True
@@ -5520,6 +6277,31 @@ def _rfc_final_check_global(
                     )
                     return False
 
+                reserved, reserve_reason = _rfc_try_reserve_quota(
+                    conn,
+                    job_data=job_data,
+                    owner=owner,
+                    instance_name=instance_name,
+                    group_jid=group_jid,
+                    family=family,
+                    count=count,
+                )
+                if not reserved:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        _job_client_message(
+                            job_data,
+                            title='⚠️ RFC IDCIF no disponible',
+                            requester_label=requester_label,
+                            body='El último cupo disponible fue tomado por otra solicitud. Intenta nuevamente.',
+                            family="service",
+                            status='LÍMITE ALCANZADO',
+                        ),
+                        instance_name=instance_name,
+                    )
+                    print("[RFC_IDCIF_ATOMIC_RESERVATION_REJECTED]", reserve_reason, flush=True)
+                    return False
+
                 print("[RFC_IDCIF_BOT_AND_GLOBAL_CHECK_OK]", {
                     "owner": owner,
                     "instance_name": instance_name,
@@ -5527,6 +6309,7 @@ def _rfc_final_check_global(
                     "idcif_used": idcif_used,
                     "expires_at": str(expires_at),
                     "kind": kind,
+                    "reservation": reserve_reason,
                 }, flush=True)
 
                 return True
@@ -5794,6 +6577,32 @@ def _rfc_final_check_global(
                     flush=True,
                 )
 
+                reserved, reserve_reason = _rfc_try_reserve_quota(
+                    conn,
+                    job_data=job_data,
+                    owner=owner,
+                    instance_name=instance_name,
+                    group_jid=group_jid,
+                    family=family,
+                    count=count,
+                )
+                if not reserved:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        _job_client_message(
+                            job_data,
+                            title='⚠️ RFC verificable no disponible',
+                            requester_label=requester_label,
+                            body='El último cupo disponible fue tomado por otra solicitud. Intenta nuevamente.',
+                            family="service",
+                            status='LÍMITE ALCANZADO',
+                        ),
+                        instance_name=instance_name,
+                    )
+                    print("[RFC_VERIFICABLE_ATOMIC_RESERVATION_REJECTED]", reserve_reason, flush=True)
+                    return False
+
+                print("[RFC_VERIFICABLE_ATOMIC_RESERVATION_OK]", reserve_reason, flush=True)
                 return True
 
         return True
@@ -5833,6 +6642,10 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
         owner = _rfc_final_owner_instance()
         engine = _rfc_final_engine()
         count = int(count or 1)
+        reservation_key = str(
+            job_data.get("_rfc_quota_reservation_key")
+            or ""
+        ).strip()
 
         with engine.begin() as conn:
             _rfc_final_ensure_wallet_and_bot(conn, owner, instance_name)
@@ -5902,14 +6715,28 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                 return False
 
             if family == "CLON":
-                conn.execute(text("""
-                    UPDATE rfc_owner_wallets
-                    SET
-                        clon_balance = GREATEST(clon_balance - :count, 0),
-                        clon_used = clon_used + :count,
-                        updated_at = now()
-                    WHERE owner_instance = :owner
-                """), {"count": count, "owner": owner})
+                if reservation_key:
+                    # El saldo ya quedó apartado atómicamente ANTES de procesar.
+                    conn.execute(text("""
+                        UPDATE rfc_owner_wallets
+                        SET
+                            clon_used = clon_used + :count,
+                            updated_at = now()
+                        WHERE owner_instance = :owner
+                    """), {"count": count, "owner": owner})
+                else:
+                    # Compatibilidad defensiva con jobs creados antes del despliegue.
+                    wallet_result = conn.execute(text("""
+                        UPDATE rfc_owner_wallets
+                        SET
+                            clon_balance = clon_balance - :count,
+                            clon_used = clon_used + :count,
+                            updated_at = now()
+                        WHERE owner_instance = :owner
+                          AND clon_balance >= :count
+                    """), {"count": count, "owner": owner})
+                    if wallet_result.rowcount != 1:
+                        raise RuntimeError("RFC_CLON_GLOBAL_CONSUME_FAILED")
 
                 conn.execute(text("""
                     UPDATE bot_control
@@ -6355,12 +7182,24 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                     flush=True,
                 )
 
-            try:
-                _rfc_clear_panel_cache_v2()
-            except Exception:
-                pass
+            if reservation_key:
+                if not _rfc_mark_quota_committed(
+                    conn,
+                    reservation_key,
+                ):
+                    raise RuntimeError(
+                        "RFC_QUOTA_RESERVATION_COMMIT_FAILED"
+                    )
 
-            return True
+        # Llegar aquí significa que engine.begin() salió correctamente
+        # y PostgreSQL confirmó toda la transacción comercial + reserva.
+        try:
+            _rfc_clear_panel_cache_v2()
+        except Exception:
+            pass
+
+        job_data["_rfc_quota_committed"] = True
+        return True
 
     except Exception as e:
         print(

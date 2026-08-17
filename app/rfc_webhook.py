@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request
 
 from app.queue import request_queue
 from app.services.evolution import send_text
+from app.curp_validation import analyze_curp, looks_like_curp_token
 from app.db import SessionLocal
 from app.models import (
     AuthorizedGroup,
@@ -132,9 +133,20 @@ def _verifiable_provider_uses_rfc_converter(
     return mode == "RFC"
 
 CURP_RE = re.compile(r"\b[A-Z][AEIOUX][A-Z]{2}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b", re.I)
+CURP_LOOSE_RE = re.compile(r"(?<![A-Z0-9Ñ])([A-Z0-9Ñ]{18})(?![A-Z0-9Ñ])", re.I)
 RFC_RE = re.compile(r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b", re.I)
 IDCIF_RE = re.compile(r"\b\d{11}\b")
 SAT_QR_RE = re.compile(r"(?:D1=10|D3=)", re.I)
+
+
+def _curp_candidate_from_text(text: str):
+    for match in CURP_LOOSE_RE.finditer(str(text or "").upper()):
+        token = match.group(1).upper()
+        if not looks_like_curp_token(token):
+            continue
+        result = analyze_curp(token, allow_repair=True)
+        return match, result
+    return None, None
 
 
 def _norm_text(s: str) -> str:
@@ -839,7 +851,7 @@ def _parse_rfc_query(text: str, msg_type: str = "") -> dict:
 
     rfc = RFC_RE.search(up)
     idcif = IDCIF_RE.search(up)
-    curp = CURP_RE.search(up)
+    curp_match, curp_result = _curp_candidate_from_text(up)
 
     if rfc and idcif:
         return {
@@ -848,8 +860,33 @@ def _parse_rfc_query(text: str, msg_type: str = "") -> dict:
             "query": f"RFC: {rfc.group(0).upper()}\nIDCIF: {idcif.group(0)}",
         }
 
-    if curp:
-        return {"ok": True, "type": "CURP", "query": curp.group(0).upper()}
+    if curp_result:
+        if curp_result.get("valid"):
+            return {
+                "ok": True,
+                "type": "CURP",
+                "query": curp_result.get("normalized") or "",
+                "curp_validation": curp_result,
+            }
+
+        error_code = curp_result.get("error") or "INVALID_CURP"
+        if error_code == "INVALID_CHECK_DIGIT":
+            error_text = (
+                "La CURP tiene un dígito verificador incorrecto. "
+                "Revisa el último carácter antes de reenviarla."
+            )
+        elif error_code == "INVALID_DATE":
+            error_text = "La fecha contenida en la CURP no es válida."
+        else:
+            error_text = "La CURP no cumple con la estructura oficial esperada."
+
+        return {
+            "ok": False,
+            "type": "INVALID_CURP",
+            "query": (curp_match.group(1).upper() if curp_match else ""),
+            "error": error_text,
+            "curp_validation": curp_result,
+        }
 
     if rfc:
         return {"ok": True, "type": "RFC_ONLY", "query": rfc.group(0).upper()}
@@ -977,8 +1014,7 @@ def _parse_rfc_batch_requests(
     # El texto libre jamás se convierte en solicitud inválida.
     # ----------------------------------------------------------
     token_re = re.compile(
-        r"\b[A-Z][AEIOUX][A-Z]{2}"
-        r"\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b"
+        r"(?<![A-Z0-9Ñ])[A-Z0-9Ñ]{18}(?![A-Z0-9Ñ])"
         r"|"
         r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b"
         r"|"
@@ -1014,12 +1050,21 @@ def _parse_rfc_batch_requests(
         for match in token_re.finditer(upper_line):
             token = match.group(0).upper()
 
-            if CURP_RE.fullmatch(token):
-                token_type = "CURP"
+            if len(token) == 18 and looks_like_curp_token(token):
+                curp_result = analyze_curp(token, allow_repair=True)
+                if curp_result.get("valid"):
+                    token_type = "CURP"
+                    token = str(curp_result.get("normalized") or token).upper()
+                    token_error = ""
+                else:
+                    token_type = "INVALID_CURP"
+                    token_error = str(curp_result.get("error") or "INVALID_CURP")
             elif RFC_RE.fullmatch(token):
                 token_type = "RFC"
+                token_error = ""
             elif IDCIF_RE.fullmatch(token):
                 token_type = "IDCIF"
+                token_error = ""
             else:
                 continue
 
@@ -1027,6 +1072,7 @@ def _parse_rfc_batch_requests(
                 "position": offset + match.start(),
                 "kind": token_type,
                 "value": token,
+                "error": token_error,
             })
 
         offset += len(line) + 1
@@ -1073,6 +1119,32 @@ def _parse_rfc_batch_requests(
                 },
             ))
             index += 2
+            continue
+
+        if current["kind"] == "INVALID_CURP":
+            code = str(current.get("error") or "INVALID_CURP")
+            if code == "INVALID_CHECK_DIGIT":
+                error_text = (
+                    "La CURP tiene un dígito verificador incorrecto. "
+                    "Revisa el último carácter."
+                )
+            elif code == "INVALID_DATE":
+                error_text = "La fecha contenida en la CURP no es válida."
+            else:
+                error_text = "La CURP no cumple con la estructura oficial esperada."
+
+            results_with_position.append((
+                current["position"],
+                {
+                    "ok": False,
+                    "type": "INVALID_CURP",
+                    "is_verifiable": False,
+                    "text": current["value"],
+                    "query": current["value"],
+                    "error": error_text,
+                },
+            ))
+            index += 1
             continue
 
         if current["kind"] == "CURP":
@@ -5063,7 +5135,8 @@ async def evolution_rfc_webhook(request: Request):
                                     title="",
                                     requester_label=requester_label,
                                     body=(
-                                        ""
+                                        item.get("error")
+                                        or "No pude identificar un formato válido."
                                     ),
                                     batch_index=item_index,
                                     batch_total=batch_total,
