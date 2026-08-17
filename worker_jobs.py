@@ -257,11 +257,55 @@ def _job_request_identity(job_data: dict) -> dict:
     }
 
 
+def _normalize_job_bot_label(value: str) -> str:
+    """
+    Quita decoracion Unicode solamente de los extremos del nombre
+    para evitar encabezados como "🚀 🚀 DOCU EXPRES ⚡".
+
+    No modifica BotControl ni la base de datos.
+    """
+    import unicodedata
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        str(value or "").strip(),
+    )
+
+    if not text:
+        return "RFC"
+
+    def decorative(char: str) -> bool:
+        category = unicodedata.category(char)
+        return (
+            char.isspace()
+            or category.startswith("S")
+            or category in {"Mn", "Me", "Cf"}
+        )
+
+    start = 0
+    end = len(text)
+
+    while start < end and decorative(text[start]):
+        start += 1
+
+    while end > start and decorative(text[end - 1]):
+        end -= 1
+
+    cleaned = text[start:end].strip()
+
+    return cleaned or "RFC"
+
+
 def _job_bot_label(job_data: dict) -> str:
-    explicit = str(job_data.get("bot_label") or "").strip()
+    explicit = str(
+        job_data.get("bot_label") or ""
+    ).strip()
 
     if explicit:
-        return explicit
+        return _normalize_job_bot_label(
+            explicit
+        )
 
     instance_name = str(
         job_data.get("evolution_instance")
@@ -284,7 +328,9 @@ def _job_bot_label(job_data: dict) -> str:
             )
 
             if row and str(row.label or "").strip():
-                return str(row.label).strip()
+                return _normalize_job_bot_label(
+                    str(row.label)
+                )
 
         finally:
             db.close()
@@ -299,7 +345,9 @@ def _job_bot_label(job_data: dict) -> str:
             flush=True,
         )
 
-    return instance_name or "RFC"
+    return _normalize_job_bot_label(
+        instance_name or "RFC"
+    )
 
 
 def _job_type_label(job_data: dict, type_override: str = "") -> str:

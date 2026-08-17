@@ -1521,6 +1521,52 @@ def _client_request_type_info(query_type: str, count: int = 1) -> dict:
     }
 
 
+def _normalize_client_bot_label(value: str) -> str:
+    """
+    Quita decoracion Unicode solamente de los extremos del nombre
+    para que el encabezado fijo no duplique emojis.
+
+    Ejemplos:
+      🚀 DOCU EXPRES      -> DOCU EXPRES
+      ⚡RFC LELI⚡         -> RFC LELI
+      Joya 🤖             -> Joya
+
+    Los emojis/simbolos que formen parte del interior del nombre
+    se conservan. No modifica BotControl ni la base de datos.
+    """
+    import unicodedata
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        str(value or "").strip(),
+    )
+
+    if not text:
+        return "RFC"
+
+    def decorative(char: str) -> bool:
+        category = unicodedata.category(char)
+        return (
+            char.isspace()
+            or category.startswith("S")
+            or category in {"Mn", "Me", "Cf"}
+        )
+
+    start = 0
+    end = len(text)
+
+    while start < end and decorative(text[start]):
+        start += 1
+
+    while end > start and decorative(text[end - 1]):
+        end -= 1
+
+    cleaned = text[start:end].strip()
+
+    return cleaned or "RFC"
+
+
 def _client_bot_label(instance_name: str = "") -> str:
     inst = str(
         instance_name
@@ -1530,7 +1576,14 @@ def _client_bot_label(instance_name: str = "") -> str:
     ).strip()
 
     try:
-        return (_bot_label_from_db(inst) or inst or "RFC").strip()
+        raw_label = (
+            _bot_label_from_db(inst)
+            or inst
+            or "RFC"
+        )
+        return _normalize_client_bot_label(
+            raw_label
+        )
     except Exception as exc:
         print(
             "RFC_CLIENT_BOT_LABEL_FALLBACK =",
@@ -1540,7 +1593,9 @@ def _client_bot_label(instance_name: str = "") -> str:
             },
             flush=True,
         )
-        return inst or "RFC"
+        return _normalize_client_bot_label(
+            inst or "RFC"
+        )
 
 
 def _client_data_value(query_type: str, *values) -> str:
