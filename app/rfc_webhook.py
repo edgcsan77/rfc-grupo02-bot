@@ -5143,19 +5143,35 @@ async def evolution_rfc_webhook(request: Request):
                     )
 
                     if not item.get("ok"):
+                        invalid_type = str(
+                            item.get("type") or "SOLICITUD"
+                        ).strip().upper()
+
+                        invalid_data = str(
+                            item.get("query")
+                            or item.get("text")
+                            or ""
+                        ).strip()
+
+                        invalid_error = str(
+                            item.get("error")
+                            or "No pude identificar un formato válido."
+                        ).strip()
+
                         try:
                             send_text(
                                 remote_jid,
                                 _client_status_message(
-                                    title="",
+                                    title="⚠️ Formato no válido",
                                     requester_label=requester_label,
-                                    body=(
-                                        item.get("error")
-                                        or "No pude identificar un formato válido."
+                                    query_type=invalid_type,
+                                    data_override=(
+                                        invalid_data
+                                        or "N/D"
                                     ),
-                                    batch_index=item_index,
-                                    batch_total=batch_total,
-                                    include_identity=False,
+                                    body=invalid_error,
+                                    family="result",
+                                    status="ERROR",
                                 ),
                                 instance_name=instance_name,
                                 fast=True,
