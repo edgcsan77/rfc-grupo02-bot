@@ -6992,6 +6992,30 @@ async def evolution_rfc_webhook(request: Request):
         parsed = _parse_rfc_query(text, msg_type=msg_type)
 
         if not parsed.get("ok"):
+            parsed_type = str(
+                parsed.get("type") or ""
+            ).strip().upper()
+
+            # Texto libre/no reconocible:
+            # ignorar silenciosamente. No enviar mensaje, no encolar,
+            # no tocar proveedor y no generar consumo.
+            if parsed_type == "INVALID_INPUT":
+                print(
+                    "[RFC INVALID INPUT IGNORED]",
+                    {
+                        "group_jid": remote_jid,
+                        "instance_name": instance_name,
+                        "text": text,
+                    },
+                    flush=True,
+                )
+                return {
+                    "ok": True,
+                    "ignored": "invalid_input",
+                }
+
+            # Datos reconocibles pero inválidos (por ejemplo CURP con
+            # dígito verificador incorrecto) sí conservan su aviso.
             try:
                 send_text(
                     remote_jid,
@@ -7013,9 +7037,16 @@ async def evolution_rfc_webhook(request: Request):
                     instance_name=instance_name,
                 )
             except Exception as e:
-                print("RFC_INVALID_SEND_ERROR =", repr(e), flush=True)
+                print(
+                    "RFC_INVALID_SEND_ERROR =",
+                    repr(e),
+                    flush=True,
+                )
 
-            return {"ok": True, "ignored": "invalid_input"}
+            return {
+                "ok": True,
+                "ignored": "recognized_invalid_input",
+            }
 
         group_service = (
             _group_service_config(
