@@ -1582,6 +1582,7 @@ def _client_request_type_info(query_type: str, count: int = 1) -> dict:
 
     labels = {
         "CURP": "CURP",
+        "INVALID_CURP": "CURP",
         "RFC_ONLY": "RFC",
         "RFC_IDCIF": "RFC IDCIF",
         "QR": "QR",
@@ -1713,6 +1714,33 @@ def _client_data_value(query_type: str, *values) -> str:
         return rfc.group(0).upper()
 
     return raw or "N/D"
+
+
+def _client_batch_data_value(
+    query_type: str,
+    *,
+    batch_child: bool,
+    batch_type_total: int,
+    values=(),
+) -> str:
+    """
+    Dato mostrado en avisos globales de servicio.
+
+    - Solicitud individual: conserva el identificador.
+    - Batch del mismo tipo: muestra N SOLICITUDES.
+    """
+    try:
+        total = int(batch_type_total or 1)
+    except Exception:
+        total = 1
+
+    if batch_child and total > 1:
+        return f"{total} SOLICITUDES"
+
+    return _client_data_value(
+        query_type,
+        *tuple(values or ()),
+    )
 
 
 def _client_status_meta(title: str, body: str = "") -> tuple[str, str]:
@@ -5396,9 +5424,11 @@ async def evolution_rfc_webhook(request: Request):
                                 title="⚠️ Servicio RFC verificable no disponible",
                                 requester_label=(push_name or "Usuario"),
                                 query_type="RFC_VERIFICABLE",
-                                data_override=_client_data_value(
+                                data_override=_client_batch_data_value(
                                     "RFC_VERIFICABLE",
-                                    text,
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(text,),
                                 ),
                                 body=(
                                     "El servicio de RFC verificable "
@@ -5464,7 +5494,12 @@ async def evolution_rfc_webhook(request: Request):
                                 title="⚠️ RFC verificable no disponible",
                                 requester_label=requester_label,
                                 query_type="RFC_VERIFICABLE",
-                                data_override=original_identifier,
+                                data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                                 body='El servicio de RFC verificable no está configurado.',
                                 family="service",
                                 status='NO CONFIGURADO',
@@ -5510,7 +5545,12 @@ async def evolution_rfc_webhook(request: Request):
                                 title="⚠️ RFC verificable no disponible",
                                 requester_label=requester_label,
                                 query_type="RFC_VERIFICABLE",
-                                data_override=original_identifier,
+                                data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                                 body='El servicio de RFC verificable no está activo actualmente.',
                                 family="service",
                                 status='INACTIVO',
@@ -5566,7 +5606,12 @@ async def evolution_rfc_webhook(request: Request):
                                 title="⚠️ RFC verificable no disponible",
                                 requester_label=requester_label,
                                 query_type="RFC_VERIFICABLE",
-                                data_override=original_identifier,
+                                data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                                 body='Este grupo no tiene configurado el servicio de RFC verificable.',
                                 family="service",
                                 status='NO CONFIGURADO',
@@ -5640,7 +5685,12 @@ async def evolution_rfc_webhook(request: Request):
                                 title="⚠️ RFC verificable no disponible",
                                 requester_label=requester_label,
                                 query_type="RFC_VERIFICABLE",
-                                data_override=original_identifier,
+                                data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                                 body='Este grupo no tiene activo el servicio de RFC verificable.',
                                 family="service",
                                 status='INACTIVO',
@@ -5688,7 +5738,12 @@ async def evolution_rfc_webhook(request: Request):
                                 title="⚠️ RFC verificable no disponible",
                                 requester_label=requester_label,
                                 query_type="RFC_VERIFICABLE",
-                                data_override=original_identifier,
+                                data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                                 body='El servicio está temporalmente inactivo.',
                                 family="service",
                                 status='INACTIVO',
@@ -5736,7 +5791,12 @@ async def evolution_rfc_webhook(request: Request):
                                 title="⚠️ RFC verificable no disponible",
                                 requester_label=requester_label,
                                 query_type="RFC_VERIFICABLE",
-                                data_override=original_identifier,
+                                data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                                 body='El servicio está temporalmente bloqueado.',
                                 family="service",
                                 status='BLOQUEADO',
@@ -5801,7 +5861,12 @@ async def evolution_rfc_webhook(request: Request):
                                 title="⚠️ RFC verificable no disponible",
                                 requester_label=requester_label,
                                 query_type="RFC_VERIFICABLE",
-                                data_override=original_identifier,
+                                data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                                 body='No hay RFC verificables disponibles en este momento.',
                                 family="service",
                                 status='LÍMITE ALCANZADO',
@@ -5884,7 +5949,12 @@ async def evolution_rfc_webhook(request: Request):
                         title="⚠️ RFC verificable no disponible",
                         requester_label=requester_label,
                         query_type="RFC_VERIFICABLE",
-                        data_override=original_identifier,
+                        data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                         body='Este grupo no tiene una bolsa RFC activa.',
                         family="service",
                         status='NO DISPONIBLE',
@@ -5897,7 +5967,12 @@ async def evolution_rfc_webhook(request: Request):
                         title="⚠️ RFC verificable no disponible",
                         requester_label=requester_label,
                         query_type="RFC_VERIFICABLE",
-                        data_override=original_identifier,
+                        data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                         body='Este grupo no tiene RFC verificables asignados.',
                         family="service",
                         status='NO DISPONIBLE',
@@ -5910,7 +5985,12 @@ async def evolution_rfc_webhook(request: Request):
                         title="⚠️ RFC verificable no disponible",
                         requester_label=requester_label,
                         query_type="RFC_VERIFICABLE",
-                        data_override=original_identifier,
+                        data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                         body='Este grupo ya no tiene RFC verificables disponibles.',
                         family="service",
                         status='LÍMITE ALCANZADO',
@@ -5923,7 +6003,12 @@ async def evolution_rfc_webhook(request: Request):
                         title="⚠️ RFC verificable no disponible",
                         requester_label=requester_label,
                         query_type="RFC_VERIFICABLE",
-                        data_override=original_identifier,
+                        data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                         body='Este grupo alcanzó su límite de RFC verificables.',
                         family="service",
                         status='LÍMITE ALCANZADO',
@@ -5934,7 +6019,12 @@ async def evolution_rfc_webhook(request: Request):
                         title="⚠️ RFC verificable no disponible",
                         requester_label=requester_label,
                         query_type="RFC_VERIFICABLE",
-                        data_override=original_identifier,
+                        data_override=_client_batch_data_value(
+                                    "RFC_VERIFICABLE",
+                                    batch_child=batch_child,
+                                    batch_type_total=batch_type_total,
+                                    values=(original_identifier,),
+                                ),
                         body='No fue posible validar la disponibilidad de RFC verificables.\\nIntenta nuevamente en unos momentos.',
                         family="service",
                         status='ERROR',
@@ -7117,7 +7207,10 @@ async def evolution_rfc_webhook(request: Request):
                 batch_parent_msg_id=batch_parent_msg_id,
                 instance_name=instance_name,
                 remote_jid=remote_jid,
-                notice_code="group_clon_disabled",
+                notice_code=(
+                    "group_clon_disabled:"
+                    + parsed_type.lower()
+                ),
             ):
                 try:
                     send_text(
@@ -7126,9 +7219,13 @@ async def evolution_rfc_webhook(request: Request):
                             title="⚠️ Servicio CLON no disponible",
                             requester_label=(push_name or "Usuario"),
                             query_type=parsed_type,
-                            data_override=_client_data_value(
+                            data_override=_client_batch_data_value(
                                 parsed_type,
-                                parsed.get("query") or text,
+                                batch_child=batch_child,
+                                batch_type_total=batch_type_total,
+                                values=(
+                                    parsed.get("query") or text,
+                                ),
                             ),
                             body=(
                                 "El servicio CLON está desactivado "
@@ -7176,7 +7273,10 @@ async def evolution_rfc_webhook(request: Request):
                 batch_parent_msg_id=batch_parent_msg_id,
                 instance_name=instance_name,
                 remote_jid=remote_jid,
-                notice_code="group_idcif_disabled",
+                notice_code=(
+                    "group_idcif_disabled:"
+                    + parsed_type.lower()
+                ),
             ):
                 try:
                     send_text(
@@ -7185,9 +7285,13 @@ async def evolution_rfc_webhook(request: Request):
                             title="⚠️ Servicio IDCIF/QR no disponible",
                             requester_label=(push_name or "Usuario"),
                             query_type=parsed_type,
-                            data_override=_client_data_value(
+                            data_override=_client_batch_data_value(
                                 parsed_type,
-                                parsed.get("query") or text,
+                                batch_child=batch_child,
+                                batch_type_total=batch_type_total,
+                                values=(
+                                    parsed.get("query") or text,
+                                ),
                             ),
                             body=(
                                 "El servicio IDCIF/QR está desactivado "
