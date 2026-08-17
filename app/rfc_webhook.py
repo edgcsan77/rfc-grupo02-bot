@@ -1262,6 +1262,10 @@ def _build_rfc_batch_child_payload(
     child_data["_rfc_batch_child"] = True
     child_data["_rfc_batch_index"] = batch_index
     child_data["_rfc_batch_total"] = batch_total
+    child_data["_rfc_batch_type_total"] = int(
+        item.get("_rfc_batch_type_total")
+        or 1
+    )
     child_data["_rfc_batch_parent_msg_id"] = parent_msg_id
     child_data["_rfc_batch_suppress_ack"] = True
     child_data["_rfc_batch_started_at_epoch"] = float(
@@ -4294,6 +4298,17 @@ async def evolution_rfc_webhook(request: Request):
         except Exception:
             batch_total = 1
 
+        try:
+            batch_type_total = max(
+                int(
+                    data.get("_rfc_batch_type_total")
+                    or 1
+                ),
+                1,
+            )
+        except Exception:
+            batch_type_total = 1
+
         batch_child = bool(
             data.get("_rfc_batch_child")
         )
@@ -5159,6 +5174,18 @@ async def evolution_rfc_webhook(request: Request):
                             "batch_total": batch_total,
                         })
                         continue
+
+                    item_type_for_batch = str(
+                        item.get("type") or ""
+                    ).strip().upper()
+
+                    item["_rfc_batch_type_total"] = int(
+                        type_counts.get(
+                            item_type_for_batch,
+                            1,
+                        )
+                        or 1
+                    )
 
                     child_payload = (
                         _build_rfc_batch_child_payload(
@@ -6267,7 +6294,14 @@ async def evolution_rfc_webhook(request: Request):
                             title="⚠️ RFC verificable no disponible",
                             requester_label=requester_label,
                             query_type="RFC_VERIFICABLE",
-                            data_override=original_identifier,
+                            data_override=(
+                                f"{batch_type_total} SOLICITUDES"
+                                if (
+                                    batch_child
+                                    and batch_type_total > 1
+                                )
+                                else original_identifier
+                            ),
                             body=(
                                 "El servicio RFC verificable está "
                                 "desactivado temporalmente para este grupo."
