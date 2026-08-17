@@ -6319,8 +6319,8 @@ async def evolution_rfc_webhook(request: Request):
                                 else original_identifier
                             ),
                             body=(
-                                "El servicio RFC verificable está "
-                                "desactivado temporalmente para este grupo."
+                                "No hay proveedores RFC verificables "
+                                "disponibles en este momento."
                             ),
                             family="service",
                             status="INACTIVO",
