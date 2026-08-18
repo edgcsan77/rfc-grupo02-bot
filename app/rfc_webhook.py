@@ -8083,6 +8083,61 @@ async def evolution_rfc_webhook(request: Request):
                     "group_idcif_disabled",
             }
 
+        # ============================================================
+        # IGNORAR MENSAJES AUTOMATICOS DE ESTADO DE OTROS BOTS
+        # ============================================================
+        #
+        # Algunos grupos comparten espacio con otros bots/servicios.
+        # Sus mensajes de estado pueden contener una CURP/RFC válida
+        # dentro de campos como "_Dato_:", y no deben convertirse en
+        # una nueva solicitud RFC.
+        #
+        # El filtro exige múltiples señales estructurales para evitar
+        # bloquear mensajes normales de clientes.
+        # ============================================================
+        automated_status_text = re.sub(
+            r"\s+",
+            " ",
+            str(text or "").strip().upper(),
+        )
+
+        automated_status_markers = (
+            (
+                "ESTATUS DE SOLICITUD" in automated_status_text
+                or "ESTATUS DEL SERVICIO" in automated_status_text
+            )
+            and "_TIPO_" in automated_status_text
+            and "_DATO_" in automated_status_text
+            and "_ESTATUS_" in automated_status_text
+        )
+
+        automated_process_notice = (
+            "YA SE ENCUENTRA EN PROCESO" in automated_status_text
+            or "NO ES NECESARIO VOLVER A ENVIARLA" in automated_status_text
+            or "NO ES NECESARIO ENVIARLA NUEVAMENTE" in automated_status_text
+        )
+
+        if (
+            automated_status_markers
+            and automated_process_notice
+        ):
+            print(
+                "RFC_AUTOMATED_STATUS_IGNORED =",
+                {
+                    "instance": instance_name,
+                    "group_jid": remote_jid,
+                    "requester": requester_wa_id,
+                    "msg_id": msg_id,
+                    "text": str(text or "")[:500],
+                },
+                flush=True,
+            )
+
+            return {
+                "ok": True,
+                "ignored": "automated_status_message",
+            }
+
         query = parsed.get("query") or ""
         requester_label = push_name or "Usuario"
 

@@ -5958,6 +5958,39 @@ def _rfc_mark_quota_committed(conn, reservation_key: str) -> bool:
     return bool(result.rowcount)
 
 
+
+def _rfc_safe_limit_notice(
+    group_jid,
+    message,
+    instance_name=None,
+    **kwargs,
+):
+    """
+    Aviso operativo que nunca debe alterar
+    la decision de cuota por un fallo de WhatsApp.
+    """
+    try:
+        evolution_send_text_to_group(
+            group_jid,
+            message,
+            instance_name=instance_name,
+            **kwargs,
+        )
+        return True
+    except Exception as notice_exc:
+        print(
+            "[RFC_LIMIT_NOTICE_SEND_ERROR]",
+            {
+                "group_jid": group_jid,
+                "instance_name": instance_name,
+                "error": repr(notice_exc),
+            },
+            flush=True,
+        )
+        return False
+
+
+
 def _rfc_final_check_global(
     job_data: dict,
     group_jid: str,
@@ -6028,7 +6061,7 @@ def _rfc_final_check_global(
             }).mappings().first()
 
             if not wallet or not bot:
-                evolution_send_text_to_group(
+                _rfc_safe_limit_notice(
                     group_jid,
                     _job_client_message(
                             job_data,
@@ -6043,7 +6076,7 @@ def _rfc_final_check_global(
                 return False
 
             if not bool(bot.get("is_active")):
-                evolution_send_text_to_group(
+                _rfc_safe_limit_notice(
                     group_jid,
                     _job_client_message(
                             job_data,
@@ -6058,7 +6091,7 @@ def _rfc_final_check_global(
                 return False
 
             if bool(bot.get("is_blocked")):
-                evolution_send_text_to_group(
+                _rfc_safe_limit_notice(
                     group_jid,
                     _job_client_message(
                             job_data,
@@ -6095,7 +6128,7 @@ def _rfc_final_check_global(
                     group_clon_used = int(group_promo.get("clon_used") or 0)
 
                     if group_clon_total > 0 and group_clon_used >= group_clon_total:
-                        evolution_send_text_to_group(
+                        _rfc_safe_limit_notice(
                             group_jid,
                             _job_client_message(
                             job_data,
@@ -6116,7 +6149,7 @@ def _rfc_final_check_global(
                     }, flush=True)
 
                 if global_balance <= 0:
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6132,7 +6165,7 @@ def _rfc_final_check_global(
 
                 # clon_limit = 0 significa ilimitado para ese bot, pero siempre sujeto al saldo global.
                 if clon_limit > 0 and clon_used >= clon_limit:
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6156,7 +6189,7 @@ def _rfc_final_check_global(
                     count=count,
                 )
                 if not reserved:
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6205,7 +6238,7 @@ def _rfc_final_check_global(
                     group_idcif_used = int(group_promo.get("idcif_used") or 0)
 
                     if group_idcif_total > 0 and group_idcif_used >= group_idcif_total:
-                        evolution_send_text_to_group(
+                        _rfc_safe_limit_notice(
                             group_jid,
                             _job_client_message(
                             job_data,
@@ -6226,7 +6259,7 @@ def _rfc_final_check_global(
                     }, flush=True)
 
                 if not bool(wallet.get("idcif_enabled")):
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6242,7 +6275,7 @@ def _rfc_final_check_global(
 
                 expires_at = wallet.get("idcif_expires_at")
                 if not expires_at:
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6261,7 +6294,7 @@ def _rfc_final_check_global(
                     expires_at = expires_at.replace(tzinfo=timezone.utc)
 
                 if expires_at <= now:
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6277,7 +6310,7 @@ def _rfc_final_check_global(
 
                 # idcif_limit = 0 significa ilimitado para ese bot, pero siempre sujeto al plan semanal global.
                 if idcif_limit > 0 and idcif_used >= idcif_limit:
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6301,7 +6334,7 @@ def _rfc_final_check_global(
                     count=count,
                 )
                 if not reserved:
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6332,7 +6365,7 @@ def _rfc_final_check_global(
                 if not bool(
                     bot.get("verifiable_enabled")
                 ):
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6361,7 +6394,7 @@ def _rfc_final_check_global(
                     and verifiable_used
                     >= verifiable_limit
                 ):
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6439,7 +6472,7 @@ def _rfc_final_check_global(
                     )
 
                     if group_total <= 0:
-                        evolution_send_text_to_group(
+                        _rfc_safe_limit_notice(
                             group_jid,
                             _job_client_message(
                             job_data,
@@ -6465,7 +6498,7 @@ def _rfc_final_check_global(
                         return False
                 
                     if group_used >= group_total:
-                        evolution_send_text_to_group(
+                        _rfc_safe_limit_notice(
                             group_jid,
                             _job_client_message(
                             job_data,
@@ -6510,7 +6543,7 @@ def _rfc_final_check_global(
                         shared_limit > 0
                         and shared_used >= shared_limit
                     ):
-                        evolution_send_text_to_group(
+                        _rfc_safe_limit_notice(
                             group_jid,
                             _job_client_message(
                             job_data,
@@ -6601,7 +6634,7 @@ def _rfc_final_check_global(
                     count=count,
                 )
                 if not reserved:
-                    evolution_send_text_to_group(
+                    _rfc_safe_limit_notice(
                         group_jid,
                         _job_client_message(
                             job_data,
@@ -6628,7 +6661,7 @@ def _rfc_final_check_global(
             "kind": kind,
         }, flush=True)
         try:
-            evolution_send_text_to_group(
+            _rfc_safe_limit_notice(
                 group_jid,
                 _job_client_message(
                             job_data,
