@@ -678,6 +678,52 @@ def parse_verifiable_request(
             normalized
         )
 
+    # ============================================================
+    # VERIFICABLE ESTRICTO
+    # ============================================================
+    #
+    # La sola presencia de palabras como VERIF / VERIFICABLE
+    # dentro de un texto administrativo NO debe convertir todo
+    # el mensaje en una solicitud verificable.
+    #
+    # Solo permitimos como texto auxiliar:
+    #   RFC
+    #   CURP
+    #
+    # Ejemplos válidos:
+    #   VERIFICABLE RAMC801125MDGMRR05
+    #   RAMC801125MDGMRR05 VERIF
+    #   RFC VERIFICABLE ROSA060919RA1
+    #   CURP VERIFICABLE RAMC801125MDGMRR05
+    #
+    # Cualquier otro texto adicional hace que el mensaje se
+    # reconozca como relacionado con "verificable", pero se
+    # ignore silenciosamente para evitar:
+    #   - responder a cortes;
+    #   - interpretar mensajes de otros bots;
+    #   - enviarlo después al parser RFC normal.
+    # ============================================================
+    allowed_auxiliary_tokens = {
+        "RFC",
+        "CURP",
+    }
+
+    unexpected_tokens = [
+        token
+        for token in unknown_tokens
+        if token
+        and token not in allowed_auxiliary_tokens
+    ]
+
+    if unexpected_tokens:
+        return {
+            "is_verifiable": True,
+            "ok": False,
+            "silent_ignore": True,
+            "reason": "verifiable_extra_text",
+            "unexpected_tokens": unexpected_tokens,
+        }
+
     # RFC + IDCIF no debe entrar como verificable.
     if idcif_tokens:
         return {

@@ -5920,6 +5920,32 @@ async def evolution_rfc_webhook(request: Request):
 
         if verifiable.get("is_verifiable"):
             if not verifiable.get("ok"):
+                if verifiable.get("silent_ignore"):
+                    print(
+                        "RFC_VERIFIABLE_EXTRA_TEXT_IGNORED =",
+                        {
+                            "instance": instance_name,
+                            "group_jid": remote_jid,
+                            "requester": requester_wa_id,
+                            "msg_id": msg_id,
+                            "reason": verifiable.get("reason"),
+                            "unexpected_tokens": (
+                                verifiable.get(
+                                    "unexpected_tokens"
+                                )
+                                or []
+                            )[:50],
+                        },
+                        flush=True,
+                    )
+
+                    return {
+                        "ok": True,
+                        "ignored": (
+                            "verifiable_extra_text"
+                        ),
+                    }
+
                 try:
                     send_text(
                         remote_jid,
