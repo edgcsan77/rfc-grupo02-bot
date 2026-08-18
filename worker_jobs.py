@@ -5591,7 +5591,21 @@ def _rfc_try_reserve_quota(
     from sqlalchemy import text
 
     count = max(int(count or 1), 1)
-    reservation_key = _rfc_quota_reservation_key(job_data, family)
+    reservation_key = str(
+        job_data.get(
+            "_rfc_quota_reservation_key"
+        )
+        or ""
+    ).strip()
+
+    if not reservation_key:
+        reservation_key = (
+            _rfc_quota_reservation_key(
+                job_data,
+                family,
+            )
+        )
+
     _rfc_quota_ensure_table(conn)
 
     # Recupera reservas huérfanas de procesos terminados a la fuerza.

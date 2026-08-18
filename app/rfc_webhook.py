@@ -53,6 +53,554 @@ from app.verifiable_flow import (
     _verifiable_word_distance,
 )
 
+
+def _reserve_verifiable_before_provider(
+    *,
+    request_key: str,
+    instance_name: str,
+    group_jid: str,
+    count: int = 1,
+):
+    """
+    Reserva atómicamente el cupo VERIFICABLE antes
+    de enviar la solicitud al proveedor.
+
+    Retorna:
+        (ok, reason, reservation_key)
+    """
+    import hashlib
+    import os
+
+    from dotenv import load_dotenv
+    from sqlalchemy import create_engine, text
+
+    request_key = str(request_key or "").strip()
+    instance_name = str(instance_name or "").strip()
+    group_jid = str(group_jid or "").strip()
+    count = max(int(count or 1), 1)
+
+    if not request_key:
+        raise RuntimeError(
+            "RFC_VERIFIABLE_PRE_RESERVE_REQUEST_KEY_EMPTY"
+        )
+
+    owner = (
+        os.getenv("RFC_OWNER_INSTANCE")
+        or "grupo02"
+    ).strip()
+
+    # Esta llave será guardada en pending y reutilizada
+    # posteriormente por worker_jobs.py.
+    raw = (
+        "RFC_VERIFIABLE_PRE_PROVIDER|"
+        + request_key
+    )
+
+    reservation_key = (
+        "rfc_quota:"
+        + hashlib.sha256(
+            raw.encode("utf-8")
+        ).hexdigest()
+    )
+
+    load_dotenv(
+        "/opt/rfc-grupo02-bot/.env"
+    )
+
+    db_url = (
+        os.getenv("DATABASE_URL")
+        or ""
+    ).strip()
+
+    if not db_url:
+        raise RuntimeError(
+            "DATABASE_URL_EMPTY"
+        )
+
+    engine = create_engine(
+        db_url,
+        pool_pre_ping=True,
+    )
+
+    with engine.begin() as conn:
+
+        exists = conn.execute(
+            text(
+                "SELECT to_regclass("
+                "'public.rfc_quota_reservations'"
+                ")"
+            )
+        ).scalar()
+
+        if not exists:
+            raise RuntimeError(
+                "RFC_QUOTA_RESERVATIONS_TABLE_MISSING"
+            )
+
+        existing = conn.execute(text("""
+            SELECT
+                status
+            FROM rfc_quota_reservations
+            WHERE reservation_key = :reservation_key
+            FOR UPDATE
+        """), {
+            "reservation_key":
+                reservation_key,
+        }).mappings().first()
+
+        if existing and str(
+            existing.get("status")
+            or ""
+        ).upper() in {
+            "RESERVED",
+            "COMMITTED",
+        }:
+            return (
+                True,
+                "EXISTING",
+                reservation_key,
+            )
+
+        # Misma serialización lógica utilizada
+        # actualmente por worker_jobs.py.
+        conn.execute(
+            text("""
+                SELECT pg_advisory_xact_lock(
+                    hashtext(:lock_key)
+                )
+            """),
+            {
+                "lock_key": (
+                    f"RFC_QUOTA|{owner}|"
+                    f"{instance_name}|"
+                    f"{group_jid}|"
+                    "VERIFICABLE"
+                ),
+            },
+        )
+
+        wallet = conn.execute(text("""
+            SELECT
+                owner_instance
+            FROM rfc_owner_wallets
+            WHERE owner_instance = :owner
+            LIMIT 1
+            FOR UPDATE
+        """), {
+            "owner": owner,
+        }).mappings().first()
+
+        bot = conn.execute(text("""
+            SELECT
+                COALESCE(
+                    verifiable_limit,
+                    0
+                ) AS verifiable_limit,
+                COALESCE(
+                    verifiable_used,
+                    0
+                ) AS verifiable_used,
+                COALESCE(
+                    verifiable_enabled,
+                    FALSE
+                ) AS verifiable_enabled,
+                is_active,
+                is_blocked
+            FROM bot_control
+            WHERE instance_name =
+                :instance_name
+            LIMIT 1
+            FOR UPDATE
+        """), {
+            "instance_name":
+                instance_name,
+        }).mappings().first()
+
+        if (
+            not wallet
+            or not bot
+            or not bool(
+                bot.get("is_active")
+            )
+            or bool(
+                bot.get("is_blocked")
+            )
+        ):
+            return (
+                False,
+                "SERVICE_NOT_AVAILABLE",
+                reservation_key,
+            )
+
+        if not bool(
+            bot.get(
+                "verifiable_enabled"
+            )
+        ):
+            return (
+                False,
+                "VERIFIABLE_DISABLED",
+                reservation_key,
+            )
+
+        active_instance = int(
+            conn.execute(text("""
+                SELECT COALESCE(
+                    SUM(count),
+                    0
+                )
+                FROM rfc_quota_reservations
+                WHERE status = 'RESERVED'
+                  AND family =
+                      'VERIFICABLE'
+                  AND instance_name =
+                      :instance_name
+                  AND reservation_key
+                      <> :reservation_key
+            """), {
+                "instance_name":
+                    instance_name,
+                "reservation_key":
+                    reservation_key,
+            }).scalar()
+            or 0
+        )
+
+        bot_limit = int(
+            bot.get(
+                "verifiable_limit"
+            )
+            or 0
+        )
+
+        bot_used = int(
+            bot.get(
+                "verifiable_used"
+            )
+            or 0
+        )
+
+        if (
+            bot_limit > 0
+            and (
+                bot_used
+                + active_instance
+                + count
+            ) > bot_limit
+        ):
+            return (
+                False,
+                "BOT_VERIFIABLE_LIMIT",
+                reservation_key,
+            )
+
+        promo = conn.execute(text("""
+            SELECT
+                COALESCE(
+                    verifiable_total,
+                    0
+                ) AS verifiable_total,
+                COALESCE(
+                    verifiable_used,
+                    0
+                ) AS verifiable_used,
+                COALESCE(
+                    shared_group_limit_verifiable,
+                    0
+                ) AS shared_limit,
+                COALESCE(
+                    shared_group_used_verifiable,
+                    0
+                ) AS shared_used,
+                COALESCE(
+                    shared_key,
+                    ''
+                ) AS shared_key
+            FROM group_promotions
+            WHERE group_jid =
+                :group_jid
+              AND is_active = TRUE
+            ORDER BY
+                updated_at DESC NULLS LAST,
+                id DESC
+            LIMIT 1
+            FOR UPDATE
+        """), {
+            "group_jid":
+                group_jid,
+        }).mappings().first()
+
+        active_group = int(
+            conn.execute(text("""
+                SELECT COALESCE(
+                    SUM(count),
+                    0
+                )
+                FROM rfc_quota_reservations
+                WHERE status = 'RESERVED'
+                  AND family =
+                      'VERIFICABLE'
+                  AND group_jid =
+                      :group_jid
+                  AND reservation_key
+                      <> :reservation_key
+            """), {
+                "group_jid":
+                    group_jid,
+                "reservation_key":
+                    reservation_key,
+            }).scalar()
+            or 0
+        )
+
+        shared_key = ""
+
+        if promo:
+
+            total = int(
+                promo.get(
+                    "verifiable_total"
+                )
+                or 0
+            )
+
+            used = int(
+                promo.get(
+                    "verifiable_used"
+                )
+                or 0
+            )
+
+            if (
+                total > 0
+                and (
+                    used
+                    + active_group
+                    + count
+                ) > total
+            ):
+                return (
+                    False,
+                    "GROUP_VERIFIABLE_LIMIT",
+                    reservation_key,
+                )
+
+            shared_key = str(
+                promo.get(
+                    "shared_key"
+                )
+                or ""
+            ).strip()
+
+            shared_limit = int(
+                promo.get(
+                    "shared_limit"
+                )
+                or 0
+            )
+
+            shared_used = int(
+                promo.get(
+                    "shared_used"
+                )
+                or 0
+            )
+
+            if (
+                shared_key
+                and shared_limit > 0
+            ):
+
+                conn.execute(
+                    text("""
+                        SELECT
+                        pg_advisory_xact_lock(
+                            hashtext(
+                                :lock_key
+                            )
+                        )
+                    """),
+                    {
+                        "lock_key": (
+                            "RFC_QUOTA_SHARED|"
+                            f"{shared_key}|"
+                            "VERIFICABLE"
+                        ),
+                    },
+                )
+
+                active_shared = int(
+                    conn.execute(text("""
+                        SELECT COALESCE(
+                            SUM(count),
+                            0
+                        )
+                        FROM
+                        rfc_quota_reservations
+                        WHERE status =
+                            'RESERVED'
+                          AND family =
+                            'VERIFICABLE'
+                          AND shared_key =
+                            :shared_key
+                          AND reservation_key
+                            <> :reservation_key
+                    """), {
+                        "shared_key":
+                            shared_key,
+                        "reservation_key":
+                            reservation_key,
+                    }).scalar()
+                    or 0
+                )
+
+                if (
+                    shared_used
+                    + active_shared
+                    + count
+                    > shared_limit
+                ):
+                    return (
+                        False,
+                        "SHARED_VERIFIABLE_LIMIT",
+                        reservation_key,
+                    )
+
+        conn.execute(text("""
+            INSERT INTO
+            rfc_quota_reservations (
+                reservation_key,
+                family,
+                owner_instance,
+                instance_name,
+                group_jid,
+                shared_key,
+                count,
+                wallet_clon_reserved,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                :reservation_key,
+                'VERIFICABLE',
+                :owner,
+                :instance_name,
+                :group_jid,
+                :shared_key,
+                :count,
+                FALSE,
+                'RESERVED',
+                now(),
+                now()
+            )
+            ON CONFLICT (
+                reservation_key
+            )
+            DO UPDATE SET
+                status =
+                    'RESERVED',
+                shared_key =
+                    EXCLUDED.shared_key,
+                count =
+                    EXCLUDED.count,
+                updated_at =
+                    now()
+        """), {
+            "reservation_key":
+                reservation_key,
+            "owner":
+                owner,
+            "instance_name":
+                instance_name,
+            "group_jid":
+                group_jid,
+            "shared_key":
+                shared_key,
+            "count":
+                count,
+        })
+
+    print(
+        "[RFC VERIFIABLE PRE-PROVIDER QUOTA RESERVED]",
+        {
+            "request_key":
+                request_key,
+            "reservation_key":
+                reservation_key,
+            "instance_name":
+                instance_name,
+            "group_jid":
+                group_jid,
+        },
+        flush=True,
+    )
+
+    return (
+        True,
+        "RESERVED",
+        reservation_key,
+    )
+
+
+def _release_verifiable_pre_reservation(
+    reservation_key: str,
+):
+    import os
+
+    from dotenv import load_dotenv
+    from sqlalchemy import (
+        create_engine,
+        text,
+    )
+
+    reservation_key = str(
+        reservation_key
+        or ""
+    ).strip()
+
+    if not reservation_key:
+        return False
+
+    load_dotenv(
+        "/opt/rfc-grupo02-bot/.env"
+    )
+
+    db_url = (
+        os.getenv("DATABASE_URL")
+        or ""
+    ).strip()
+
+    if not db_url:
+        return False
+
+    engine = create_engine(
+        db_url,
+        pool_pre_ping=True,
+    )
+
+    with engine.begin() as conn:
+
+        result = conn.execute(text("""
+            UPDATE
+                rfc_quota_reservations
+            SET
+                status = 'RELEASED',
+                updated_at = now()
+            WHERE reservation_key =
+                :reservation_key
+              AND family =
+                'VERIFICABLE'
+              AND status =
+                'RESERVED'
+        """), {
+            "reservation_key":
+                reservation_key,
+        })
+
+    return bool(result.rowcount)
+
+
 router = APIRouter()
 
 MAIN_PANEL_INSTANCE = os.getenv("MAIN_PANEL_INSTANCE", "grupo02").strip()
@@ -2820,6 +3368,15 @@ def _queue_verifiable_pair_for_pending(
         ),
         "verifiable_request_key": (
             verifiable_key
+        ),
+        "_rfc_quota_reservation_key": (
+            pending.get(
+                "_rfc_quota_reservation_key"
+            )
+            or ""
+        ),
+        "_rfc_quota_family": (
+            "VERIFICABLE"
         ),
         "verifiable_original_type": (
             original_type
@@ -6836,6 +7393,197 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                 }
 
+            # ================================================
+            # RFC VERIFICABLE:
+            # RESERVAR ANTES DE TOCAR AL PROVEEDOR.
+            # ================================================
+            try:
+                (
+                    quota_ok,
+                    quota_reason,
+                    quota_reservation_key,
+                ) = _reserve_verifiable_before_provider(
+                    request_key=command_key,
+                    instance_name=instance_name,
+                    group_jid=remote_jid,
+                    count=1,
+                )
+
+            except Exception as quota_exc:
+                print(
+                    "RFC_VERIFIABLE_PRE_PROVIDER_QUOTA_ERROR =",
+                    {
+                        "request_key":
+                            command_key,
+                        "error":
+                            repr(quota_exc),
+                    },
+                    flush=True,
+                )
+
+                redis_conn.delete(
+                    inflight_key
+                )
+                redis_conn.delete(
+                    verifiable_processing_key
+                )
+
+                finish_pending(
+                    command_key
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        _client_status_message(
+                            title=(
+                                "⚠️ No pudimos "
+                                "iniciar la solicitud"
+                            ),
+                            requester_label=(
+                                requester_label
+                            ),
+                            query_type=(
+                                "RFC_VERIFICABLE"
+                            ),
+                            identifier=(
+                                original_identifier
+                            ),
+                            data_override=(
+                                original_identifier
+                            ),
+                            body=(
+                                "No fue posible validar "
+                                "el cupo verificable.\n"
+                                "Intenta nuevamente."
+                            ),
+                            batch_index=(
+                                batch_index
+                            ),
+                            batch_total=(
+                                batch_total
+                            ),
+                        ),
+                        instance_name=(
+                            instance_name
+                        ),
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": False,
+                    "error":
+                        "verifiable_pre_reserve_error",
+                }
+
+            if not quota_ok:
+
+                redis_conn.delete(
+                    inflight_key
+                )
+                redis_conn.delete(
+                    verifiable_processing_key
+                )
+
+                finish_pending(
+                    command_key
+                )
+
+                print(
+                    "RFC_VERIFIABLE_PRE_PROVIDER_QUOTA_REJECTED =",
+                    {
+                        "request_key":
+                            command_key,
+                        "identifier":
+                            original_identifier,
+                        "reason":
+                            quota_reason,
+                        "provider_code":
+                            provider_code,
+                    },
+                    flush=True,
+                )
+
+                try:
+                    send_text(
+                        remote_jid,
+                        _client_status_message(
+                            title=(
+                                "⚠️ Límite alcanzado"
+                            ),
+                            requester_label=(
+                                requester_label
+                            ),
+                            query_type=(
+                                "RFC_VERIFICABLE"
+                            ),
+                            identifier=(
+                                original_identifier
+                            ),
+                            data_override=(
+                                original_identifier
+                            ),
+                            body=(
+                                "Este grupo ya no "
+                                "tiene RFC verificables "
+                                "disponibles."
+                            ),
+                            batch_index=(
+                                batch_index
+                            ),
+                            batch_total=(
+                                batch_total
+                            ),
+                        ),
+                        instance_name=(
+                            instance_name
+                        ),
+                        fast=True,
+                    )
+                except Exception:
+                    pass
+
+                return {
+                    "ok": False,
+                    "error":
+                        quota_reason,
+                }
+
+            # Guardar la reserva antes de enviar.
+            pending_payload[
+                "_rfc_quota_reservation_key"
+            ] = quota_reservation_key
+
+            pending_payload[
+                "_rfc_quota_family"
+            ] = "VERIFICABLE"
+
+            try:
+                save_pending(
+                    command_key,
+                    pending_payload,
+                )
+
+            except Exception:
+                _release_verifiable_pre_reservation(
+                    quota_reservation_key
+                )
+
+                redis_conn.delete(
+                    inflight_key
+                )
+                redis_conn.delete(
+                    verifiable_processing_key
+                )
+
+                finish_pending(
+                    command_key
+                )
+
+                raise
+
             try:
                 provider_response = send_text(
                     provider_group_jid,
@@ -6858,6 +7606,24 @@ async def evolution_rfc_webhook(request: Request):
                     )
             
             except Exception as provider_send_exc:
+                try:
+                    _release_verifiable_pre_reservation(
+                        quota_reservation_key
+                    )
+                except Exception as quota_release_exc:
+                    print(
+                        "RFC_VERIFIABLE_PROVIDER_SEND_QUOTA_RELEASE_ERROR =",
+                        {
+                            "request_key":
+                                command_key,
+                            "error":
+                                repr(
+                                    quota_release_exc
+                                ),
+                        },
+                        flush=True,
+                    )
+
                 redis_conn.delete(
                     inflight_key
                 )
