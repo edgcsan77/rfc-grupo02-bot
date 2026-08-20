@@ -7755,6 +7755,99 @@ async def evolution_rfc_webhook(request: Request):
                 # No eliminar el pendiente.
                 # El proveedor sí recibió la solicitud.
 
+            # ==========================================
+            # RECORDATORIOS AL PROVEEDOR VERIFICABLE
+            # ==========================================
+            #
+            # Actualmente solamente VERIF4.
+            #
+            # Son jobs NO destructivos:
+            # - no cierran pending;
+            # - no liberan inflight;
+            # - no cambian accounting;
+            # - no notifican al cliente.
+            #
+            # Si el proveedor ya respondió cuando
+            # ejecutan, simplemente hacen SKIP.
+            # ==========================================
+
+            if provider_code == "VERIF4":
+                for reminder_minutes in (
+                    90,
+                    120,
+                ):
+                    reminder_job_id = (
+                        "rfc-verifiable-reminder:"
+                        f"{command_key}:"
+                        f"{reminder_minutes}"
+                    )
+
+                    try:
+                        request_queue.enqueue_in(
+                            timedelta(
+                                minutes=(
+                                    reminder_minutes
+                                )
+                            ),
+                            "worker_jobs."
+                            "process_verifiable_"
+                            "provider_reminder_job",
+                            command_key,
+                            reminder_minutes,
+                            job_id=(
+                                reminder_job_id
+                            ),
+                            job_timeout=120,
+                            result_ttl=86400,
+                            failure_ttl=86400,
+                            retry=Retry(
+                                max=3,
+                                interval=[
+                                    30,
+                                    120,
+                                    300,
+                                ],
+                            ),
+                        )
+
+                        print(
+                            "RFC_VERIFIABLE_"
+                            "REMINDER_QUEUED =",
+                            {
+                                "request_key":
+                                    command_key,
+                                "job_id":
+                                    reminder_job_id,
+                                "provider_code":
+                                    provider_code,
+                                "provider_name":
+                                    provider_name,
+                                "minutes":
+                                    reminder_minutes,
+                            },
+                            flush=True,
+                        )
+
+                    except Exception as reminder_exc:
+                        print(
+                            "RFC_VERIFIABLE_"
+                            "REMINDER_ENQUEUE_ERROR =",
+                            {
+                                "request_key":
+                                    command_key,
+                                "job_id":
+                                    reminder_job_id,
+                                "provider_code":
+                                    provider_code,
+                                "minutes":
+                                    reminder_minutes,
+                                "error": repr(
+                                    reminder_exc
+                                ),
+                            },
+                            flush=True,
+                        )
+
             timeout_job_id = (
                 "rfc-verifiable-timeout:"
                 f"{command_key}"

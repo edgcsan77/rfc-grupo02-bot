@@ -2000,6 +2000,471 @@ def release_request_inflight(
             flush=True,
         )
 
+
+def process_verifiable_provider_reminder_job(
+    request_key: str,
+    reminder_minutes: int,
+):
+    """
+    Recordatorio NO destructivo para proveedores RFC verificables.
+
+    Actualmente habilitado únicamente para VERIF4.
+
+    Reglas:
+    - Si la solicitud ya terminó, no hace nada.
+    - No toma result_claim.
+    - No finaliza pending.
+    - No libera inflight/processing.
+    - No toca cuotas.
+    - No contabiliza.
+    - Agrupa las solicitudes vencidas del mismo proveedor.
+    """
+
+    request_key = (
+        request_key or ""
+    ).strip()
+
+    reminder_minutes = int(
+        reminder_minutes or 0
+    )
+
+    if not request_key:
+        return {
+            "ok": True,
+            "ignored": "empty_request_key",
+        }
+
+    pending = load_pending(
+        request_key
+    )
+
+    # La solicitud que originó este job
+    # ya fue atendida/finalizada.
+    if not pending:
+        print(
+            "[RFC VERIFIABLE REMINDER SKIP]",
+            {
+                "request_key": request_key,
+                "minutes": reminder_minutes,
+                "reason": "pending_not_found",
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": True,
+            "ignored": "already_finished",
+        }
+
+    provider_code = (
+        pending.get("provider_code")
+        or ""
+    ).strip().upper()
+
+    provider_group_jid = (
+        pending.get("provider_group_jid")
+        or ""
+    ).strip()
+
+    provider_instance = (
+        pending.get("provider_instance")
+        or ""
+    ).strip()
+
+    provider_name = (
+        pending.get("provider_name")
+        or provider_code
+        or "Proveedor"
+    ).strip()
+
+    # Por ahora únicamente Roberto / VERIF4.
+    if provider_code != "VERIF4":
+        print(
+            "[RFC VERIFIABLE REMINDER SKIP]",
+            {
+                "request_key": request_key,
+                "provider_code": provider_code,
+                "reason": "provider_not_enabled",
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": True,
+            "ignored": "provider_not_enabled",
+        }
+
+    if (
+        not provider_group_jid
+        or not provider_instance
+    ):
+        print(
+            "[RFC VERIFIABLE REMINDER SKIP]",
+            {
+                "request_key": request_key,
+                "reason": "provider_destination_missing",
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": True,
+            "ignored": "provider_destination_missing",
+        }
+
+    # Evita que varios jobs que vencen casi al mismo
+    # tiempo envíen el mismo bloque repetidamente.
+    cooldown_key = (
+        "rfc:verifiable:reminder:cooldown:"
+        f"{provider_code}:"
+        f"{provider_group_jid}:"
+        f"{reminder_minutes}"
+    )
+
+    cooldown_claimed = redis_stats.set(
+        cooldown_key,
+        request_key,
+        nx=True,
+        ex=300,
+    )
+
+    if not cooldown_claimed:
+        print(
+            "[RFC VERIFIABLE REMINDER SKIP]",
+            {
+                "request_key": request_key,
+                "provider_code": provider_code,
+                "minutes": reminder_minutes,
+                "reason": "provider_reminder_cooldown",
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": True,
+            "ignored": "provider_reminder_cooldown",
+        }
+
+    now_epoch = time.time()
+    minimum_age_seconds = (
+        max(1, reminder_minutes) * 60
+    )
+
+    overdue = []
+
+    try:
+        for redis_key in redis_stats.scan_iter(
+            match="rfc:verifiable:pending:*",
+            count=300,
+        ):
+            try:
+                raw = redis_stats.get(
+                    redis_key
+                )
+
+                if not raw:
+                    continue
+
+                if isinstance(raw, bytes):
+                    raw = raw.decode(
+                        "utf-8",
+                        errors="ignore",
+                    )
+
+                item = json.loads(raw)
+
+                if not isinstance(item, dict):
+                    continue
+
+                item_provider_code = (
+                    item.get("provider_code")
+                    or ""
+                ).strip().upper()
+
+                item_provider_group = (
+                    item.get("provider_group_jid")
+                    or ""
+                ).strip()
+
+                item_provider_instance = (
+                    item.get("provider_instance")
+                    or ""
+                ).strip()
+
+                if (
+                    item_provider_code
+                    != provider_code
+                ):
+                    continue
+
+                if (
+                    item_provider_group
+                    != provider_group_jid
+                ):
+                    continue
+
+                if (
+                    item_provider_instance
+                    != provider_instance
+                ):
+                    continue
+
+                started_at = float(
+                    item.get(
+                        "request_started_at_epoch"
+                    )
+                    or 0
+                )
+
+                if not started_at:
+                    continue
+
+                age_seconds = max(
+                    0,
+                    now_epoch - started_at,
+                )
+
+                if (
+                    age_seconds
+                    < minimum_age_seconds
+                ):
+                    continue
+
+                identifier = (
+                    item.get(
+                        "provider_identifier"
+                    )
+                    or item.get(
+                        "original_identifier"
+                    )
+                    or ""
+                ).strip().upper()
+
+                if not identifier:
+                    continue
+
+                age_minutes = int(
+                    age_seconds // 60
+                )
+
+                # Request key real tomado de la llave Redis.
+                # No dependemos de que exista dentro del JSON pending.
+                item_request_key = str(redis_key)
+
+                pending_prefix = (
+                    "rfc:verifiable:pending:"
+                )
+
+                if item_request_key.startswith(
+                    pending_prefix
+                ):
+                    item_request_key = (
+                        item_request_key[
+                            len(pending_prefix):
+                        ]
+                    )
+
+                reminder_sent_key = (
+                    "rfc:verifiable:reminder:sent:"
+                    f"{item_request_key}:"
+                    f"{reminder_minutes}"
+                )
+
+                # Esta solicitud ya apareció anteriormente
+                # en ESTE nivel (90 o 120).
+                if redis_stats.exists(
+                    reminder_sent_key
+                ):
+                    continue
+
+                overdue.append(
+                    {
+                        "identifier": identifier,
+                        "age_minutes": age_minutes,
+                        "started_at": started_at,
+                        "request_key": item_request_key,
+                        "reminder_sent_key": (
+                            reminder_sent_key
+                        ),
+                    }
+                )
+
+            except Exception as scan_item_exc:
+                print(
+                    "[RFC VERIFIABLE REMINDER "
+                    "SCAN ITEM ERROR]",
+                    repr(scan_item_exc),
+                    flush=True,
+                )
+
+    except Exception:
+        # Si falla el scan, permitir un nuevo intento.
+        redis_stats.delete(
+            cooldown_key
+        )
+        raise
+
+    if not overdue:
+        redis_stats.delete(
+            cooldown_key
+        )
+
+        print(
+            "[RFC VERIFIABLE REMINDER SKIP]",
+            {
+                "request_key": request_key,
+                "provider_code": provider_code,
+                "minutes": reminder_minutes,
+                "reason": "no_overdue_pending",
+            },
+            flush=True,
+        )
+
+        return {
+            "ok": True,
+            "ignored": "no_overdue_pending",
+        }
+
+    # Más antiguas primero.
+    overdue.sort(
+        key=lambda x: x["started_at"]
+    )
+
+    def _format_elapsed(total_minutes: int) -> str:
+        total_minutes = max(
+            0,
+            int(total_minutes),
+        )
+
+        hours, minutes = divmod(
+            total_minutes,
+            60,
+        )
+
+        if hours:
+            return (
+                f"{hours} h {minutes} min"
+            )
+
+        return f"{minutes} min"
+
+    lines = []
+
+    for index, item in enumerate(
+        overdue,
+        start=1,
+    ):
+        lines.append(
+            f"{index}. RFC: "
+            f"{item['identifier']} — "
+            f"{_format_elapsed(item['age_minutes'])}"
+        )
+
+    oldest_minutes = max(
+        item["age_minutes"]
+        for item in overdue
+    )
+
+    message = (
+        "⏰ *RFC verificables pendientes*\n\n"
+        f"Hay *{len(overdue)}* "
+        "solicitud"
+        f"{'es' if len(overdue) != 1 else ''} "
+        "pendiente"
+        f"{'s' if len(overdue) != 1 else ''} "
+        "de respuesta:\n\n"
+        + "\n".join(lines)
+        + "\n\n"
+        "*Más antigua:* "
+        + _format_elapsed(
+            oldest_minutes
+        )
+        + "."
+    )
+
+    try:
+        evolution_send_text_to_group(
+            provider_group_jid,
+            message,
+            instance_name=(
+                provider_instance
+            ),
+        )
+
+        # El mensaje ya fue aceptado por Evolution.
+        # Ahora sí marcamos cada solicitud incluida para
+        # que no vuelva a aparecer en el mismo nivel.
+        reminder_pipe = redis_stats.pipeline()
+
+        for item in overdue:
+            reminder_pipe.set(
+                item["reminder_sent_key"],
+                str(time.time()),
+                ex=172800,
+            )
+
+        reminder_pipe.execute()
+
+        print(
+            "[RFC VERIFIABLE PROVIDER "
+            "REMINDER SENT]",
+            {
+                "request_key": request_key,
+                "provider_code": provider_code,
+                "provider_name": provider_name,
+                "provider_group": (
+                    provider_group_jid
+                ),
+                "provider_instance": (
+                    provider_instance
+                ),
+                "threshold_minutes": (
+                    reminder_minutes
+                ),
+                "pending_count": len(
+                    overdue
+                ),
+                "oldest_minutes": (
+                    oldest_minutes
+                ),
+            },
+            flush=True,
+        )
+
+    except Exception as send_exc:
+        # Si el envío falló, permitir que el retry
+        # vuelva a intentarlo.
+        redis_stats.delete(
+            cooldown_key
+        )
+
+        print(
+            "[RFC VERIFIABLE PROVIDER "
+            "REMINDER ERROR]",
+            {
+                "request_key": request_key,
+                "provider_code": provider_code,
+                "minutes": reminder_minutes,
+                "error": repr(
+                    send_exc
+                ),
+            },
+            flush=True,
+        )
+
+        raise
+
+    return {
+        "ok": True,
+        "reminder_sent": True,
+        "request_key": request_key,
+        "provider_code": provider_code,
+        "threshold_minutes": reminder_minutes,
+        "pending_count": len(overdue),
+        "oldest_minutes": oldest_minutes,
+    }
+
+
 def process_verifiable_timeout_job(
     request_key: str,
 ):
