@@ -1432,7 +1432,37 @@ def call_bot_internal_text(
         flush=True,
     )
 
-    r.raise_for_status()
+    if r.status_code >= 400:
+        _body = r.text or ""
+        _up = _body.upper()
+
+        if (
+            "ASPOSE_PDF_CONVERT_FAIL" in _up
+            and (
+                "TOKEN ERROR 429" in _up
+                or "TOKEN ERROR 503" in _up
+                or "503 SERVICE UNAVAILABLE" in _up
+            )
+        ):
+            print(
+                "[ASPOSE_VERIFICABLE_TEXT_TRIGGER]",
+                {
+                    "status": r.status_code,
+                    "group_jid": group_jid,
+                    "instance_name": instance_name,
+                },
+                flush=True,
+            )
+
+            return {
+                "ok": False,
+                "error": "ASPOSE_TEMP_UNAVAILABLE",
+                "aspose_text_fallback": True,
+                "fallback_query": query,
+            }
+
+        r.raise_for_status()
+
     return r.json()
     
 def call_bot_internal_media(
@@ -3141,6 +3171,222 @@ def process_group_request_job(job_data: dict):
             
         else:
             raise RuntimeError("NO_TEXT_OR_MEDIA")
+
+        # ASPOSE_VERIFICABLE_TEXT_FALLBACK_V1
+        _fb_is_verifiable = (
+            bool(is_verifiable)
+            or str(
+                job_data.get("_rfc_quota_family")
+                or ""
+            ).strip().upper() == "VERIFICABLE"
+            or "verifiable_count_provider_success" in job_data
+            or bool(job_data.get("verifiable_provider_code"))
+        )
+
+        if result.get("aspose_text_fallback") and _fb_is_verifiable:
+            _fq = "\n".join(
+                str(x)
+                for x in (
+                    result.get("fallback_query") or "",
+                    query or "",
+                    original_text or "",
+                    job_data.get("rfc") or "",
+                    job_data.get("idcif") or "",
+                    job_data.get("provider_message") or "",
+                    json.dumps(
+                        job_data,
+                        ensure_ascii=False,
+                        default=str,
+                    ),
+                )
+                if x
+            )
+
+            _rfc_m = re.search(
+                r"(?i)\b(?:RFC\s*[:=-]?\s*)?([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})\b",
+                _fq,
+            )
+
+            _idcif_m = re.search(
+                r"(?i)\b(?:IDCIF|ID\s*CIF)\s*[:=-]?\s*(\d{11})\b",
+                _fq,
+            )
+
+            if not _idcif_m:
+                _idcif_m = re.search(
+                    r"(?<!\d)(\d{11})(?!\d)",
+                    _fq,
+                )
+
+            if not _rfc_m or not _idcif_m:
+                raise RuntimeError(
+                    "ASPOSE_VERIFICABLE_TEXT_PARSE_FAIL:"
+                    + repr(_fq[:500])
+                )
+
+            _fb_rfc = _rfc_m.group(1).upper()
+            _fb_idcif = _idcif_m.group(1)
+
+            _fb_item_key = (
+                f"RFC: {_fb_rfc}\\n"
+                f"IDCIF: {_fb_idcif}"
+            )
+
+            _fb_reqkey = str(
+                job_data.get("request_key")
+                or ""
+            ).strip()
+
+            _fb_sent_key = (
+                "rfc:verificable:text_fallback:"
+                + _fb_reqkey
+                + ":"
+                + _fb_rfc
+                + ":"
+                + _fb_idcif
+            )
+
+            # Si ya fue enviado por este fallback, NO duplicar WhatsApp.
+            if not redis_stats.exists(_fb_sent_key):
+                _nl = chr(10)
+                _fb_text = (
+                    "✅ *RFC VERIFICABLE INFORMADO*"
+                    + _nl + _nl
+                    + f"RFC: *{_fb_rfc}*"
+                    + _nl
+                    + f"IDCIF: *{_fb_idcif}*"
+                )
+
+                print(
+                    "[ASPOSE_VERIFICABLE_TEXT_SEND]",
+                    {
+                        "request_key": _fb_reqkey,
+                        "group_jid": group_jid,
+                        "rfc": _fb_rfc,
+                        "idcif": _fb_idcif,
+                    },
+                    flush=True,
+                )
+
+                evolution_send_text_to_group(
+                    group_jid,
+                    _fb_text,
+                    instance_name=instance_name,
+                )
+
+                redis_stats.set(
+                    _fb_sent_key,
+                    "1",
+                    ex=604800,
+                )
+
+            # Contabilización normal del VERIFICABLE.
+            _fb_recorded = record_success_once(
+                job_data=job_data,
+                group_jid=group_jid,
+                group_name=group_name,
+                kind="RFC_VERIFICABLE",
+                count=1,
+                item_key=_fb_item_key,
+            )
+
+            # ASPOSE_VERIFICABLE_PROVIDER_COUNT_V1
+            _fb_provider_counted = False
+
+            if bool(
+                job_data.get(
+                    "verifiable_count_provider_success",
+                    True,
+                )
+            ):
+                _fb_provider_key = (
+                    "rfc:verificable:text_fallback:"
+                    "provider_counted:"
+                    + _fb_reqkey
+                    + ":"
+                    + _fb_rfc
+                )
+
+                _fb_claim_provider = redis_stats.set(
+                    _fb_provider_key,
+                    "PENDING",
+                    nx=True,
+                    ex=604800,
+                )
+
+                if _fb_claim_provider:
+                    try:
+                        record_verifiable_provider_success(
+                            job_data
+                        )
+
+                        redis_stats.set(
+                            _fb_provider_key,
+                            "1",
+                            ex=604800,
+                        )
+
+                        _fb_provider_counted = True
+
+                        print(
+                            "[ASPOSE_VERIFICABLE_PROVIDER_COUNTED]",
+                            {
+                                "request_key": _fb_reqkey,
+                                "rfc": _fb_rfc,
+                                "group_jid": group_jid,
+                            },
+                            flush=True,
+                        )
+
+                    except Exception:
+                        redis_stats.delete(
+                            _fb_provider_key
+                        )
+                        raise
+
+            # El fallback ya entregó y contabilizó correctamente.
+            # También debemos cerrar el pending del proveedor para
+            # evitar recordatorios falsos en MESINO.
+            try:
+                from app.verifiable_flow import finish_pending
+
+                if _fb_reqkey:
+                    finish_pending(_fb_reqkey)
+
+                    print(
+                        "[ASPOSE_VERIFICABLE_PENDING_FINISHED]",
+                        {
+                            "request_key": _fb_reqkey,
+                            "rfc": _fb_rfc,
+                        },
+                        flush=True,
+                    )
+
+            except Exception as _fb_finish_exc:
+                # La entrega ya ocurrió; una falla de limpieza no debe
+                # convertir el resultado exitoso en error.
+                print(
+                    "[ASPOSE_VERIFICABLE_PENDING_FINISH_WARN]",
+                    {
+                        "request_key": _fb_reqkey,
+                        "error": repr(_fb_finish_exc),
+                    },
+                    flush=True,
+                )
+
+            print(
+                "[ASPOSE_VERIFICABLE_TEXT_DONE]",
+                {
+                    "request_key": _fb_reqkey,
+                    "group_jid": group_jid,
+                    "rfc": _fb_rfc,
+                    "idcif": _fb_idcif,
+                    "recorded": bool(_fb_recorded),
+                },
+                flush=True,
+            )
+
+            return
 
         verifiable_warning_code = (
             result.get(
@@ -7736,7 +7982,187 @@ def _rfc_plan_check_or_notify(job_data: dict, group_jid: str, group_name: str, i
 
 
 def _rfc_commercial_check_or_notify(job_data: dict, group_jid: str, group_name: str, instance_name: str, kind: str) -> bool:
-    return _rfc_final_check_global(job_data, group_jid, group_name, instance_name, kind)
+    # ============================================================
+    # RFC VERIFICABLE YA RESERVADO ANTES DE IR AL PROVEEDOR
+    #
+    # La solicitud verificable ya pasó el control comercial y
+    # reservó cuota ANTES de enviarse al proveedor.
+    #
+    # Cuando vuelve RFC + IDCIF no debe intentar reservar/validar
+    # nuevamente esa misma cuota, porque puede rechazarse contra
+    # su propia reserva y dejar un pending fantasma.
+    # ============================================================
+
+    if str(kind or "").strip().upper() == "RFC_VERIFICABLE":
+        reservation_key = str(
+            job_data.get("_rfc_quota_reservation_key")
+            or ""
+        ).strip()
+
+        reservation_family = str(
+            job_data.get("_rfc_quota_family")
+            or ""
+        ).strip().upper()
+
+        if (
+            reservation_key
+            and reservation_family == "VERIFICABLE"
+        ):
+            try:
+                from sqlalchemy import text
+
+                engine = _rfc_final_engine()
+
+                with engine.begin() as conn:
+                    _rfc_quota_ensure_table(conn)
+
+                    row = conn.execute(
+                        text("""
+                            SELECT
+                                reservation_key,
+                                family,
+                                instance_name,
+                                group_jid,
+                                status
+                            FROM rfc_quota_reservations
+                            WHERE reservation_key = :reservation_key
+                            LIMIT 1
+                        """),
+                        {
+                            "reservation_key":
+                                reservation_key
+                        },
+                    ).mappings().first()
+
+                if row:
+                    status = str(
+                        row.get("status") or ""
+                    ).strip().upper()
+
+                    db_family = str(
+                        row.get("family") or ""
+                    ).strip().upper()
+
+                    db_instance = str(
+                        row.get("instance_name") or ""
+                    ).strip()
+
+                    db_group = str(
+                        row.get("group_jid") or ""
+                    ).strip()
+
+                    if (
+                        status == "RELEASED"
+                        and db_family == "VERIFICABLE"
+                        and db_instance == str(instance_name or "").strip()
+                        and db_group == str(group_jid or "").strip()
+                    ):
+                        # El proveedor ya respondió con resultado válido,
+                        # pero el timeout previo liberó la reserva.
+                        #
+                        # Revivimos ESA MISMA reserva para que el flujo
+                        # normal pueda entregar y después marcarla
+                        # COMMITTED.
+                        with engine.begin() as conn:
+                            _rfc_quota_ensure_table(conn)
+
+                            revived = conn.execute(
+                                text("""
+                                    UPDATE rfc_quota_reservations
+                                    SET
+                                        status = 'RESERVED',
+                                        updated_at = now()
+                                    WHERE
+                                        reservation_key = :reservation_key
+                                        AND family = 'VERIFICABLE'
+                                        AND instance_name = :instance_name
+                                        AND group_jid = :group_jid
+                                        AND status = 'RELEASED'
+                                """),
+                                {
+                                    "reservation_key":
+                                        reservation_key,
+                                    "instance_name":
+                                        str(instance_name or "").strip(),
+                                    "group_jid":
+                                        str(group_jid or "").strip(),
+                                },
+                            )
+
+                        if revived.rowcount == 1:
+                            status = "RESERVED"
+
+                            print(
+                                "[RFC_VERIFICABLE_RELEASED_RESERVATION_REVIVED]",
+                                {
+                                    "reservation_key":
+                                        reservation_key,
+                                    "instance_name":
+                                        instance_name,
+                                    "group_jid":
+                                        group_jid,
+                                },
+                                flush=True,
+                            )
+
+                    if (
+                        status in ("RESERVED", "COMMITTED")
+                        and db_family == "VERIFICABLE"
+                        and db_instance == str(instance_name or "").strip()
+                        and db_group == str(group_jid or "").strip()
+                    ):
+                        print(
+                            "[RFC_VERIFICABLE_EXISTING_RESERVATION_OK]",
+                            {
+                                "reservation_key":
+                                    reservation_key,
+                                "status": status,
+                                "instance_name":
+                                    instance_name,
+                                "group_jid":
+                                    group_jid,
+                            },
+                            flush=True,
+                        )
+
+                        return True
+
+                    print(
+                        "[RFC_VERIFICABLE_EXISTING_RESERVATION_INVALID]",
+                        {
+                            "reservation_key":
+                                reservation_key,
+                            "status": status,
+                            "family": db_family,
+                            "instance_name":
+                                db_instance,
+                            "group_jid":
+                                db_group,
+                        },
+                        flush=True,
+                    )
+
+                else:
+                    print(
+                        "[RFC_VERIFICABLE_EXISTING_RESERVATION_NOT_FOUND]",
+                        reservation_key,
+                        flush=True,
+                    )
+
+            except Exception as reservation_exc:
+                print(
+                    "[RFC_VERIFICABLE_EXISTING_RESERVATION_CHECK_ERROR]",
+                    repr(reservation_exc),
+                    flush=True,
+                )
+
+    return _rfc_final_check_global(
+        job_data,
+        group_jid,
+        group_name,
+        instance_name,
+        kind,
+    )
 
 
 def _rfc_plan_deduct_success(
