@@ -29,3 +29,4 @@ numpy
 pyzbar
 pytesseract
 selenium==4.20.0
+PyMuPDF>=1.24,<2

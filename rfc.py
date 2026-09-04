@@ -13135,34 +13135,280 @@ def same_qr_both_pages_enabled(wa_id: str) -> bool:
     wa_digits = re.sub(r"\D+", "", wa_id or "")
     return any(wa_digits.endswith(n) for n in SAME_QR_NUMBERS)
 
-def convertir_docx_a_pdf_aspose_con_reintentos(ruta_docx: str, pdf_path: str, intentos: int = 3, use_web: bool = False):
+def convertir_docx_a_pdf_aspose_con_reintentos(
+    ruta_docx: str,
+    pdf_path: str,
+    intentos: int = 3,
+    use_web: bool = False,
+):
+    """
+    GOTENBERG_DOCX_PRIMARY_V1
+
+    Flujo:
+      1. Gotenberg local
+      2. Si falla, Aspose
+      3. Si ambos fallan, conserva ASPOSE_PDF_CONVERT_FAIL
+         para no romper los fallbacks existentes.
+    """
+
+    gotenberg_enabled = (
+        str(
+            os.getenv(
+                "GOTENBERG_ENABLED",
+                "1",
+            )
+            or ""
+        ).strip().lower()
+        in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    )
+
+    gotenberg_url = (
+        os.getenv(
+            "GOTENBERG_URL",
+            "http://127.0.0.1:3000",
+        )
+        or "http://127.0.0.1:3000"
+    ).strip().rstrip("/")
+
+    gotenberg_timeout = float(
+        os.getenv(
+            "GOTENBERG_TIMEOUT",
+            "25",
+        )
+        or 25
+    )
+
+    # GOTENBERG_ASPOSE_LAYOUT_PIPELINE_V1
+    gotenberg_aspose_layout = (
+        str(
+            os.getenv(
+                "GOTENBERG_ASPOSE_LAYOUT_NORMALIZE",
+                "1",
+            )
+            or ""
+        ).strip().lower()
+        in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+    )
+
+    # ======================================================
+    # 1. GOTENBERG LOCAL
+    # ======================================================
+    if gotenberg_enabled:
+        gotenberg_docx_path = ruta_docx
+
+        try:
+            if gotenberg_aspose_layout:
+                from app.gotenberg_aspose import (
+                    prepare_docx_for_gotenberg,
+                    normalize_pdf_to_aspose_layout,
+                )
+
+                gotenberg_docx_path = (
+                    prepare_docx_for_gotenberg(
+                        ruta_docx
+                    )
+                )
+
+            print(
+                "[GOTENBERG PDF TRY]",
+                gotenberg_docx_path,
+                "->",
+                pdf_path,
+                flush=True,
+            )
+
+            with open(gotenberg_docx_path, "rb") as f:
+                response = requests.post(
+                    (
+                        gotenberg_url
+                        + "/forms/libreoffice/convert"
+                    ),
+                    files={
+                        "files": (
+                            os.path.basename(
+                                gotenberg_docx_path
+                            ),
+                            f,
+                            (
+                                "application/vnd."
+                                "openxmlformats-officedocument."
+                                "wordprocessingml.document"
+                            ),
+                        )
+                    },
+                    timeout=(
+                        5,
+                        gotenberg_timeout,
+                    ),
+                )
+
+            if response.status_code != 200:
+                raise RuntimeError(
+                    "GOTENBERG_HTTP_"
+                    f"{response.status_code}:"
+                    f"{response.text[:300]}"
+                )
+
+            content = response.content or b""
+
+            if not content.startswith(b"%PDF"):
+                raise RuntimeError(
+                    "GOTENBERG_NOT_PDF:"
+                    f"bytes={len(content)}"
+                )
+
+            with open(pdf_path, "wb") as f:
+                f.write(content)
+
+            if gotenberg_aspose_layout:
+                normalize_pdf_to_aspose_layout(
+                    pdf_path
+                )
+
+            pdf_size = (
+                os.path.getsize(pdf_path)
+                if os.path.exists(pdf_path)
+                else 0
+            )
+
+            print(
+                "[GOTENBERG PDF SIZE]",
+                pdf_size,
+                flush=True,
+            )
+
+            # Mantenemos la misma protección histórica
+            # que ya usaba Aspose.
+            if pdf_size < 10_000:
+                raise RuntimeError(
+                    "GOTENBERG_PDF_TOO_SMALL:"
+                    f"{pdf_size}"
+                )
+
+            print(
+                "[GOTENBERG PDF OK]",
+                {
+                    "docx": gotenberg_docx_path,
+                    "pdf": pdf_path,
+                    "bytes": pdf_size,
+                },
+                flush=True,
+            )
+
+            try:
+                if (
+                    gotenberg_docx_path
+                    != ruta_docx
+                    and os.path.exists(
+                        gotenberg_docx_path
+                    )
+                ):
+                    os.remove(
+                        gotenberg_docx_path
+                    )
+            except Exception:
+                pass
+
+            return True
+
+        except Exception as e:
+            print(
+                "[GOTENBERG PDF FAIL -> ASPOSE]",
+                repr(e),
+                flush=True,
+            )
+
+            # Si Gotenberg dejó un archivo parcial,
+            # no permitimos que Aspose lo confunda.
+            try:
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
+            except Exception:
+                pass
+
+    # ======================================================
+    # 2. ASPOSE — RESPALDO HISTORICO
+    # ======================================================
     last = None
 
-    for intento in range(1, intentos + 1):
+    for intento in range(
+        1,
+        intentos + 1,
+    ):
         try:
-            print("[ASPOSE PDF TRY]", intento, "use_web=", use_web, ruta_docx, "->", pdf_path, flush=True)
+            print(
+                "[ASPOSE PDF TRY]",
+                intento,
+                "use_web=",
+                use_web,
+                ruta_docx,
+                "->",
+                pdf_path,
+                flush=True,
+            )
 
             if use_web:
-                docx_to_pdf_aspose_web(docx_path=ruta_docx, pdf_path=pdf_path)
+                docx_to_pdf_aspose_web(
+                    docx_path=ruta_docx,
+                    pdf_path=pdf_path,
+                )
             else:
-                docx_to_pdf_aspose(docx_path=ruta_docx, pdf_path=pdf_path)
+                docx_to_pdf_aspose(
+                    docx_path=ruta_docx,
+                    pdf_path=pdf_path,
+                )
 
-            pdf_size = os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 0
-            print("[ASPOSE PDF SIZE]", pdf_size, flush=True)
-            
+            pdf_size = (
+                os.path.getsize(pdf_path)
+                if os.path.exists(pdf_path)
+                else 0
+            )
+
+            print(
+                "[ASPOSE PDF SIZE]",
+                pdf_size,
+                flush=True,
+            )
+
             if pdf_size < 10_000:
-                raise RuntimeError(f"ASPOSE_PDF_TOO_SMALL:{pdf_size}")
+                raise RuntimeError(
+                    f"ASPOSE_PDF_TOO_SMALL:{pdf_size}"
+                )
 
             return True
 
         except Exception as e:
             last = e
-            print("[ASPOSE PDF FAIL]", intento, "use_web=", use_web, repr(e), flush=True)
+
+            print(
+                "[ASPOSE PDF FAIL]",
+                intento,
+                "use_web=",
+                use_web,
+                repr(e),
+                flush=True,
+            )
 
             if intento < intentos:
-                time.sleep(2 * intento)
+                time.sleep(
+                    2 * intento
+                )
 
-    raise RuntimeError(f"ASPOSE_PDF_CONVERT_FAIL:{type(last).__name__}:{str(last)[:300]}")
+    raise RuntimeError(
+        "ASPOSE_PDF_CONVERT_FAIL:"
+        f"{type(last).__name__}:"
+        f"{str(last)[:300]}"
+    )
 
 def _generar_y_enviar_archivos(from_wa_id: str, text_body: str, datos: dict, input_type: str, test_mode: bool):
     base_dir = os.path.dirname(os.path.abspath(__file__))
