@@ -2901,6 +2901,8 @@ def _rq_retry_remaining() -> int:
 
 
 def process_group_request_job(job_data: dict):
+    global finish_pending
+    # RFC_FINISH_PENDING_SCOPE_FIX_V1
     requester_number = job_data["requester_number"]
     requester_name = job_data["requester_name"]
     requester_label = job_data["requester_label"]
