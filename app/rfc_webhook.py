@@ -1069,7 +1069,7 @@ def _verifiable_group_config(
             )
         ),
         "owner_instance": owner_instance,
-    
+
         "provider_code": (
             getattr(
                 row,
@@ -1355,7 +1355,7 @@ def _verifiable_group_balance(
         "shared_limit": shared_limit,
         "shared_used": shared_used,
     }
-    
+
 
 def _extract_text(message: dict, data: dict) -> str:
     if not isinstance(message, dict):
@@ -2062,7 +2062,7 @@ def _verifiable_identity_key(
     """
     Identifica la misma solicitud verificable aunque
     WhatsApp genere otro msg_id.
-    
+
     Bloquea la misma CURP/RFC para:
     - la misma instancia;
     - el mismo grupo;
@@ -3188,7 +3188,7 @@ def _choose_verifiable_provider_for_group(
     )
 
     return selected
-    
+
 
 def _queue_verifiable_pair_for_pending(
     *,
@@ -3226,14 +3226,14 @@ def _queue_verifiable_pair_for_pending(
             "idcif": provider_idcif,
             "reason": "pending_missing",
         }
-    
+
     # Vuelve a consultar Redis para no procesar una copia
     # vieja de un pendiente que otro worker ya terminó.
     current_pending = (
         load_pending(verifiable_key)
         or {}
     )
-    
+
     if not current_pending:
         return {
             "ok": False,
@@ -3243,9 +3243,9 @@ def _queue_verifiable_pair_for_pending(
             "idcif": provider_idcif,
             "reason": "pending_already_finished",
         }
-    
+
     pending = current_pending
-    
+
     if not claim_provider_result(
         verifiable_key
     ):
@@ -3433,13 +3433,13 @@ def _queue_verifiable_pair_for_pending(
             )
             or ""
         ),
-        
+
         # ID de la respuesta enviada por el proveedor.
         # Se conserva para auditoría y deduplicación del job.
         "provider_response_msg_id": (
             provider_response_msg_id
         ),
-        
+
         "provider_quoted_msg_id": (
             quoted_message_id
         ),
@@ -3493,7 +3493,7 @@ def _queue_verifiable_pair_for_pending(
         or quoted_message_id
         or "without-provider-message"
     ).strip()
-    
+
     final_rq_job_id = (
         "rfc-verifiable-result:"
         f"{verifiable_key}:"
@@ -3615,13 +3615,13 @@ def _queue_one_verifiable_provider_pair(
                 fallback_match.get("matches")
                 or []
             )
-        
+
             same_original_request = bool(
                 fallback_match.get(
                     "same_original_request"
                 )
             )
-        
+
             if (
                 fallback_match.get("reason")
                 == "ambiguous_pending_match"
@@ -3639,7 +3639,7 @@ def _queue_one_verifiable_provider_pair(
                     for match in matches
                 )
                 fanout_results = []
-        
+
                 for fanout_index, match in enumerate(
                     matches,
                     start=1,
@@ -3648,12 +3648,12 @@ def _queue_one_verifiable_provider_pair(
                         match.get("request_key")
                         or ""
                     ).strip()
-        
+
                     match_pending = (
                         match.get("pending")
                         or {}
                     )
-        
+
                     result = (
                         _queue_verifiable_pair_for_pending(
                             verifiable_key=request_key,
@@ -3677,15 +3677,15 @@ def _queue_one_verifiable_provider_pair(
                             ),
                         )
                     )
-        
+
                     fanout_results.append(result)
-        
+
                 queued_results = [
                     item
                     for item in fanout_results
                     if item.get("queued")
                 ]
-        
+
                 return {
                     "ok": bool(queued_results),
                     "queued": bool(queued_results),
@@ -3698,7 +3698,7 @@ def _queue_one_verifiable_provider_pair(
                     "idcif": provider_idcif,
                     "results": fanout_results,
                 }
-        
+
             return {
                 "ok": False,
                 "rfc": provider_rfc,
@@ -3819,7 +3819,7 @@ def _queue_one_verifiable_provider_pair(
     effective_match_method = (
         matched_by or ""
     ).strip()
-    
+
     if quoted_message_id:
         if original_type == "CURP":
             physical_rfc_prefix = (
@@ -3827,7 +3827,7 @@ def _queue_one_verifiable_provider_pair(
                 if len(provider_rfc) == 13
                 else ""
             )
-    
+
             if (
                 physical_rfc_prefix
                 and original_identifier[:10]
@@ -3836,7 +3836,7 @@ def _queue_one_verifiable_provider_pair(
                 effective_match_method = (
                     "quoted_curp_rfc_prefix"
                 )
-    
+
             elif _near_curp_rfc_match(
                 original_identifier,
                 provider_rfc,
@@ -3844,7 +3844,7 @@ def _queue_one_verifiable_provider_pair(
                 effective_match_method = (
                     "curp_rfc_near_correction"
                 )
-    
+
             else:
                 return {
                     "ok": False,
@@ -3858,13 +3858,13 @@ def _queue_one_verifiable_provider_pair(
                         original_identifier
                     ),
                 }
-    
+
         elif original_type == "RFC_ONLY":
             if provider_rfc == original_identifier:
                 effective_match_method = (
                     "quoted_exact_rfc"
                 )
-    
+
             elif _near_rfc_match(
                 original_identifier,
                 provider_rfc,
@@ -3872,7 +3872,7 @@ def _queue_one_verifiable_provider_pair(
                 effective_match_method = (
                     "rfc_near_correction"
                 )
-    
+
             else:
                 return {
                     "ok": False,
@@ -3886,7 +3886,7 @@ def _queue_one_verifiable_provider_pair(
                         original_identifier
                     ),
                 }
-    
+
     elif not effective_match_method:
         effective_match_method = (
             "unquoted_pending_match"
@@ -4364,7 +4364,7 @@ def _extract_verifiable_no_id_items(
         consumed_indexes.add(index)
 
     return results
-    
+
 
 def _extract_verif4_blank_id_items(
     text: str,
@@ -4503,17 +4503,17 @@ def _find_verifiable_no_id_pending(
                 )
                 or ""
             ).strip()
-        
+
             pending = (
                 fallback_match.get("pending")
                 or {}
             )
-        
+
             matched_by = (
                 fallback_match.get("matched_by")
                 or "provider_identifier"
             )
-        
+
         elif (
             fallback_match.get("reason")
             == "ambiguous_pending_match"
@@ -4522,7 +4522,7 @@ def _find_verifiable_no_id_pending(
                 fallback_match.get("matches")
                 or []
             )
-        
+
             return {
                 "ok": False,
                 "ambiguous": True,
@@ -4651,7 +4651,7 @@ def _send_verifiable_no_id_to_client(
         )
         or ""
     ).strip()
-    
+
     verifiable_completed_key = (
         pending.get(
             "verifiable_completed_key"
@@ -4663,7 +4663,7 @@ def _send_verifiable_no_id_to_client(
         release_provider_result_claim(
             request_key
         )
-    
+
         print(
             "RFC_VERIFIABLE_NO_ID_"
             "COMPLETED_KEY_EMPTY =",
@@ -4679,7 +4679,7 @@ def _send_verifiable_no_id_to_client(
             },
             flush=True,
         )
-    
+
         return {
             "ok": False,
             "sent": False,
@@ -4787,7 +4787,7 @@ def _send_verifiable_no_id_to_client(
             request_queue.connection
             .pipeline()
         )
-    
+
         # Un resultado SIN ID también fue una respuesta
         # definitiva enviada al cliente.
         if verifiable_completed_key:
@@ -4796,19 +4796,19 @@ def _send_verifiable_no_id_to_client(
                 str(time.time()),
                 ex=24 * 60 * 60,
             )
-    
+
         if verifiable_processing_key:
             pipe.delete(
                 verifiable_processing_key
             )
-    
+
         if inflight_key:
             pipe.delete(
                 inflight_key
             )
-    
+
         pipe.execute()
-    
+
         print(
             "RFC_VERIFIABLE_NO_ID_"
             "COMPLETED_24H_MARKED =",
@@ -4825,7 +4825,7 @@ def _send_verifiable_no_id_to_client(
             },
             flush=True,
         )
-    
+
     except Exception as completed_exc:
         print(
             "RFC_VERIFIABLE_NO_ID_"
@@ -4838,13 +4838,13 @@ def _send_verifiable_no_id_to_client(
             },
             flush=True,
         )
-    
+
         # No borres el pendiente si no se pudo crear
         # correctamente la protección de completado.
         release_provider_result_claim(
             request_key
         )
-    
+
         return {
             "ok": False,
             "sent": True,
@@ -4856,18 +4856,18 @@ def _send_verifiable_no_id_to_client(
                 completed_exc
             ),
         }
-    
+
     finish_pending(
         request_key,
         provider_message_id=(
             stored_provider_message_id
         ),
     )
-    
+
     release_provider_result_claim(
         request_key
     )
-    
+
     return {
         "ok": True,
         "sent": True,
@@ -4999,7 +4999,7 @@ async def evolution_rfc_webhook(request: Request):
                 instance_name,
             )
         )
-        
+
         is_verifiable_provider_group = bool(
             current_verifiable_provider
         )
@@ -5029,7 +5029,7 @@ async def evolution_rfc_webhook(request: Request):
                 ),
                 flush=True,
             )
-            
+
             top_context_info = (
                 data.get("contextInfo")
                 if isinstance(data, dict)
@@ -5039,7 +5039,7 @@ async def evolution_rfc_webhook(request: Request):
                 )
                 else {}
             )
-            
+
             quoted_message_id = str(
                 top_context_info.get("stanzaId")
                 or top_context_info.get("quotedStanzaId")
@@ -5074,13 +5074,13 @@ async def evolution_rfc_webhook(request: Request):
                     text
                 )
             )
-            
+
             provider_pairs = (
                 extract_rfc_idcif_pairs(
                     text
                 )
             )
-            
+
             # --------------------------------------------------
             # ID ROBERTO / VERIF4:
             # una línea con puro RFC significa "sin IDCIF".
@@ -5093,21 +5093,21 @@ async def evolution_rfc_webhook(request: Request):
                 == "120363409752881042@g.us"
                 and instance_name == "grupo02"
             )
-            
+
             if is_verif4_roberto:
                 verif4_blank_items = (
                     _extract_verif4_blank_id_items(
                         text
                     )
                 )
-            
+
                 # RFC que ya tiene IDCIF dentro de provider_pairs.
                 paired_rfcs = {
                     str(pair[0] or "").strip().upper()
                     for pair in provider_pairs
                     if pair
                 }
-            
+
                 # RFC ya detectados por frases explícitas:
                 # "NO ID", "SIN ID", "S/ID", etc.
                 explicit_no_id_rfcs = {
@@ -5116,34 +5116,34 @@ async def evolution_rfc_webhook(request: Request):
                     .upper()
                     for item in provider_no_id_items
                 }
-            
+
                 for blank_item in verif4_blank_items:
                     identifier = (
                         blank_item.get("identifier")
                         or ""
                     ).strip().upper()
-            
+
                     if not identifier:
                         continue
-            
+
                     # Si esa línea o RFC sí quedó emparejado con IDCIF,
                     # no debe marcarse como no-id.
                     if identifier in paired_rfcs:
                         continue
-            
+
                     # Evita duplicar un "sin id" que ya fue detectado
                     # mediante texto explícito.
                     if identifier in explicit_no_id_rfcs:
                         continue
-            
+
                     provider_no_id_items.append(
                         blank_item
                     )
-            
+
                     explicit_no_id_rfcs.add(
                         identifier
                     )
-            
+
                 print(
                     "RFC_VERIFIABLE_VERIF4_BLANK_ID_PARSE =",
                     {
@@ -5224,9 +5224,9 @@ async def evolution_rfc_webhook(request: Request):
                     and pending_match.get("matches")
                 ):
                     fanout_results = []
-                
+
                     seen_request_keys: set[str] = set()
-                
+
                     for match in (
                         pending_match.get("matches")
                         or []
@@ -5235,12 +5235,12 @@ async def evolution_rfc_webhook(request: Request):
                             match.get("request_key")
                             or ""
                         ).strip()
-                
+
                         match_pending = (
                             match.get("pending")
                             or {}
                         )
-                
+
                         if (
                             not match_request_key
                             or not match_pending
@@ -5248,11 +5248,11 @@ async def evolution_rfc_webhook(request: Request):
                             in seen_request_keys
                         ):
                             continue
-                
+
                         seen_request_keys.add(
                             match_request_key
                         )
-                
+
                         fanout_result = (
                             _send_verifiable_no_id_to_client(
                                 request_key=match_request_key,
@@ -5268,25 +5268,25 @@ async def evolution_rfc_webhook(request: Request):
                                 ),
                             )
                         )
-                
+
                         fanout_result["line_number"] = (
                             no_id_item.get("line_number")
                         )
-                
+
                         fanout_result["no_id_index"] = (
                             no_id_index
                         )
-                
+
                         fanout_result["fanout"] = True
-                
+
                         fanout_results.append(
                             fanout_result
                         )
-                
+
                     no_id_results.extend(
                         fanout_results
                     )
-                
+
                     print(
                         "RFC_VERIFIABLE_NO_ID_FANOUT =",
                         {
@@ -5304,7 +5304,7 @@ async def evolution_rfc_webhook(request: Request):
                         },
                         flush=True,
                     )
-                
+
                     continue
 
                 if not pending_match.get("ok"):
@@ -5851,7 +5851,7 @@ async def evolution_rfc_webhook(request: Request):
                             )
                         ).hexdigest()
                     )
-                    
+
                     try:
                         child_job = (
                             request_queue.enqueue(
@@ -5874,18 +5874,18 @@ async def evolution_rfc_webhook(request: Request):
                                 ),
                             )
                         )
-                    
+
                         child_result = {
                             "ok": True,
                             "queued": True,
                             "job_id": child_job.id,
                         }
-                    
+
                     except Exception as child_enqueue_exc:
                         error_text = str(
                             child_enqueue_exc
                         ).lower()
-                    
+
                         if (
                             "already exists"
                             in error_text
@@ -5902,7 +5902,7 @@ async def evolution_rfc_webhook(request: Request):
                                 "job_id":
                                     batch_child_job_id,
                             }
-                    
+
                         else:
                             print(
                                 "RFC_BATCH_CHILD_ENQUEUE_ERROR =",
@@ -5918,10 +5918,10 @@ async def evolution_rfc_webhook(request: Request):
                                 },
                                 flush=True,
                             )
-                    
+
                             raise
-                    
-                    
+
+
                     batch_results.append({
                         "batch_index":
                             item_index,
@@ -6024,14 +6024,14 @@ async def evolution_rfc_webhook(request: Request):
             configured_verifiable_providers = (
                 load_verifiable_providers()
             )
-            
+
             if not configured_verifiable_providers:
                 print(
                     "RFC_VERIFIABLE_CONFIG_ERROR =",
                     "providers_empty",
                     flush=True,
                 )
-            
+
                 if _claim_batch_global_notice(
                     batch_child=batch_child,
                     batch_parent_msg_id=batch_parent_msg_id,
@@ -6064,7 +6064,7 @@ async def evolution_rfc_webhook(request: Request):
                         )
                     except Exception:
                         pass
-            
+
                 return {
                     "ok": False,
                     "error": (
@@ -6129,7 +6129,7 @@ async def evolution_rfc_webhook(request: Request):
                             instance_name=instance_name,
                             fast=True,
                         )
-                    
+
                     except Exception:
                         pass
 
@@ -6512,7 +6512,7 @@ async def evolution_rfc_webhook(request: Request):
                     remote_jid,
                 )
             )
-            
+
             if not group_balance.get(
                 "allowed",
                 False,
@@ -6521,7 +6521,7 @@ async def evolution_rfc_webhook(request: Request):
                     group_balance.get("reason")
                     or "verifiable_group_balance_denied"
                 )
-            
+
                 print(
                     "RFC_VERIFIABLE_GROUP_BALANCE_DENIED =",
                     {
@@ -6563,7 +6563,7 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-            
+
                 if reason == (
                     "verifiable_group_promotion_not_found"
                 ):
@@ -6581,7 +6581,7 @@ async def evolution_rfc_webhook(request: Request):
                         family="service",
                         status='NO DISPONIBLE',
                     )
-            
+
                 elif reason == (
                     "verifiable_group_not_assigned"
                 ):
@@ -6599,7 +6599,7 @@ async def evolution_rfc_webhook(request: Request):
                         family="service",
                         status='NO DISPONIBLE',
                     )
-            
+
                 elif reason == (
                     "verifiable_group_limit_reached"
                 ):
@@ -6617,7 +6617,7 @@ async def evolution_rfc_webhook(request: Request):
                         family="service",
                         status='LÍMITE ALCANZADO',
                     )
-            
+
                 elif reason == (
                     "verifiable_shared_group_limit_reached"
                 ):
@@ -6635,7 +6635,7 @@ async def evolution_rfc_webhook(request: Request):
                         family="service",
                         status='LÍMITE ALCANZADO',
                     )
-            
+
                 else:
                     client_message = _client_status_message(
                         title="⚠️ RFC verificable no disponible",
@@ -6651,7 +6651,7 @@ async def evolution_rfc_webhook(request: Request):
                         family="service",
                         status='ERROR',
                     )
-            
+
                 if _claim_batch_global_notice(
                     batch_child=batch_child,
                     batch_parent_msg_id=batch_parent_msg_id,
@@ -6677,7 +6677,7 @@ async def evolution_rfc_webhook(request: Request):
                             },
                             flush=True,
                         )
-            
+
                 return {
                     "ok": True,
                     "ignored": reason,
@@ -6692,7 +6692,7 @@ async def evolution_rfc_webhook(request: Request):
                         group_balance.get("available")
                     ),
                 }
-            
+
             print(
                 "RFC_VERIFIABLE_GROUP_BALANCE_OK =",
                 {
@@ -6736,7 +6736,7 @@ async def evolution_rfc_webhook(request: Request):
                 f"{original_query_type}:"
                 f"{original_identifier}"
             )
-            
+
             # Dedupe técnico del mismo webhook.
             # Conserva msg_id para bloquear el mismo evento repetido.
             command_key = _dedupe_key(
@@ -6746,15 +6746,15 @@ async def evolution_rfc_webhook(request: Request):
                 normalized_query,
                 msg_id,
             )
-            
+
             redis_conn = (
                 request_queue.connection
             )
-            
+
             inflight_key = (
                 f"rfc:inflight:{command_key}"
             )
-            
+
             # Identidad lógica de la solicitud.
             # No incluye msg_id, por lo que también detecta
             # cuando el usuario vuelve a escribir la misma CURP/RFC.
@@ -6767,12 +6767,12 @@ async def evolution_rfc_webhook(request: Request):
                     identifier=original_identifier,
                 )
             )
-            
+
             verifiable_processing_key = (
                 "rfc:verifiable:processing:"
                 f"{verifiable_identity}"
             )
-            
+
             verifiable_completed_key = (
                 "rfc:verifiable:completed:"
                 f"{verifiable_identity}"
@@ -6784,7 +6784,7 @@ async def evolution_rfc_webhook(request: Request):
                 completed_ttl = redis_conn.ttl(
                     verifiable_completed_key
                 )
-            
+
                 try:
                     remaining_seconds = max(
                         int(completed_ttl or 0),
@@ -6792,7 +6792,7 @@ async def evolution_rfc_webhook(request: Request):
                     )
                 except Exception:
                     remaining_seconds = 0
-            
+
                 remaining_hours = max(
                     1,
                     int(
@@ -6803,7 +6803,7 @@ async def evolution_rfc_webhook(request: Request):
                         // 3600
                     ),
                 )
-            
+
                 print(
                     "RFC_VERIFIABLE_COMPLETED_24H_BLOCKED =",
                     {
@@ -6819,7 +6819,7 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-            
+
                 try:
                     send_text(
                         remote_jid,
@@ -6842,7 +6842,7 @@ async def evolution_rfc_webhook(request: Request):
                     )
                 except Exception:
                     pass
-            
+
                 return {
                     "ok": True,
                     "ignored": (
@@ -6862,19 +6862,19 @@ async def evolution_rfc_webhook(request: Request):
                 ) + 300,
                 900,
             )
-            
+
             processing_created = redis_conn.set(
                 verifiable_processing_key,
                 command_key,
                 nx=True,
                 ex=verifiable_processing_ttl,
             )
-            
+
             if not processing_created:
                 processing_ttl = redis_conn.ttl(
                     verifiable_processing_key
                 )
-            
+
                 print(
                     "RFC_VERIFIABLE_ALREADY_PROCESSING_BLOCKED =",
                     {
@@ -6893,13 +6893,13 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-            
+
                 duplicate_notice_key = (
                     "rfc:verifiable:"
                     "duplicate_processing_notice:"
                     f"{verifiable_identity}"
                 )
-            
+
                 if redis_conn.set(
                     duplicate_notice_key,
                     "1",
@@ -6926,7 +6926,7 @@ async def evolution_rfc_webhook(request: Request):
                         )
                     except Exception:
                         pass
-            
+
                 return {
                     "ok": True,
                     "ignored": (
@@ -6947,13 +6947,13 @@ async def evolution_rfc_webhook(request: Request):
                 redis_conn.delete(
                     verifiable_processing_key
                 )
-            
+
                 duplicate_notice_key = (
                     "rfc:verifiable:"
                     "duplicate_notice:"
                     f"{command_key}"
                 )
-            
+
                 if redis_conn.set(
                     duplicate_notice_key,
                     "1",
@@ -6982,7 +6982,7 @@ async def evolution_rfc_webhook(request: Request):
                         )
                     except Exception:
                         pass
-            
+
                 return {
                     "ok": True,
                     "ignored": (
@@ -6991,6 +6991,86 @@ async def evolution_rfc_webhook(request: Request):
                     ),
                 }
 
+            # DOCIFY_BATCH_ROUTING_SNAPSHOT_V1
+            docify_batch_forced_code = ""
+            docify_batch_runtime = []
+
+            if (
+                batch_child
+                and str(
+                    instance_name or ""
+                ).strip().lower()
+                == "docifybot8mx"
+            ):
+                try:
+                    docify_batch_forced_code = (
+                        _verifiable_provider_code_for_instance(
+                            db,
+                            instance_name,
+                        )
+                    )
+
+                    docify_batch_runtime = [
+                        {
+                            "code": str(
+                                provider.get("code")
+                                or ""
+                            ).strip().upper(),
+                            "enabled": bool(
+                                provider.get("enabled")
+                            ),
+                            "weight": float(
+                                provider.get("weight")
+                                or 0
+                            ),
+                            "routing_mode": str(
+                                provider.get(
+                                    "routing_mode"
+                                )
+                                or ""
+                            ).strip().upper(),
+                        }
+                        for provider
+                        in _verifiable_providers_runtime(
+                            db
+                        )
+                    ]
+
+                except Exception as snapshot_exc:
+                    print(
+                        "RFC_VERIFIABLE_DOCIFY_BATCH_"
+                        "SNAPSHOT_ERROR =",
+                        {
+                            "pid": __import__(
+                                "os"
+                            ).getpid(),
+                            "error":
+                                repr(snapshot_exc),
+                        },
+                        flush=True,
+                    )
+
+                print(
+                    "RFC_VERIFIABLE_DOCIFY_BATCH_"
+                    "ROUTING_SNAPSHOT =",
+                    {
+                        "pid": __import__(
+                            "os"
+                        ).getpid(),
+                        "instance":
+                            instance_name,
+                        "group_jid":
+                            remote_jid,
+                        "parent_msg_id":
+                            batch_parent_msg_id,
+                        "forced_code":
+                            docify_batch_forced_code,
+                        "providers":
+                            docify_batch_runtime,
+                    },
+                    flush=True,
+                )
+
             selected_provider = (
                 _choose_verifiable_provider_for_group(
                     db,
@@ -6998,16 +7078,103 @@ async def evolution_rfc_webhook(request: Request):
                     instance_name=instance_name,
                 )
             )
-            
+
             if not selected_provider:
                 redis_conn.delete(
                     inflight_key
                 )
-            
+
                 redis_conn.delete(
                     verifiable_processing_key
                 )
-            
+
+                # DOCIFY_BATCH_TRANSIENT_RETRY_V1
+                #
+                # DOCIFY MX tiene VERIF4/VERIF5 fijado.
+                # Si un worker temporalmente no puede
+                # resolverlo, el batch NO debe avisar
+                # INACTIVO en el primer intento.
+                if (
+                    batch_child
+                    and str(
+                        instance_name or ""
+                    ).strip().lower()
+                    == "docifybot8mx"
+                    and docify_batch_forced_code
+                    in {
+                        "VERIF4",
+                        "VERIF5",
+                    }
+                ):
+                    rq_job_id = ""
+                    retries_left = 0
+
+                    try:
+                        from rq import get_current_job
+
+                        rq_job = get_current_job()
+
+                        if rq_job:
+                            rq_job_id = str(
+                                rq_job.id or ""
+                            )
+
+                            retries_left = int(
+                                getattr(
+                                    rq_job,
+                                    "retries_left",
+                                    0,
+                                )
+                                or 0
+                            )
+
+                    except Exception as rq_exc:
+                        print(
+                            "RFC_VERIFIABLE_DOCIFY_BATCH_"
+                            "RQ_STATE_ERROR =",
+                            repr(rq_exc),
+                            flush=True,
+                        )
+
+                    print(
+                        "RFC_VERIFIABLE_DOCIFY_BATCH_"
+                        "TRANSIENT_RETRY =",
+                        {
+                            "pid": __import__(
+                                "os"
+                            ).getpid(),
+                            "job_id":
+                                rq_job_id,
+                            "instance":
+                                instance_name,
+                            "group_jid":
+                                remote_jid,
+                            "forced_code":
+                                docify_batch_forced_code,
+                            "retries_left":
+                                retries_left,
+                            "providers":
+                                docify_batch_runtime,
+                        },
+                        flush=True,
+                    )
+
+                    if retries_left > 0:
+                        return {
+                            "ok": False,
+                            "error": (
+                                "verifiable_provider_"
+                                "transient_unavailable"
+                            ),
+                            "forced_code":
+                                docify_batch_forced_code,
+                            "retries_left":
+                                retries_left,
+                        }
+
+                # Si ya no quedan retries o no es
+                # DOCIFY MX, conserva comportamiento
+                # normal.
                 if _claim_batch_global_notice(
                     batch_child=batch_child,
                     batch_parent_msg_id=batch_parent_msg_id,
@@ -7018,31 +7185,17 @@ async def evolution_rfc_webhook(request: Request):
                     try:
                         send_text(
                             remote_jid,
-                            _client_status_message(
-                            title="⚠️ RFC verificable no disponible",
-                            requester_label=requester_label,
-                            query_type="RFC_VERIFICABLE",
-                            data_override=(
-                                f"{batch_type_total} SOLICITUDES"
-                                if (
-                                    batch_child
-                                    and batch_type_total > 1
-                                )
-                                else original_identifier
+                            (
+                                "⚠️ El servicio RFC verificable "
+                                "está desactivado temporalmente "
+                                "para este grupo."
                             ),
-                            body=(
-                                "No hay proveedores RFC verificables "
-                                "disponibles en este momento."
-                            ),
-                            family="service",
-                            status="INACTIVO",
-                        ),
                             instance_name=instance_name,
                             fast=True,
                         )
                     except Exception:
                         pass
-            
+
                 return {
                     "ok": False,
                     "error": (
@@ -7050,7 +7203,7 @@ async def evolution_rfc_webhook(request: Request):
                         "not_available"
                     ),
                 }
-            
+
             provider_code = (
                 selected_provider["code"]
             )
@@ -7061,19 +7214,19 @@ async def evolution_rfc_webhook(request: Request):
                 )
                 or "AUTO"
             )
-            
+
             provider_db_name = (
                 selected_provider["db_name"]
             )
-            
+
             provider_name = (
                 selected_provider["name"]
             )
-            
+
             provider_group_jid = (
                 selected_provider["group_jid"]
             )
-            
+
             provider_instance_name = (
                 selected_provider[
                     "instance_name"
@@ -7083,15 +7236,15 @@ async def evolution_rfc_webhook(request: Request):
             provider_query_type = (
                 original_query_type
             )
-            
+
             provider_identifier = (
                 original_identifier
             )
-            
+
             provider_text = (
                 original_identifier
             )
-            
+
             provider_uses_rfc_converter = (
                 _verifiable_provider_uses_rfc_converter(
                     db,
@@ -7125,7 +7278,7 @@ async def evolution_rfc_webhook(request: Request):
                 },
                 flush=True,
             )
-            
+
             if must_convert_curp_to_rfc:
                 try:
                     provider_identifier = (
@@ -7133,15 +7286,15 @@ async def evolution_rfc_webhook(request: Request):
                             original_identifier
                         )
                     )
-            
+
                     provider_query_type = (
                         "RFC_ONLY"
                     )
-            
+
                     provider_text = (
                         provider_identifier
                     )
-            
+
                     print(
                         "[VERIFIABLE_PROVIDER_"
                         "CURP_CONVERTED_TO_RFC]",
@@ -7161,7 +7314,7 @@ async def evolution_rfc_webhook(request: Request):
                         },
                         flush=True,
                     )
-            
+
                 except Exception as conversion_exc:
                     # Esta solicitud NO llegó al proveedor.
                     # Por lo tanto debe poder reintentarse
@@ -7298,7 +7451,7 @@ async def evolution_rfc_webhook(request: Request):
                         "ok": False,
                         "error": error_code,
                     }
-                
+
             pending_payload = {
                 "normal_request_key": (
                     command_key
@@ -7378,17 +7531,17 @@ async def evolution_rfc_webhook(request: Request):
                     command_key,
                     pending_payload,
                 )
-            
+
             except Exception as pending_exc:
                 try:
                     redis_conn.delete(
                         inflight_key
                     )
-            
+
                     redis_conn.delete(
                         verifiable_processing_key
                     )
-            
+
                 except Exception as cleanup_exc:
                     print(
                         "RFC_VERIFIABLE_PENDING_"
@@ -7405,7 +7558,7 @@ async def evolution_rfc_webhook(request: Request):
                         },
                         flush=True,
                     )
-            
+
                 print(
                     "RFC_VERIFIABLE_PENDING_"
                     "SAVE_ERROR =",
@@ -7427,7 +7580,7 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-            
+
                 try:
                     send_text(
                         remote_jid,
@@ -7447,10 +7600,10 @@ async def evolution_rfc_webhook(request: Request):
                         instance_name=instance_name,
                         fast=True,
                     )
-            
+
                 except Exception:
                     pass
-            
+
                 return {
                     "ok": False,
                     "error": (
@@ -7657,19 +7810,19 @@ async def evolution_rfc_webhook(request: Request):
                         provider_instance_name
                     ),
                 )
-            
+
                 provider_message_id = (
                     _extract_sent_message_id(
                         provider_response
                     )
                 )
-            
+
                 if not provider_message_id:
                     raise RuntimeError(
                         "VERIFIABLE_PROVIDER_"
                         "MESSAGE_ID_EMPTY"
                     )
-            
+
             except Exception as provider_send_exc:
                 try:
                     _release_verifiable_pre_reservation(
@@ -7692,15 +7845,15 @@ async def evolution_rfc_webhook(request: Request):
                 redis_conn.delete(
                     inflight_key
                 )
-            
+
                 redis_conn.delete(
                     verifiable_processing_key
                 )
-            
+
                 finish_pending(
                     command_key
                 )
-            
+
                 print(
                     "RFC_VERIFIABLE_PROVIDER_"
                     "SEND_ERROR =",
@@ -7723,7 +7876,7 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-            
+
                 try:
                     send_text(
                         remote_jid,
@@ -7745,7 +7898,7 @@ async def evolution_rfc_webhook(request: Request):
                     )
                 except Exception:
                     pass
-            
+
                 return {
                     "ok": False,
                     "error": (
@@ -7757,18 +7910,18 @@ async def evolution_rfc_webhook(request: Request):
             pending_payload[
                 "provider_message_id"
             ] = provider_message_id
-            
+
             try:
                 associate_provider_message(
                     command_key,
                     provider_message_id,
                 )
-            
+
                 save_pending(
                     command_key,
                     pending_payload,
                 )
-            
+
             except Exception as provider_state_exc:
                 print(
                     "RFC_VERIFIABLE_PROVIDER_"
@@ -7790,7 +7943,7 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-            
+
                 # No eliminar el pendiente.
                 # El proveedor sí recibió la solicitud.
 
@@ -7891,7 +8044,7 @@ async def evolution_rfc_webhook(request: Request):
                 "rfc-verifiable-timeout:"
                 f"{command_key}"
             )
-            
+
             try:
                 request_queue.enqueue_in(
                     timedelta(
@@ -7915,7 +8068,7 @@ async def evolution_rfc_webhook(request: Request):
                         ],
                     ),
                 )
-            
+
                 print(
                     "RFC_VERIFIABLE_TIMEOUT_QUEUED =",
                     {
@@ -7927,7 +8080,7 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-            
+
             except Exception as timeout_enqueue_exc:
                 print(
                     "RFC_VERIFIABLE_TIMEOUT_"
@@ -7944,7 +8097,7 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-            
+
                 # El mensaje ya llegó al proveedor.
                 # No eliminar el pendiente ni mentir al cliente.
                 #
@@ -8085,12 +8238,12 @@ async def evolution_rfc_webhook(request: Request):
                 instance_name,
             )
         )
-        
+
         parsed_type = (
             parsed.get("type")
             or ""
         ).strip().upper()
-        
+
         is_clon_request = (
             parsed_type
             in {
@@ -8098,7 +8251,7 @@ async def evolution_rfc_webhook(request: Request):
                 "RFC_ONLY",
             }
         )
-        
+
         is_idcif_request = (
             parsed_type
             in {
@@ -8108,7 +8261,7 @@ async def evolution_rfc_webhook(request: Request):
                 "DOCUMENT",
             }
         )
-        
+
         if (
             is_clon_request
             and not group_service[
@@ -8125,7 +8278,7 @@ async def evolution_rfc_webhook(request: Request):
                 },
                 flush=True,
             )
-        
+
             if _claim_batch_global_notice(
                 batch_child=batch_child,
                 batch_parent_msg_id=batch_parent_msg_id,
@@ -8168,13 +8321,13 @@ async def evolution_rfc_webhook(request: Request):
                         repr(send_exc),
                         flush=True,
                     )
-        
+
             return {
                 "ok": True,
                 "ignored":
                     "group_clon_disabled",
             }
-        
+
         if (
             is_idcif_request
             and not group_service[
@@ -8191,7 +8344,7 @@ async def evolution_rfc_webhook(request: Request):
                 },
                 flush=True,
             )
-        
+
             if _claim_batch_global_notice(
                 batch_child=batch_child,
                 batch_parent_msg_id=batch_parent_msg_id,
@@ -8234,7 +8387,7 @@ async def evolution_rfc_webhook(request: Request):
                         repr(send_exc),
                         flush=True,
                     )
-        
+
             return {
                 "ok": True,
                 "ignored":
@@ -8322,11 +8475,11 @@ async def evolution_rfc_webhook(request: Request):
                 },
                 flush=True,
             )
-        
+
             duplicate_notice_key = (
                 f"rfc:duplicate_notice:{command_key}"
             )
-        
+
             if redis_conn.set(
                 duplicate_notice_key,
                 "1",
@@ -8381,14 +8534,14 @@ async def evolution_rfc_webhook(request: Request):
                         instance_name=instance_name,
                         fast=True,
                     )
-        
+
                 except Exception as duplicate_notice_exc:
                     print(
                         "RFC_DUPLICATE_NOTICE_SEND_ERROR =",
                         repr(duplicate_notice_exc),
                         flush=True,
                     )
-        
+
             return {
                 "ok": True,
                 "ignored": "already_processing",
@@ -8439,10 +8592,10 @@ async def evolution_rfc_webhook(request: Request):
                     interval=[15, 45, 120],
                 ),
             )
-        
+
         except Exception as enqueue_exc:
             error_text = str(enqueue_exc).lower()
-        
+
             if (
                 "already exists" in error_text
                 or "already exists in" in error_text
@@ -8456,17 +8609,17 @@ async def evolution_rfc_webhook(request: Request):
                     },
                     flush=True,
                 )
-        
+
                 return {
                     "ok": True,
                     "ignored": "already_processing",
                     "job_id": rq_job_id,
                 }
-        
+
             # Si realmente no se creó el job,
             # no debemos dejar la solicitud bloqueada.
             redis_conn.delete(inflight_key)
-        
+
             print(
                 "RFC_JOB_ENQUEUE_ERROR =",
                 {
@@ -8476,9 +8629,9 @@ async def evolution_rfc_webhook(request: Request):
                 },
                 flush=True,
             )
-        
+
             raise
-        
+
         print(
             "RFC_JOB_QUEUED =",
             {

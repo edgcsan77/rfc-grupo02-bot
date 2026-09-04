@@ -419,7 +419,7 @@ def _set_bot_verifiable_provider_code(
         ),
         code,
     )
-    
+
 
 BOT_PROVIDER_MODE_KEY_PREFIX = "BOT_PROVIDER_MODE:"
 DEFAULT_BOT_PROVIDER_MODE = {
@@ -543,7 +543,7 @@ def should_notify_done(group_id: str | None) -> bool:
     if not group_id:
         return True
     return group_id not in NO_DONE_NOTIFY_GROUPS
-    
+
 
 def should_send_extra_text(group_id: str | None) -> bool:
     if not group_id:
@@ -739,15 +739,15 @@ def _bot_status_rows_uncached(db: Session) -> list[dict]:
             db.query(RequestLog)
             .filter(RequestLog.instance_name == inst)
         )
-        
+
         personal_provider = _personal_provider_filter_for_instance(db, inst)
         if personal_provider:
             q_total = _exclude_private_provider_query(q_total, db, inst)
-        
+
         total = q_total.count()
 
         used = get_bot_used(db, inst)
-        
+
         limit_value = get_bot_limit(db, inst)
         blocked = is_instance_blocked(inst)
         # DESACTIVADO: no consultar Evolution por cada bot al cargar panel; saturaba Evolution y hacía lento webhook/sendText
@@ -887,9 +887,9 @@ def panel_create_bot(
             .all()
         )
     }
-    
+
     visible_static_count = len(static_bots - hidden_static)
-    
+
     active_dynamic = (
         db.query(BotControl)
         .filter(
@@ -898,7 +898,7 @@ def panel_create_bot(
         )
         .count()
     )
-    
+
     total = visible_static_count + active_dynamic
 
     if total >= 21:
@@ -1175,7 +1175,7 @@ def hide_group_from_bot_panel(db: Session, group_jid: str, instance_name: str):
     if row and (row.owner_instance or "").strip() == (instance_name or "").strip():
         row.owner_instance = None
     db.commit()
-    
+
 
 def _is_child_bot(instance_name: str) -> bool:
     inst = (instance_name or "").strip().lower()
@@ -2144,10 +2144,10 @@ def _panel_error_bucket(error_message: str | None, status: str | None = None) ->
 
     if "CUENTA_INEXISTENTE" in up:
         return "Cuenta del origen inexistente/inválida"
-    
+
     if "FRAME_FAILED" in up:
         return "Falla en marco/consulta secundaria del origen"
-    
+
     if "FOLIO_DOWNLOAD_FAILED" in up:
         return "Falló descarga de folio del origen"
 
@@ -2223,7 +2223,7 @@ def _provider_accounting_data(
             err_txt.ilike("%NO HAY REGISTRO%"),
             err_txt.ilike("%NO HAY REGISTROS%"),
             err_txt.ilike("%ACTA NO LOCALIZADA%"),
-    
+
             # Respuestas mal escritas de orígenes WhatsApp:
             err_txt.op("~")(
                 "[A-Z]{4}[0-9]{6}[HM][A-Z]{5}[A-Z0-9][0-9].*[[:space:]]SIN([[:space:][:punct:]]|$)"
@@ -2962,7 +2962,7 @@ def botpanel_audit_all_groups(
     totals = {
         "total": len(rows),
         "done": sum(1 for r in rows if r.status == "DONE"),
-    
+
         "clon": sum(
             1 for r in rows
             if _rfc_request_family(getattr(r, "act_type", "")) == "CLON"
@@ -2978,7 +2978,7 @@ def botpanel_audit_all_groups(
                 getattr(r, "act_type", "")
             ) == "VERIFICABLE"
         ),
-    
+
         "done_clon": sum(
             1 for r in rows
             if r.status == "DONE"
@@ -3099,20 +3099,20 @@ def botpanel_audit_all_groups(
 
         item = daily_cut_map[day_key]
         item["total"] += 1
-        
+
         st = (r.status or "").upper()
         family = _rfc_request_family(getattr(r, "act_type", ""))
-        
+
         if family == "CLON":
             item["clon"] += 1
         elif family == "IDCIF":
             item["idcif"] += 1
         elif family == "VERIFICABLE":
             item["verificable"] += 1
-        
+
         if st == "DONE":
             item["done"] += 1
-        
+
             if family == "CLON":
                 item["done_clon"] += 1
             elif family == "IDCIF":
@@ -3146,11 +3146,11 @@ def botpanel_audit_all_groups(
                 ),
                 "total": 0,
                 "done": 0,
-        
+
                 "clon": 0,
                 "idcif": 0,
                 "verificable": 0,
-        
+
                 "done_clon": 0,
                 "done_idcif": 0,
                 "done_verificable": 0,
@@ -3161,21 +3161,21 @@ def botpanel_audit_all_groups(
 
         item = by_group[gid]
         item["total"] += 1
-        
+
         family = _rfc_request_family(getattr(r, "act_type", ""))
-        
+
         if family == "CLON":
             item["clon"] += 1
-        
+
         elif family == "IDCIF":
             item["idcif"] += 1
-        
+
         elif family == "VERIFICABLE":
             item["verificable"] += 1
-        
+
         if r.status == "DONE":
             item["done"] += 1
-        
+
             if family == "CLON":
                 item["done_clon"] += 1
             elif family == "IDCIF":
@@ -3490,7 +3490,7 @@ def botpanel_audit_all_groups(
 
         <div class="box">
           <h3>Resumen por grupo</h3>
-          
+
           <table>
             <thead>
               <tr>
@@ -3559,14 +3559,14 @@ def botpanel_audit_all_groups(
         for r in rows:
             local_created = _to_panel_tz(r.created_at)
             hora_envio = local_created.strftime("%Y-%m-%d %H:%M:%S") if local_created else ""
-            
+
             hora_recibido = ""
             tiempo_total = ""
-            
+
             if r.status == "DONE" and r.created_at and r.updated_at:
                 local_updated = _to_panel_tz(r.updated_at)
                 hora_recibido = local_updated.strftime("%Y-%m-%d %H:%M:%S") if local_updated else ""
-            
+
                 try:
                     tiempo_total = _fmt_duration_seconds((r.updated_at - r.created_at).total_seconds())
                 except Exception:
@@ -3622,7 +3622,7 @@ def botpanel_audit_all_groups(
           </table>
         </div>
       </div>
-      
+
     <script>
       async function downloadPdf(token, requestId) {
         try {
@@ -3717,7 +3717,7 @@ def panel_instances(db: Session = Depends(get_db)):
         used = credit["used"]
         limit_value = credit["limit"]
         blocked = is_instance_blocked(name)
-        
+
         items.append({
             "instance_name": name,
             "total_requests": int(total or 0),
@@ -3859,7 +3859,7 @@ async def panel_recharge_instance(instance_name: str, request: Request, db: Sess
         "blocked": is_instance_blocked(instance_name),
     }
 
-    
+
 @app.post("/panel/groups/manual-add")
 async def panel_manual_add_group(request: Request, db: Session = Depends(get_db)):
     try:
@@ -3926,7 +3926,7 @@ async def panel_manual_add_group(request: Request, db: Session = Depends(get_db)
         "custom_name": alias_row.custom_name,
         "category": category,
     }
-    
+
 
 @app.post("/cron/provider3/keepalive")
 def cron_provider3_keepalive(request: Request):
@@ -4220,7 +4220,7 @@ def _query_requests_for_panel(
         q = q.filter(RequestLog.act_type.ilike(f"%{act_type.strip()}%"))
 
     return q
-    
+
 
 def _panel_summary_from_rows(rows: list[RequestLog]) -> dict:
     out = {
@@ -4269,7 +4269,7 @@ def _panel_group_rows(
     def _is_hidden_group(gid: str, name: str) -> bool:
         if gid in HIDDEN_PANEL_GROUPS:
             return True
-    
+
         name_up = (name or "").strip().upper()
         excluded_words = (
             "PROV",
@@ -4284,19 +4284,19 @@ def _panel_group_rows(
         for gid in (set(GROUP_NAME_MAP.keys()) | set(group_cache.keys())):
             gid = gid or "PRIVADO"
             group_name = _group_name_cached(gid, group_cache)
-    
+
             if gid in HIDDEN_PANEL_GROUPS:
                 continue
-    
+
             row = db.query(AuthorizedGroup).filter_by(group_jid=gid).first()
             owner = (row.owner_instance or "").strip() if row else ""
 
             if gid != "PRIVADO" and owner and owner != "grupo02":
                 continue
-            
+
             if gid != "PRIVADO" and not owner and _is_hidden_panel_group(gid, group_name):
                 continue
-    
+
             data[gid] = {
                 "group_jid": gid,
                 "group_name": group_name,
@@ -4511,10 +4511,10 @@ def _panel_detail_for_group(
     view = (view or "day").strip().lower()
 
     time_min, time_max, view = _panel_period_bounds(view, date_from, date_to)
-    
+
     local_start = _to_panel_tz(time_min)
     local_end = _to_panel_tz(time_max)
-    
+
     if not local_start or not local_end:
         now_local = _panel_now()
         local_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -4774,7 +4774,7 @@ def panel_audit_group(
         if is_last_day or next_day_diff_week:
             week_rows = weekly[(w_start, w_end)]
             count_week = len(week_rows)
-            
+
             html += f"""
             <tr class="weekly-row">
               <td>CORTE SEMANAL</td>
@@ -4997,7 +4997,7 @@ async def panel_recent_requests_stream():
             "X-Accel-Buffering": "no",
         },
     )
-    
+
 
 @app.get("/panel/recent-requests")
 def panel_recent_requests(
@@ -5151,19 +5151,19 @@ def panel_remove_shared_promotion(
         row.total_actas = 0
         row.clon_total = 0
         row.clon_used = 0
-        
+
         row.idcif_total = 0
         row.idcif_used = 0
-        
+
         row.verifiable_total = 0
         row.verifiable_used = 0
-        
+
         row.price_per_verifiable = None
-        
+
         row.shared_group_limit_verifiable = (
             None
         )
-        
+
         row.shared_group_used_verifiable = 0
         row.promo_name = ""
         row.price_per_piece = ""
@@ -5220,7 +5220,7 @@ def panel_set_shared_group_limit(
             payload.get("limit_RFC"),
             field_name="LIMIT_RFC",
         )
-    
+
         limit_verifiable = (
             _safe_nonnegative_int(
                 payload.get(
@@ -5230,7 +5230,7 @@ def panel_set_shared_group_limit(
                     "LIMIT_VERIFIABLE",
             )
         )
-    
+
     except ValueError as exc:
         return _payload_value_error(exc)
 
@@ -5282,19 +5282,19 @@ def panel_set_shared_group_limit(
 
     try:
         lines = []
-    
+
         if limit_RFC > 0:
             lines.append(
                 "🔢 Límite CLON/IDCIF: "
                 f"*{limit_RFC} RFC*"
             )
-    
+
         if limit_verifiable > 0:
             lines.append(
                 "✅ Límite verificable: "
                 f"*{limit_verifiable} RFC*"
             )
-    
+
         if lines:
             msg = (
                 "📦 *Actualización de "
@@ -5314,12 +5314,12 @@ def panel_set_shared_group_limit(
                 "Se eliminaron los límites "
                 "individuales de este grupo."
             )
-    
+
         send_group_text(
             group_jid,
             msg,
         )
-    
+
     except Exception as e:
         print(
             "PROMO_LIMIT_NOTIFY_ERROR:",
@@ -5358,7 +5358,7 @@ def panel_apply_shared_promotion(
         )
         or ""
     ).strip()
-    
+
     client_key = (payload.get("client_key") or "").strip().upper()
     shared_key = (payload.get("shared_key") or "").strip().upper()
     try:
@@ -5366,12 +5366,12 @@ def panel_apply_shared_promotion(
             payload.get("clon_total"),
             field_name="CLON_TOTAL",
         )
-    
+
         idcif_total = _safe_nonnegative_int(
             payload.get("idcif_total"),
             field_name="IDCIF_TOTAL",
         )
-    
+
         verifiable_total = (
             _safe_nonnegative_int(
                 payload.get(
@@ -5381,7 +5381,7 @@ def panel_apply_shared_promotion(
                     "VERIFIABLE_TOTAL",
             )
         )
-    
+
         price_per_verifiable = (
             _optional_nonnegative_decimal(
                 payload.get(
@@ -5391,16 +5391,16 @@ def panel_apply_shared_promotion(
                     "PRICE_PER_VERIFIABLE",
             )
         )
-    
+
     except ValueError as exc:
         return _payload_value_error(exc)
-    
+
     total_actas = (
         clon_total
         + idcif_total
         + verifiable_total
     )
-    
+
     # Compatibilidad con formulario viejo
     if total_actas <= 0:
         try:
@@ -5414,7 +5414,7 @@ def panel_apply_shared_promotion(
             )
         except ValueError as exc:
             return _payload_value_error(exc)
-    
+
         clon_total = total_actas
         idcif_total = 0
         verifiable_total = 0
@@ -5425,12 +5425,12 @@ def panel_apply_shared_promotion(
             payload.get("credit_abono"),
             field_name="CREDIT_ABONO",
         )
-    
+
         credit_debe = _safe_nonnegative_int(
             payload.get("credit_debe"),
             field_name="CREDIT_DEBE",
         )
-    
+
         shared_group_limit_RFC = (
             _safe_nonnegative_int(
                 payload.get(
@@ -5440,7 +5440,7 @@ def panel_apply_shared_promotion(
                     "SHARED_GROUP_LIMIT_RFC",
             )
         )
-    
+
     except ValueError as exc:
         return _payload_value_error(exc)
 
@@ -5513,7 +5513,7 @@ def panel_apply_shared_promotion(
             row.verifiable_total = (
                 verifiable_total
             )
-            
+
             row.verifiable_used = 0
 
             row.shared_group_limit_verifiable = None
@@ -5553,7 +5553,7 @@ def panel_apply_shared_promotion(
     try:
         promo_label = promo_name or "paquete promocional"
         tipo_label = "crédito" if is_credit else "pagada"
-        
+
         used_total = max((int(r.used_actas or 0) for r in rows), default=0)
         available = max(0, int(total_actas or 0) - used_total)
 
@@ -5825,7 +5825,7 @@ def panel_add_group_to_shared_promotion(
                 0,
             )
             or 0
-        ) 
+        )
         row.verifiable_used = int(
             getattr(
                 leader,
@@ -6012,7 +6012,7 @@ def panel_add_group_to_shared_promotion(
         "used_actas": leader.used_actas,
         "available": max(0, int(leader.total_actas or 0) - int(leader.used_actas or 0)),
     }
-    
+
 
 def _is_credit_promotion(row: GroupPromotion) -> bool:
     return bool(row.is_credit)
@@ -6603,9 +6603,9 @@ def remove_group_from_shared_promotion(
 
     row.verifiable_total = 0
     row.verifiable_used = 0
-    
+
     row.price_per_verifiable = None
-    
+
     row.shared_group_limit_verifiable = None
     row.shared_group_used_verifiable = 0
 
@@ -6887,7 +6887,7 @@ def panel_group_detail(
         if promo
         else 0
     )
-    
+
     promo_verifiable_used = (
         int(
             getattr(
@@ -6900,13 +6900,13 @@ def panel_group_detail(
         if promo
         else 0
     )
-    
+
     promo_verifiable_available = max(
         0,
         promo_verifiable_total
         - promo_verifiable_used,
     )
-    
+
     promo_price_verifiable = (
         str(
             getattr(
@@ -6967,7 +6967,7 @@ def panel_group_detail(
 
     clon_price_num = _get_group_RFC_price(db, group_jid)
     idcif_price_num = _get_group_IDCIF_price(db, group_jid)
-    
+
     # compatibilidad por si alguna parte vieja todavía usa RFC_price_num
     RFC_price_num = clon_price_num
 
@@ -6992,7 +6992,7 @@ def panel_group_detail(
 
     local_start = _to_panel_tz(time_min)
     local_end = _to_panel_tz(time_max)
-    
+
     if not local_start or not local_end:
         now_local = _panel_now()
         local_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -7021,36 +7021,36 @@ def panel_group_detail(
     for created_at, status_value, act_type_value in rows:
         if not created_at:
             continue
-    
+
         local_dt = _to_panel_tz(created_at)
         day_str = local_dt.strftime("%Y-%m-%d")
-    
+
         if day_str not in days:
             continue
-    
+
         item = days[day_str]
         item["total"] += 1
-    
+
         st = (status_value or "").upper()
         family = _rfc_request_family(act_type_value)
-    
+
         if family == "CLON":
             item["clon"] += 1
         elif family == "IDCIF":
             item["idcif"] += 1
         elif family == "VERIFICABLE":
             item["verifiable"] += 1
-    
+
         if st == "DONE":
             item["done"] += 1
-    
+
             if family == "CLON":
                 item["done_clon"] += 1
             elif family == "IDCIF":
                 item["done_idcif"] += 1
             elif family == "VERIFICABLE":
                 item["done_verifiable"] += 1
-    
+
         elif st == "ERROR":
             item["error"] += 1
         elif st == "QUEUED":
@@ -7372,16 +7372,16 @@ def panel_group_detail(
             </div>
 
             <div style="display:flex;align-items:end;gap:10px;">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 class="btn btn-primary"
                 style="flex:1;white-space:nowrap;"
                 onclick="saveGroupName('{group_jid}')">
                 Guardar nombre
               </button>
-            
-              <button 
-                type="button" 
+
+              <button
+                type="button"
                 class="btn btn-warning"
                 style="flex:1;white-space:nowrap;"
                 onclick="pingGroup('{group_jid}')">
@@ -7397,7 +7397,7 @@ def panel_group_detail(
       <div class="card-title">
         Servicios habilitados para el grupo
       </div>
-    
+
       <div class="service-status-grid">
         <div class="service-status-item">
           <span
@@ -7407,7 +7407,7 @@ def panel_group_detail(
           >
             {clon_status_text}
           </span>
-    
+
           <button
             type="button"
             class="btn {
@@ -7426,7 +7426,7 @@ def panel_group_detail(
             {clon_button_text}
           </button>
         </div>
-    
+
         <div class="service-status-item">
           <span
             class="service-badge {
@@ -7435,7 +7435,7 @@ def panel_group_detail(
           >
             {idcif_status_text}
           </span>
-    
+
           <button
             type="button"
             class="btn {
@@ -7454,7 +7454,7 @@ def panel_group_detail(
             {idcif_button_text}
           </button>
         </div>
-    
+
         <div class="service-status-item">
           <span
             class="service-badge {
@@ -7463,7 +7463,7 @@ def panel_group_detail(
           >
             {verifiable_status_text}
           </span>
-    
+
           <button
             type="button"
             class="btn {
@@ -7489,7 +7489,7 @@ def panel_group_detail(
     html += f"""
         <div class="box">
           <div class="head"><strong>Categoría del grupo</strong></div>
-        
+
           <div class="filters" style="grid-template-columns: minmax(0, 1fr) 220px 220px;">
             <div>
               <div class="small">Categoría actual</div>
@@ -7499,13 +7499,13 @@ def panel_group_detail(
                 <option value="otro" {"selected" if group_category == "otro" else ""}>Otro</option>
               </select>
             </div>
-        
+
             <div style="display:flex;align-items:end;">
               <button type="button" class="btn btn-primary" style="width:100%;" onclick="saveGroupCategory('{group_jid}')">
                 Guardar categoría
               </button>
             </div>
-        
+
             <div style="display:flex;align-items:end;">
               <button type="button" class="btn btn-danger" style="width:100%;" onclick="removeGroupCategory('{group_jid}')">
                 Quitar categoría
@@ -7584,11 +7584,11 @@ def panel_group_detail(
         )
         else ""
     )
-    
+
     html += f"""
         <div class="box">
           <div class="head"><strong>Bolsa RFC del grupo</strong></div>
-    
+
           <div class="filters" style="grid-template-columns: repeat(5, minmax(0, 1fr));">
             <div>
               <div class="small">Estado</div>
@@ -7607,13 +7607,13 @@ def panel_group_detail(
               <div style="margin-top:8px;font-weight:800;">
                 CLON:
                 {promo_clon_used}/{promo_clon_total}<br>
-            
+
                 IDCIF:
                 {promo_idcif_used}/{promo_idcif_total}<br>
-            
+
                 VERIF.:
                 {promo_verifiable_used}/{promo_verifiable_total}<br>
-            
+
                 Total disp.:
                 {promo_available}
               </div>
@@ -7623,13 +7623,13 @@ def panel_group_detail(
               <div style="margin-top:8px;font-weight:800;">{promo_price or 'N/D'}</div>
             </div>
           </div>
-    
+
           <div class="filters promo-main-grid">
             <div>
               <div class="small">Nombre de bolsa RFC</div>
               <input id="promo_name" placeholder="" value="{promo_name}">
             </div>
-        
+
             <div>
               <div class="small">Tipo</div>
               <select id="promo_type">
@@ -7637,12 +7637,12 @@ def panel_group_detail(
                 <option value="credit" {"selected" if promo_is_credit else ""}>Crédito</option>
               </select>
             </div>
-        
+
             <div>
               <div class="small">Total CLON</div>
               <input id="promo_clon_total" placeholder="" type="number" min="0" value="{promo_clon_total if promo_clon_total else ''}">
             </div>
-            
+
             <div>
               <div class="small">Total IDCIF</div>
               <input id="promo_idcif_total" placeholder="" type="number" min="0" value="{promo_idcif_total if promo_idcif_total else ''}">
@@ -7652,7 +7652,7 @@ def panel_group_detail(
               <div class="small">
                 Total verificables
               </div>
-            
+
               <input
                 id="promo_verifiable_total"
                 type="number"
@@ -7664,19 +7664,19 @@ def panel_group_detail(
                 }"
               >
             </div>
-          
+
             <div>
               <div class="small">Precio por pieza</div>
               <input id="promo_price" placeholder="" value="{promo_price}">
             </div>
-        
+
             <div>
               <div class="small">Abono</div>
               <input id="promo_credit_abono" type="number" min="0"
               value="{promo_credit_abono if promo_is_credit else ''}"
               placeholder="N/A">
             </div>
-        
+
             <div>
               <div class="small">Debe</div>
               <input id="promo_credit_debe" type="number" min="0"
@@ -7684,13 +7684,13 @@ def panel_group_detail(
               placeholder="N/A">
             </div>
           </div>
-    
+
           <div class="promo-actions">
             {save_promo_btn}
             {remove_promo_btn}
             {shared_remove_btn}
           </div>
-    
+
           <div class="filters limit-grid">
             <div>
               <div class="small">Límite individual dentro de bolsa compartida</div>
@@ -7704,7 +7704,7 @@ def panel_group_detail(
                 Límite verificable dentro
                 de bolsa compartida
               </div>
-            
+
               <input
                 id="shared_group_limit_verifiable"
                 type="number"
@@ -7718,14 +7718,14 @@ def panel_group_detail(
                 }"
               >
             </div>
-    
+
             <div style="display:flex;align-items:end;">
               <button type="button" class="btn btn-primary" style="width:100%;" onclick="setSharedGroupLimit('{group_jid}')">
                 Guardar límite
               </button>
             </div>
           </div>
-    
+
           <div class="filters recharge-grid">
             <select id="promo_recharge_family">
               <option value="CLON">Recargar CLON</option>
@@ -7743,26 +7743,26 @@ def panel_group_detail(
     html += f"""
         <div class="box">
           <div class="head"><strong>Precios de RFC</strong></div>
-          
+
           <div class="filters price-grid">
             <div>
               <div class="small">Precio por CLON</div>
-              <input 
-                id="RFC_price" 
-                type="number" 
-                step="0.01" 
-                min="0" 
+              <input
+                id="RFC_price"
+                type="number"
+                step="0.01"
+                min="0"
                 value="{clon_price_num}"
               >
             </div>
 
             <div>
               <div class="small">Precio por IDCIF</div>
-              <input 
-                id="IDCIF_price" 
-                type="number" 
-                step="0.01" 
-                min="0" 
+              <input
+                id="IDCIF_price"
+                type="number"
+                step="0.01"
+                min="0"
                 value="{idcif_price_num}"
               >
             </div>
@@ -7771,7 +7771,7 @@ def panel_group_detail(
               <div class="small">
                 Precio por verificable
               </div>
-            
+
               <input
                 id="VERIFIABLE_price"
                 type="number"
@@ -7780,22 +7780,22 @@ def panel_group_detail(
                 value="{promo_price_verifiable}"
               >
             </div>
-    
+
             <div style="display:flex;align-items:end;">
-              <button 
-                type="button" 
-                class="btn btn-primary" 
-                style="width:100%;" 
+              <button
+                type="button"
+                class="btn btn-primary"
+                style="width:100%;"
                 onclick="saveRFCPrice('{group_jid}')">
                 Guardar CLON
               </button>
             </div>
 
             <div style="display:flex;align-items:end;">
-              <button 
-                type="button" 
-                class="btn btn-primary" 
-                style="width:100%;" 
+              <button
+                type="button"
+                class="btn btn-primary"
+                style="width:100%;"
                 onclick="saveIDCIFPrice('{group_jid}')">
                 Guardar IDCIF
               </button>
@@ -7856,11 +7856,11 @@ def panel_group_detail(
     weekly_verifiable_amount = 0.0
     weekly_amount = 0.0
     weekly_start = None
-    
+
     for r in detail["rows"]:
         if weekly_start is None:
             weekly_start = r["date"]
-    
+
         weekly_total += r["total"]
         weekly_done += r["done"]
         weekly_clon += r["done_clon"]
@@ -7871,7 +7871,7 @@ def panel_group_detail(
         weekly_error += r["error"]
         weekly_queued += r["queued"]
         weekly_processing += r["processing"]
-        
+
         clon_amount = r["done_clon"] * clon_price_num
         idcif_amount = r["done_idcif"] * idcif_price_num
         verifiable_amount = (
@@ -7893,7 +7893,7 @@ def panel_group_detail(
         weekly_clon_amount += clon_amount
         weekly_idcif_amount += idcif_amount
         weekly_amount += done_amount
-    
+
         html += f"""
               <tr>
                 <td>{_esc(r["day_name"])}</td>
@@ -7918,10 +7918,10 @@ def panel_group_detail(
                 <td class="right"><b>${done_amount:,.2f}</b></td>
               </tr>
         """
-    
+
         is_sunday = r["day_name"].upper() == "DOMINGO"
         is_last_day = r == detail["rows"][-1]
-    
+
         if is_sunday or is_last_day:
             html += f"""
                   <tr class="weekly-row">
@@ -7944,14 +7944,14 @@ def panel_group_detail(
                           or 0
                       ):,.2f}
                     </td>
-                    
+
                     <td class="right">
                       ${weekly_verifiable_amount:,.2f}
                     </td>
                     <td class="right"><b>${weekly_amount:,.2f}</b></td>
                   </tr>
             """
-    
+
             weekly_total = 0
             weekly_done = 0
             weekly_clon = 0
@@ -7994,18 +7994,18 @@ def panel_group_detail(
                 <td class="right">
                   ${idcif_price_num:,.2f}
                 </td>
-                
+
                 <td class="right">
                   ${total_idcif_amount:,.2f}
                 </td>
-                
+
                 <td class="right">
                   ${float(
                       promo_price_verifiable
                       or 0
                   ):,.2f}
                 </td>
-                
+
                 <td class="right">
                   ${total_verifiable_amount:,.2f}
                 </td>
@@ -8027,16 +8027,16 @@ def panel_group_detail(
               idcif: "IDCIF",
               verifiable: "Verificables"
             }};
-        
+
             const serviceLabel =
               labels[service] || service;
-        
+
             try {{
               const url =
                 "/panel/group/"
                 + encodeURIComponent(groupJid)
                 + "/service";
-        
+
               const response = await fetch(
                 url,
                 {{
@@ -8051,9 +8051,9 @@ def panel_group_detail(
                   }})
                 }}
               );
-        
+
               const data = await response.json();
-        
+
               if (!response.ok || !data.ok) {{
                 throw new Error(
                   data.detail
@@ -8061,9 +8061,9 @@ def panel_group_detail(
                   || "No se pudo guardar"
                 );
               }}
-        
+
               window.location.reload();
-        
+
             }} catch (error) {{
               alert(
                 "No se pudo actualizar "
@@ -8108,12 +8108,12 @@ def panel_group_detail(
 
           async function saveIDCIFPrice(groupJid) {{
             const price = document.getElementById("IDCIF_price")?.value?.trim() || "";
-        
+
             if (!price) {{
               alert("Ingresa el precio del IDCIF");
               return;
             }}
-        
+
             try {{
               const res = await fetch(`/panel/group/${{encodeURIComponent(groupJid)}}/IDCIF-price`, {{
                 method: "POST",
@@ -8124,9 +8124,9 @@ def panel_group_detail(
                   IDCIF_price: price
                 }})
               }});
-        
+
               const data = await res.json();
-        
+
               if (data.ok) {{
                 alert("Precio IDCIF guardado");
                 location.reload();
@@ -8150,14 +8150,14 @@ def panel_group_detail(
                 ?.trim()
               || ""
             );
-        
+
             if (price === "") {{
               alert(
                 "Ingresa el precio verificable"
               );
               return;
             }}
-        
+
             try {{
               const res = await fetch(
                 `/panel/group/${{
@@ -8174,9 +8174,9 @@ def panel_group_detail(
                   }})
                 }}
               );
-          
+
               const data = await res.json();
-        
+
               if (!data.ok) {{
                 alert(
                   data.error
@@ -8184,13 +8184,13 @@ def panel_group_detail(
                 );
                 return;
               }}
-         
+
               alert(
                 "Precio verificable guardado"
               );
-        
+
               location.reload();
-        
+
             }} catch (error) {{
               alert(
                 "No se pudo conectar "
@@ -8198,7 +8198,7 @@ def panel_group_detail(
               );
             }}
           }}
-          
+
           async function savePromotion(groupJid) {{
             const promoName = document.getElementById("promo_name")?.value?.trim() || "";
             const clonTotal = Number(
@@ -8241,10 +8241,10 @@ def panel_group_detail(
 
             const promoType = document.getElementById("promo_type")?.value || "paid";
             const isCredit = promoType === "credit";
-            
+
             let creditAbono = document.getElementById("promo_credit_abono")?.value?.trim() || "";
             let creditDebe = document.getElementById("promo_credit_debe")?.value?.trim() || "";
-            
+
             if (!isCredit) {{
               creditAbono = "0";
               creditDebe = "0";
@@ -8294,14 +8294,14 @@ def panel_group_detail(
           async function removeFromSharedPromotion(groupJid) {{
             const ok = confirm("¿Seguro que deseas sacar este grupo de la bolsa compartida?");
             if (!ok) return;
-        
+
             try {{
               const res = await fetch(`/panel/group/${{encodeURIComponent(groupJid)}}/shared-promotion/remove`, {{
                 method: "POST"
               }});
-        
+
               const data = await res.json();
-        
+
               if (data.ok) {{
                 alert(data.message || "Grupo eliminado de la bolsa compartida");
                 location.reload();
@@ -8315,7 +8315,7 @@ def panel_group_detail(
 
           async function saveGroupCategory(groupJid) {{
             const category = document.getElementById("group_category")?.value || "otro";
-        
+
             try {{
               const res = await fetch(`/panel/group/${{encodeURIComponent(groupJid)}}/category`, {{
                 method: "POST",
@@ -8324,9 +8324,9 @@ def panel_group_detail(
                 }},
                 body: JSON.stringify({{ category }})
               }});
-        
+
               const data = await res.json();
-        
+
               if (data.ok) {{
                 alert("Categoría guardada correctamente");
                 location.reload();
@@ -8337,17 +8337,17 @@ def panel_group_detail(
               alert("No se pudo conectar con el servidor");
             }}
           }}
-        
+
           async function removeGroupCategory(groupJid) {{
             if (!confirm("¿Quitar categoría de este grupo?")) return;
-        
+
             try {{
               const res = await fetch(`/panel/group/${{encodeURIComponent(groupJid)}}/category/remove`, {{
                 method: "POST"
               }});
-        
+
               const data = await res.json();
-        
+
               if (data.ok) {{
                 alert("Categoría eliminada");
                 location.reload();
@@ -8367,7 +8367,7 @@ def panel_group_detail(
                 ?.trim()
               || 0
             );
-        
+
             const limitVerifiable = Number(
               document
                 .getElementById(
@@ -8377,7 +8377,7 @@ def panel_group_detail(
                 ?.trim()
               || 0
             );
-        
+
             if (
               !Number.isInteger(limitRFC)
               || limitRFC < 0
@@ -8390,7 +8390,7 @@ def panel_group_detail(
               );
               return;
             }}
-        
+
             try {{
               const res = await fetch(
                 "/panel/promotions/set-group-limit",
@@ -8406,9 +8406,9 @@ def panel_group_detail(
                   }})
                 }}
               );
-        
+
               const data = await res.json();
-        
+
               if (!data.ok) {{
                 alert(
                   data.error
@@ -8416,10 +8416,10 @@ def panel_group_detail(
                 );
                 return;
               }}
-        
+
               alert("Límites actualizados correctamente");
               location.reload();
-        
+
             }} catch (error) {{
               alert("No se pudo conectar con el servidor");
             }}
@@ -8441,7 +8441,7 @@ def panel_group_detail(
                 abono.value = "";
               }}
             }}
-        
+
             if (debe) {{
               if (isCredit) {{
                 debe.disabled = false;
@@ -8519,7 +8519,7 @@ def panel_group_detail(
 
           async function pingGroup(groupJid) {{
             if (!confirm("¿Enviar ping a este grupo?")) return;
-        
+
             const res = await fetch("/panel/ping-group", {{
               method: "POST",
               headers: {{
@@ -8529,9 +8529,9 @@ def panel_group_detail(
                 group_jid: groupJid
               }})
             }});
-        
+
             const data = await res.json();
-          
+
             if (data.ok) {{
               alert("Ping enviado");
             }} else {{
@@ -8541,12 +8541,12 @@ def panel_group_detail(
 
           async function saveGroupName(groupJid) {{
             const customName = document.getElementById("group_custom_name")?.value?.trim() || "";
-        
+
             if (!customName) {{
               alert("Ingresa el nombre del grupo");
               return;
             }}
-        
+
             try {{
               const res = await fetch(`/panel/group/${{encodeURIComponent(groupJid)}}/name`, {{
                 method: "POST",
@@ -8557,9 +8557,9 @@ def panel_group_detail(
                   custom_name: customName
                 }})
               }});
-         
+
               const data = await res.json();
-        
+
               if (data.ok) {{
                 alert("Nombre guardado correctamente");
                 location.reload();
@@ -8636,7 +8636,7 @@ def _group_name(jid: str, db: Session | None = None):
         return GROUP_NAME_MAP[jid]
 
     return "Grupo sin nombre"
-    
+
 
 @app.get("/panel/api")
 def panel_api_RFC(
@@ -9184,7 +9184,7 @@ async def panel_broadcast_free(
         audio_base64 = _clean_audio_base64(payload.get("audio_base64") or "")
         target_category = (payload.get("category") or "all").strip().lower()
         selected_groups = payload.get("selected_groups") or []
-        
+
         if not message_text and not audio_base64:
             return {"ok": False, "error": "Mensaje/audio vacío"}
 
@@ -9382,7 +9382,7 @@ async def panel_broadcast_private_bots(
         message = (payload.get("message") or "").strip()
         audio_base64 = _clean_audio_base64(payload.get("audio_base64") or "")
         selected_instances = payload.get("selected_instances") or []
-        
+
         if not message and not audio_base64:
             return {"ok": False, "error": "Mensaje/audio vacío"}
 
@@ -9478,7 +9478,7 @@ def panel_private_bots_broadcast_progress(
         raw = raw.decode("utf-8", errors="ignore")
 
     return json.loads(raw)
-        
+
 
 def _promotion_summary_map(db: Session) -> dict[str, dict]:
     cache_key = "panel:promotion_summary_map:v1"
@@ -9521,20 +9521,20 @@ def _promotion_summary_map(db: Session) -> dict[str, dict]:
 
         total_actas = int(r.total_actas or 0)
         shared_key = (r.shared_key or "").strip()
-        
+
         if shared_key:
             shared_rows = [
                 x for x in rows
                 if (x.shared_key or "").strip() == shared_key
             ]
-        
+
             used_actas = max((int(x.used_actas or 0) for x in shared_rows), default=0)
-        
+
             if used_actas <= 0:
                 used_actas = sum(int(x.shared_group_used_actas or 0) for x in shared_rows)
         else:
             used_actas = int(r.used_actas or 0)
-        
+
         available = max(0, total_actas - used_actas)
         promo_name = (r.promo_name or "").strip()
 
@@ -9570,7 +9570,7 @@ def _promotion_summary_map(db: Session) -> dict[str, dict]:
     _cache_set_json(cache_key, out, ttl=15)
     return out
 
-                                                                                                        
+
 def _panel_cache_key(
     view: str,
     group_jid: str,
@@ -9591,12 +9591,12 @@ def _panel_cache_key(
         (act_type or "").strip(),
         (group_mode or "").strip(),
     ])
-                                                                                                        
+
 
 def _panel_delivery_metrics(db, time_min, time_max):
     try:
         maya_personal_provider = _personal_provider_filter_for_instance(db, "grupo02maya")
-    
+
         q = db.query(
             RequestLog.provider_processing_time,
             RequestLog.provider_to_webhook_lag_s,
@@ -9672,34 +9672,34 @@ def _bot_credit_stats(db: Session, instance_name: str):
             SELECT
                 COALESCE(clon_limit, 0)
                     AS clon_limit,
-        
+
                 COALESCE(clon_used, 0)
                     AS clon_used,
-        
+
                 COALESCE(idcif_limit, 0)
                     AS idcif_limit,
-        
+
                 COALESCE(idcif_used, 0)
                     AS idcif_used,
-        
+
                 COALESCE(verifiable_enabled, FALSE)
                     AS verifiable_enabled,
-        
+
                 COALESCE(verifiable_used, 0)
                     AS verifiable_used,
-        
+
                 COALESCE(sale_price_verifiable, 0)
                     AS sale_price_verifiable,
 
                 COALESCE(verifiable_limit, 0)
                     AS verifiable_limit,
-                
+
                 COALESCE(verifiable_recharges, 0)
                     AS verifiable_recharges,
-        
+
                 COALESCE(recharges, 0)
                     AS recharges
-        
+
             FROM bot_control
             WHERE instance_name = :instance_name
             LIMIT 1
@@ -9716,7 +9716,7 @@ def _bot_credit_stats(db: Session, instance_name: str):
                 "idcif_limit": 0,
                 "idcif_used": 0,
                 "idcif_available": 0,
-                
+
                 "verifiable_enabled": False,
                 "verifiable_used": 0,
                 "sale_price_verifiable": 0.0,
@@ -9737,12 +9737,12 @@ def _bot_credit_stats(db: Session, instance_name: str):
         verifiable_enabled = bool(
             row["verifiable_enabled"]
         )
-        
+
         verifiable_used = int(
             row["verifiable_used"]
             or 0
         )
-        
+
         sale_price_verifiable = float(
             row["sale_price_verifiable"]
             or 0
@@ -9752,7 +9752,7 @@ def _bot_credit_stats(db: Session, instance_name: str):
             row["verifiable_limit"]
             or 0
         )
-        
+
         verifiable_available = (
             max(
                 verifiable_limit
@@ -9770,7 +9770,7 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "clon_limit": clon_limit,
             "clon_used": clon_used,
             "clon_available": clon_available,
-            
+
             "idcif_limit": idcif_limit,
             "idcif_used": idcif_used,
             "idcif_available": idcif_available,
@@ -9778,11 +9778,11 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "verifiable_enabled": (
                 verifiable_enabled
             ),
-            
+
             "verifiable_used": (
                 verifiable_used
             ),
-            
+
             "sale_price_verifiable": (
                 sale_price_verifiable
             ),
@@ -9790,11 +9790,11 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "verifiable_limit": (
                 verifiable_limit
             ),
-            
+
             "verifiable_available": (
                 verifiable_available
             ),
-            
+
             "verifiable_recharges": int(
                 row["verifiable_recharges"]
                 or 0
@@ -9814,7 +9814,7 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "clon_limit": 0,
             "clon_used": 0,
             "clon_available": 0,
-            
+
             "idcif_limit": 0,
             "idcif_used": 0,
             "idcif_available": 0,
@@ -9827,7 +9827,7 @@ def _bot_credit_stats(db: Session, instance_name: str):
             "verifiable_recharges": 0,
 
             "recharges": 0,
-            
+
             "limit": 0,
             "used": 0,
             "available": 0,
@@ -9880,7 +9880,7 @@ def botpanel_set_group_service(
         enabled=enabled,
         expected_instance=instance_name,
     )
-        
+
 
 @app.post("/botpanel/{token}/group/{group_jid}/block")
 def panel_bot_block_group(token: str, group_jid: str, db: Session = Depends(get_db)):
@@ -10017,17 +10017,17 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
             )
             or ""
         ).strip()
-        
+
         clon_total = _safe_nonnegative_int(
             payload.get("clon_total"),
             field_name="CLON_TOTAL",
         )
-        
+
         idcif_total = _safe_nonnegative_int(
             payload.get("idcif_total"),
             field_name="IDCIF_TOTAL",
         )
-        
+
         verifiable_total = (
             _safe_nonnegative_int(
                 payload.get(
@@ -10037,7 +10037,7 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
                     "VERIFIABLE_TOTAL",
             )
         )
-        
+
         price_per_verifiable = (
             _optional_nonnegative_decimal(
                 payload.get(
@@ -10047,7 +10047,7 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
                     "PRICE_PER_VERIFIABLE",
             )
         )
-        
+
         total_actas = (
             clon_total
             + idcif_total
@@ -10072,10 +10072,10 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
         group = db.query(AuthorizedGroup).filter(
             AuthorizedGroup.group_jid == group_jid
         ).first()
-        
+
         if not group:
             return {"ok": False, "error": "Grupo no encontrado"}
-        
+
         if group.owner_instance != instance_name:
             group.owner_instance = instance_name
 
@@ -10110,10 +10110,10 @@ async def panel_bot_set_promo(token: str, request: Request, db: Session = Depend
             row.verifiable_used = 0
             row.client_key = None
             row.shared_key = None
-            
+
             row.shared_group_limit_actas = None
             row.shared_group_used_actas = 0
-            
+
             row.shared_group_limit_verifiable = None
             row.shared_group_used_verifiable = 0
             row.total_actas = total_actas
@@ -10248,7 +10248,7 @@ def botpanel_remove_promotion(
 
         db.delete(promo)
         db.commit()
-        
+
         try:
             send_group_text(
                 group_jid,
@@ -10261,7 +10261,7 @@ def botpanel_remove_promotion(
             )
         except Exception as notify_exc:
             print("BOT_PROMOTION_REMOVE_NOTIFY_ERROR =", str(notify_exc), flush=True)
-        
+
         _clear_panel_cache()
 
         return {
@@ -10597,6 +10597,83 @@ def botpanel_set_verifiable_provider(
         }
 
 
+
+@app.post(
+    "/botpanel/{token}/docify-verifiable-provider/{provider_code}"
+)
+def botpanel_set_docify_verifiable_provider(
+    token: str,
+    provider_code: str,
+    db: Session = Depends(get_db),
+):
+    instance_name = _bot_instance_from_token(
+        db,
+        token,
+    )
+
+    if not instance_name:
+        return {
+            "ok": False,
+            "error": "Panel no válido",
+        }
+
+    inst = _norm_instance(
+        instance_name
+    )
+
+    if inst != "docifybot8mx":
+        return {
+            "ok": False,
+            "error": (
+                "Este selector es exclusivo "
+                "de DOCIFY MX"
+            ),
+        }
+
+    code = str(
+        provider_code or ""
+    ).strip().upper()
+
+    if code not in {
+        "VERIF4",
+        "VERIF5",
+    }:
+        return {
+            "ok": False,
+            "error": "Proveedor no permitido",
+        }
+
+    try:
+        _set_bot_verifiable_provider_code(
+            db,
+            inst,
+            code,
+        )
+
+        _clear_panel_cache()
+
+        label = (
+            "ISAAC"
+            if code == "VERIF5"
+            else "ROBERTO LENTO"
+        )
+
+        return {
+            "ok": True,
+            "instance_name": inst,
+            "provider_code": code,
+            "provider_label": label,
+        }
+
+    except Exception as exc:
+        db.rollback()
+
+        return {
+            "ok": False,
+            "error": str(exc),
+        }
+
+
 @app.get("/botpanel/{token}")
 def panel_bot(token: str, db: Session = Depends(get_db)):
     instance_name = _bot_instance_from_token(db, token)
@@ -10624,7 +10701,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
     credits.setdefault("idcif_limit", 0)
     credits.setdefault("idcif_used", 0)
     credits.setdefault("idcif_available", 0)
-    
+
     clon_limit_txt = "∞" if int(credits["clon_limit"] or 0) == 0 else str(credits["clon_limit"])
     clon_available_txt = "∞" if int(credits["clon_limit"] or 0) == 0 else str(credits["clon_available"])
     idcif_limit_txt = "∞" if int(credits["idcif_limit"] or 0) == 0 else str(credits["idcif_limit"])
@@ -10634,35 +10711,35 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         "verifiable_limit",
         0,
     )
-    
+
     credits.setdefault(
         "verifiable_used",
         0,
     )
-    
+
     credits.setdefault(
         "verifiable_available",
         0,
     )
-    
+
     credits.setdefault(
         "verifiable_recharges",
         0,
     )
-    
+
     verifiable_limit = int(
         credits.get(
             "verifiable_limit"
         )
         or 0
     )
-    
+
     verifiable_limit_txt = (
         "∞"
         if verifiable_limit == 0
         else str(verifiable_limit)
     )
-    
+
     verifiable_available_txt = (
         "∞"
         if verifiable_limit == 0
@@ -10681,7 +10758,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
 
     bot_blocked = is_instance_blocked(instance_name)
     bot_admin_blocked = is_instance_admin_blocked(instance_name)
-    
+
     if bot_admin_blocked:
         bot_status_label = "BLOQUEADO"
         bot_status_badge = '<span class="badge badge-danger">BLOQUEADO POR PANEL PRINCIPAL</span>'
@@ -10819,6 +10896,121 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
 
             <span class="small">
               VERIF4 = Roberto · VERIF5 = Isaac
+            </span>
+          </div>
+        </div>
+        """
+
+
+    # ========================================================
+    # PROVEEDOR RFC VERIFICABLE
+    # EXCLUSIVO DEL MINI PANEL DOCIFYBOT8MX
+    # ========================================================
+
+    docify_verifiable_provider_html = ""
+
+    if (
+        _norm_instance(instance_name)
+        == "docifybot8mx"
+    ):
+        docify_verifiable_code = (
+            _bot_verifiable_provider_code(
+                db,
+                instance_name,
+            )
+        )
+
+        if docify_verifiable_code == "VERIF5":
+            docify_verifiable_label = "ISAAC"
+            isaac_badge = (
+                '<span class="badge badge-success">'
+                'ACTIVO'
+                '</span>'
+            )
+            roberto_badge = ""
+        else:
+            docify_verifiable_label = "ROBERTO LENTO"
+            roberto_badge = (
+                '<span class="badge badge-success">'
+                'ACTIVO'
+                '</span>'
+            )
+            isaac_badge = ""
+
+        docify_verifiable_provider_html = f"""
+        <div class="box">
+          <div class="head">
+            <div>
+              <strong>
+                Proveedor RFC verificable
+              </strong>
+
+              <div
+                class="small"
+                style="margin-top:4px;"
+              >
+                Este ajuste aplica únicamente
+                a DOCIFY MX.
+              </div>
+            </div>
+
+            <span class="badge badge-success">
+              {docify_verifiable_label}
+            </span>
+          </div>
+
+          <div
+            style="
+              padding:16px;
+              display:flex;
+              gap:12px;
+              flex-wrap:wrap;
+              align-items:center;
+            "
+          >
+            <div
+              style="
+                min-width:220px;
+                font-size:14px;
+              "
+            >
+              Proveedor activo:
+              <strong>
+                {docify_verifiable_label}
+              </strong>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-primary"
+              onclick="
+                setDocifyVerifiableProvider(
+                  'VERIF4'
+                )
+              "
+            >
+              ROBERTO LENTO
+            </button>
+
+            {roberto_badge}
+
+            <button
+              type="button"
+              class="btn btn-success"
+              onclick="
+                setDocifyVerifiableProvider(
+                  'VERIF5'
+                )
+              "
+            >
+              ISAAC
+            </button>
+
+            {isaac_badge}
+
+            <span class="small">
+              Las solicitudes que ya estaban enviadas
+              conservan su proveedor original.
             </span>
           </div>
         </div>
@@ -11052,62 +11244,62 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             <div class="label">CLON límite</div>
             <div class="value">{clon_limit_txt}</div>
           </div>
-        
+
           <div class="card">
             <div class="label">CLON usados</div>
             <div class="value">{credits['clon_used']}</div>
           </div>
-        
+
           <div class="card">
             <div class="label">CLON disponibles</div>
             <div class="value">{clon_available_txt}</div>
           </div>
-        
+
           <div class="card">
             <div class="label">IDCIF límite</div>
             <div class="value">{idcif_limit_txt}</div>
           </div>
-        
+
           <div class="card">
             <div class="label">IDCIF usados</div>
             <div class="value">{credits['idcif_used']}</div>
           </div>
-        
+
           <div class="card">
             <div class="label">IDCIF disponibles</div>
             <div class="value">{idcif_available_txt}</div>
           </div>
-         
+
           <div class="card">
             <div class="label">
               Verificables límite
             </div>
-        
+
             <div class="value">
               {verifiable_limit_txt}
             </div>
           </div>
-        
+
           <div class="card">
             <div class="label">
               Verificables usados
             </div>
-        
+
             <div class="value">
               {credits["verifiable_used"]}
             </div>
           </div>
-        
+
           <div class="card">
             <div class="label">
               Verificables disponibles
             </div>
-        
+
             <div class="value">
               {verifiable_available_txt}
             </div>
           </div>
- 
+
         </div>
 
         <div class="box">
@@ -11134,6 +11326,8 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         </div>
 
         {verifiable_provider_box_html}
+
+        {docify_verifiable_provider_html}
 
         <div class="box">
           <div class="head">
@@ -11174,7 +11368,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
               <button class="btn btn-success" onclick="sendBotFreeBroadcast()">Enviar mensaje libre</button>
               <button class="btn" onclick="document.getElementById('botBroadcastMessage').value=''">Limpiar</button>
             </div>
-            
+
             <div
               id="botBroadcastProgress"
               style="display:none;margin-top:12px;padding:12px;border-radius:12px;background:#f8fafc;border:1px solid #e5e7eb;font-size:13px;"
@@ -11192,10 +11386,10 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             </div>
             <span class="badge badge-success">Mini panel</span>
           </div>
-        
+
           <div style="padding:16px;">
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
-        
+
               <a target="_blank"
                  href="/botpanel/{_esc(token)}/audit?period=day&status=DONE"
                  style="text-decoration:none;color:inherit;">
@@ -11205,7 +11399,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   <div class="small" style="margin-top:6px;">Ventas realizadas hoy</div>
                 </div>
               </a>
-        
+
               <a target="_blank"
                  href="/botpanel/{_esc(token)}/audit?period=30d&status=DONE"
                  style="text-decoration:none;color:inherit;">
@@ -11215,7 +11409,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   <div class="small" style="margin-top:6px;">Ventas de todos los grupos</div>
                 </div>
               </a>
-        
+
               <a target="_blank"
                  href="/botpanel/{_esc(token)}/audit?period=month&status=DONE"
                  style="text-decoration:none;color:inherit;">
@@ -11225,7 +11419,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   <div class="small" style="margin-top:6px;">Movimientos del mes</div>
                 </div>
               </a>
-        
+
               <a target="_blank"
                  href="/botpanel/{_esc(token)}/audit?period=prev_month&status=DONE"
                  style="text-decoration:none;color:inherit;">
@@ -11235,7 +11429,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   <div class="small" style="margin-top:6px;">Consulta el corte pasado</div>
                 </div>
               </a>
-        
+
             </div>
           </div>
         </div>
@@ -11284,14 +11478,14 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 )
                 or 0
             )
-            
+
             verifiable_used = int(
                 g.get(
                     "promo_verifiable_used"
                 )
                 or 0
             )
-            
+
             if (
                 clon_total > 0
                 or idcif_total > 0
@@ -11302,12 +11496,12 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   <b>CLON:</b>
                   {clon_used}/{clon_total}
                 </div>
-                
+
                 <div>
                   <b>IDCIF:</b>
                   {idcif_used}/{idcif_total}
                 </div>
-                
+
                 <div>
                   <b>VERIF.:</b>
                   {verifiable_used}/{
@@ -11336,7 +11530,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     True,
                 )
             )
-            
+
             idcif_enabled = bool(
                 g.get(
                     "idcif_enabled",
@@ -11374,7 +11568,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                       Activar CLON
                     </button>
                 """
-            
+
             if idcif_enabled:
                 idcif_btn = f"""
                     <button
@@ -11448,14 +11642,14 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     False,
                 )
             )
-            
+
             verifiable_enabled = bool(
                 g.get(
                     "verifiable_enabled",
                     False,
                 )
             )
-            
+
             if group_blocked:
                 clon_status = """
                 <div
@@ -11474,7 +11668,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   CLON detenido por bloqueo
                 </div>
                 """
-            
+
                 idcif_status = """
                 <div
                   style="
@@ -11510,7 +11704,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                   Verificable detenido por bloqueo
                 </div>
                 """
-            
+
             else:
                 clon_status = (
                     """
@@ -11550,7 +11744,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                     </div>
                     """
                 )
-            
+
                 idcif_status = (
                     """
                     <div
@@ -11671,7 +11865,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                        Hoy
                     </a>
                     <br><br>
-                    
+
                     <a target="_blank"
                        href="/botpanel/{_esc(token)}/audit?period=30d&status=DONE&group_jid={_esc(g['group_jid'])}"
                        class="btn btn-success"
@@ -11679,7 +11873,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                        30 días
                     </a>
                     <br><br>
-                    
+
                     <a target="_blank"
                        href="/botpanel/{_esc(token)}/audit?period=month&status=DONE&group_jid={_esc(g['group_jid'])}"
                        class="btn btn-primary"
@@ -11687,7 +11881,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                        Mes actual
                     </a>
                     <br><br>
-                    
+
                     <a target="_blank"
                        href="/botpanel/{_esc(token)}/audit?period=prev_month&status=DONE&group_jid={_esc(g['group_jid'])}"
                        class="btn btn-success"
@@ -11695,7 +11889,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                        Mes anterior
                     </a>
                   </td>
-  
+
                   <td>
                     <div style="display:flex;gap:8px;min-width:220px;">
                       <input id="rename_{_esc(g["group_jid"])}" placeholder="Nuevo nombre">
@@ -11705,13 +11899,13 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
 
                   <td class="bot-promo-cell">
                     <div class="bot-promo-form">
-                
+
                       <input
                         id="promo_name_{_esc(g["group_jid"])}"
                         class="bot-promo-name"
                         placeholder="Nombre de bolsa"
                       >
-                
+
                       <input
                         id="promo_clon_total_{_esc(g["group_jid"])}"
                         type="number"
@@ -11721,7 +11915,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                         placeholder="CLON"
                         title="Total CLON"
                       >
-                
+
                       <input
                         id="promo_idcif_total_{_esc(g["group_jid"])}"
                         type="number"
@@ -11731,7 +11925,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                         placeholder="IDCIF"
                         title="Total IDCIF"
                       >
-                
+
                       <input
                         id="promo_verifiable_total_{_esc(g["group_jid"])}"
                         type="number"
@@ -11741,7 +11935,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                         placeholder="VERIF."
                         title="Total verificables"
                       >
-                
+
                       <button
                         type="button"
                         class="btn btn-success bot-promo-apply"
@@ -11753,11 +11947,11 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                       >
                         Aplicar bolsa
                       </button>
-                
+
                       <div class="bot-promo-remove">
                         {promo_remove_btn}
                       </div>
-                
+
                     </div>
                   </td>
 
@@ -11930,11 +12124,11 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         async function hideBotGroup(groupJid) {
           const ok = confirm("¿Quitar este grupo del mini panel?");
           if (!ok) return;
-        
+
           const res = await fetch(`${BOT_PANEL_BASE}/group/${encodeURIComponent(groupJid)}/hide`, {
             method: "POST"
           });
-        
+
           const data = await res.json();
           if (data.ok) {
             location.reload();
@@ -11953,10 +12147,10 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             idcif: "IDCIF",
             verifiable: "Verificables"
           };
-        
+
           const serviceLabel =
             labels[service] || service;
-        
+
           try {
             const response = await fetch(
               `${BOT_PANEL_BASE}/group/${
@@ -11974,9 +12168,9 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 })
               }
             );
-        
+
             const data = await response.json();
-        
+
             if (!response.ok || !data.ok) {
               throw new Error(
                 data.detail
@@ -11984,9 +12178,9 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 || "No se pudo actualizar"
               );
             }
-        
+
             window.location.reload();
-        
+
           } catch (error) {
             alert(
               "No se pudo actualizar "
@@ -12044,15 +12238,15 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
 
         async function sendBotFreeBroadcast() {
           const message = document.getElementById("botBroadcastMessage").value.trim();
-        
+
           if (!message) {
             alert("Escribe un mensaje.");
             return;
           }
-        
+
           const ok = confirm("¿Enviar este mensaje a todos los grupos activos de este bot?");
           if (!ok) return;
-        
+
           const res = await fetch(`${BOT_PANEL_BASE}/broadcast/free`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -12060,9 +12254,9 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
               message: message
             })
           });
-        
+
           const data = await res.json();
-        
+
           if (data.ok) {
             document.getElementById("botBroadcastMessage").value = "";
             alert(`Mensaje masivo en cola para ${data.instance}. Total: ${data.total}`);
@@ -12071,29 +12265,29 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             alert(data.error || "No se pudo enviar el mensaje.");
           }
         }
-        
+
         function startBotBroadcastProgress(jobId) {
           const box = document.getElementById("botBroadcastProgress");
-        
+
           if (box) {
             box.style.display = "block";
             box.innerHTML = "Enviando mensajes...";
           }
-        
+
           if (botBroadcastProgressTimer) {
             clearInterval(botBroadcastProgressTimer);
           }
-        
+
           botBroadcastProgressTimer = setInterval(async () => {
             const res = await fetch(`${BOT_PANEL_BASE}/broadcast/progress/${jobId}`);
             const data = await res.json();
-        
+
             if (!data.ok) {
               if (box) box.innerHTML = data.error || "Error consultando progreso.";
               clearInterval(botBroadcastProgressTimer);
               return;
             }
-        
+
             if (box) {
               box.innerHTML = `
                 <strong>Estado:</strong> ${data.status || "pending"}<br>
@@ -12104,11 +12298,11 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
                 <strong>Actual:</strong> ${data.current || ""}
               `;
             }
-        
+
             if (data.status === "done") {
               box.innerHTML += "<br><strong style='color:green;'>✔ Envío terminado</strong>";
             }
-            
+
             if (data.status === "done" || data.status === "error") {
               clearInterval(botBroadcastProgressTimer);
             }
@@ -12118,12 +12312,12 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         async function addManualBotGroup() {
           const groupJid = document.getElementById("manual_group_jid").value.trim();
           const groupName = document.getElementById("manual_group_name").value.trim();
-        
+
           if (!groupJid) {
             alert("Escribe el Group JID.");
             return;
           }
-        
+
           const res = await fetch(`${BOT_PANEL_BASE}/group/add`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -12132,7 +12326,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
               group_name: groupName
             })
           });
-        
+
           const data = await res.json();
           if (data.ok) {
             location.reload();
@@ -12168,21 +12362,21 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             )?.value
             || ""
           ).trim();
-        
+
           const clonTotal = Number(
             document.getElementById(
               `promo_clon_total_${groupJid}`
             )?.value
             || 0
           );
-        
+
           const idcifTotal = Number(
             document.getElementById(
               `promo_idcif_total_${groupJid}`
             )?.value
             || 0
           );
-        
+
           const verifiableTotal = Number(
             document.getElementById(
               `promo_verifiable_total_${groupJid}`
@@ -12196,20 +12390,20 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             )?.value
             || ""
           ).trim();
-        
+
           const totalRFC = (
             clonTotal
             + idcifTotal
             + verifiableTotal
           );
-        
+
           const pricePerPiece = (
             document.getElementById(
               `promo_price_${groupJid}`
             )?.value
             || ""
           ).trim();
-        
+
           if (
             !totalRFC
             || totalRFC < 10
@@ -12220,7 +12414,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             );
             return;
           }
-        
+
           const res = await fetch(
             `${BOT_PANEL_BASE}/promotion/set`,
             {
@@ -12244,9 +12438,9 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
               })
             }
           );
-        
+
           const data = await res.json();
-        
+
           if (data.ok) {
             alert(
               data.message
@@ -12265,7 +12459,7 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         async function removeBotPromo(groupJid) {
           const ok = confirm("¿Seguro que deseas quitar la bolsa RFC de este grupo?");
           if (!ok) return;
-        
+
           const res = await fetch(`${BOT_PANEL_BASE}/promotion/remove`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -12273,9 +12467,9 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
               group_jid: groupJid
             })
           });
-        
+
           const data = await res.json();
-        
+
           if (data.ok) {
             alert(data.message || "Bolsa RFC quitada correctamente.");
             location.reload();
@@ -12283,7 +12477,60 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             alert(data.error || "No se pudo quitar la bolsa RFC");
           }
         }
-      </script>
+
+      async function setDocifyVerifiableProvider(code) {
+        const label = (
+          code === "VERIF5"
+          ? "ISAAC"
+          : "ROBERTO LENTO"
+        );
+
+        const ok = confirm(
+          "¿Cambiar proveedor RFC verificable a "
+          + label
+          + "?"
+        );
+
+        if (!ok) {
+          return;
+        }
+
+        try {
+          const res = await fetch(
+            "/botpanel/{_esc(token)}"
+            + "/docify-verifiable-provider/"
+            + encodeURIComponent(code),
+            {
+              method: "POST"
+            }
+          );
+
+          const data = await res.json();
+
+          if (!data.ok) {
+            alert(
+              data.error
+              || "No se pudo cambiar el proveedor."
+            );
+            return;
+          }
+
+          alert(
+            "Proveedor RFC verificable activo: "
+            + data.provider_label
+          );
+
+          window.location.reload();
+
+        } catch (error) {
+          alert(
+            "Error al cambiar proveedor: "
+            + error
+          );
+        }
+      }
+
+</script>
     </body>
     </html>
     """
@@ -12385,7 +12632,6 @@ def panel_verifiable_provider_input_mode(
         "VERIF2",
         "VERIF3",
         "VERIF4",
-        "VERIF5",
     }:
         return {
             "ok": False,
@@ -12624,7 +12870,7 @@ def panel_verifiable_provider_toggle(
         ),
     }
 
-                    
+
 @app.get("/panel", response_class=HTMLResponse)
 def panel_RFC(
     request: Request,
@@ -12665,7 +12911,7 @@ def panel_RFC(
 
         local_start_label = _to_panel_tz(time_min)
         local_end_label = _to_panel_tz(time_max)
-        
+
         if view == "custom" and local_start_label and local_end_label:
             period_label = (
                 f"Rango personalizado: "
@@ -12691,7 +12937,7 @@ def panel_RFC(
         )
 
         group_base_q = base_q.filter(RequestLog.instance_name == MAIN_PANEL_INSTANCE)
-        
+
         group_cache = _build_group_name_cache(db)
         delivery_metrics = _panel_delivery_metrics(db, time_min, time_max)
         bot_status_rows = _bot_status_rows(db)
@@ -12708,7 +12954,7 @@ def panel_RFC(
                 .all()
             )
         }
-        
+
         status_rows = (
             base_q.with_entities(
                 RequestLog.status,
@@ -12717,7 +12963,7 @@ def panel_RFC(
             .group_by(RequestLog.status)
             .all()
         )
-        
+
         summary = {
             "total": 0,
             "queued": 0,
@@ -12736,7 +12982,7 @@ def panel_RFC(
                 summary["done"] = cnt
             elif st == "ERROR":
                 summary["error"] = cnt
-        
+
         include_all_groups = (group_mode == "all")
         has_active_filters = any([
             (group_jid or "").strip(),
@@ -12744,7 +12990,7 @@ def panel_RFC(
             (status or "").strip(),
             (act_type or "").strip(),
         ])
-        
+
         group_rows_raw = (
             group_base_q.with_entities(
                 RequestLog.source_group_id,
@@ -12755,17 +13001,17 @@ def panel_RFC(
             .group_by(RequestLog.source_group_id, RequestLog.status)
             .all()
         )
-        
+
         group_map = {}
 
         if include_all_groups and not has_active_filters:
             for gid in (set(GROUP_NAME_MAP.keys()) | set(group_cache.keys())):
                 gid = gid or "PRIVADO"
                 group_name = _group_name_cached(gid, group_cache)
-        
+
                 if gid in hidden_main_group_ids:
                     continue
-                    
+
                 row = db.query(AuthorizedGroup).filter_by(group_jid=gid).first()
                 owner = (row.owner_instance or "").strip() if row else ""
 
@@ -12785,10 +13031,10 @@ def panel_RFC(
                     )
                     or ""
                 ).strip().upper()
-                
+
                 if gid != "PRIVADO" and owner != MAIN_PANEL_INSTANCE:
                     continue
-        
+
                 group_map[gid] = {
                     "group_jid": gid,
                     "group_name": group_name,
@@ -12804,14 +13050,14 @@ def panel_RFC(
                     "error": 0,
                     "last_update": None,
                 }
-        
+
         for gid, st, cnt, last_upd in group_rows_raw:
             gid = gid or "PRIVADO"
             group_name = _group_name_cached(gid, group_cache)
-        
+
             if gid in hidden_main_group_ids:
                 continue
-        
+
             row = db.query(AuthorizedGroup).filter_by(group_jid=gid).first()
             owner = (row.owner_instance or "").strip() if row else ""
 
@@ -12831,10 +13077,10 @@ def panel_RFC(
                 )
                 or ""
             ).strip().upper()
-            
+
             if gid != "PRIVADO" and owner not in ("", MAIN_PANEL_INSTANCE):
                 continue
-        
+
             item = group_map.setdefault(gid, {
                 "group_jid": gid,
                 "group_name": group_name,
@@ -12850,7 +13096,7 @@ def panel_RFC(
                 "error": 0,
                 "last_update": None,
             })
-        
+
             cnt = int(cnt or 0)
             item["total"] += cnt
             item["owner_instance"] = owner
@@ -12860,7 +13106,7 @@ def panel_RFC(
             item["verifiable_provider_code"] = (
                 verifiable_provider_code
             )
-        
+
             if st == "QUEUED":
                 item["queued"] += cnt
             elif st == "PROCESSING":
@@ -12869,16 +13115,16 @@ def panel_RFC(
                 item["done"] += cnt
             elif st == "ERROR":
                 item["error"] += cnt
-        
+
             if last_upd and (not item["last_update"] or last_upd > item["last_update"]):
                 item["last_update"] = last_upd
-        
+
         by_group = list(group_map.values())
         if has_active_filters or not include_all_groups:
             by_group = [x for x in by_group if x["total"] > 0]
         by_group = [x for x in by_group if x["group_jid"] != "PRIVADO" or x["total"] > 0]
         by_group.sort(key=lambda x: ((x["total"] == 0), -x["total"], x["group_name"]))
-        
+
         by_provider_raw = (
             base_q.with_entities(
                 RequestLog.provider_name,
@@ -12888,14 +13134,14 @@ def panel_RFC(
             .group_by(RequestLog.provider_name, RequestLog.status)
             .all()
         )
-        
+
         provider_map = {}
 
         provider_weight_map = {
             r.provider_name: float(r.weight or 0)
             for r in db.query(ProviderSetting).all()
         }
-        
+
         for name, st, cnt in by_provider_raw:
             name = name or "NO IDENTIFICADO"
             item = provider_map.setdefault(
@@ -12909,10 +13155,10 @@ def panel_RFC(
                     "error": 0,
                 }
             )
-        
+
             cnt = int(cnt or 0)
             item["total"] += cnt
-        
+
             if st == "QUEUED":
                 item["queued"] += cnt
             elif st == "PROCESSING":
@@ -12921,7 +13167,7 @@ def panel_RFC(
                 item["done"] += cnt
             elif st == "ERROR":
                 item["error"] += cnt
-        
+
         by_provider = list(provider_map.values())
         by_provider.sort(key=lambda x: (-x["total"], x["provider_name"]))
 
@@ -12936,7 +13182,7 @@ def panel_RFC(
 
         provider_control_rows = provider_accounting["provider_control_rows"]
         provider_control_totals = provider_accounting["provider_control_totals"]
-        
+
         by_type_raw = (
             base_q.with_entities(
                 RequestLog.act_type,
@@ -12946,9 +13192,9 @@ def panel_RFC(
             .group_by(RequestLog.act_type, RequestLog.status)
             .all()
         )
-        
+
         type_map = {}
-        
+
         for name, st, cnt in by_type_raw:
             name = name or "SIN_TIPO"
             item = type_map.setdefault(
@@ -12962,10 +13208,10 @@ def panel_RFC(
                     "error": 0,
                 }
             )
-        
+
             cnt = int(cnt or 0)
             item["total"] += cnt
-        
+
             if st == "QUEUED":
                 item["queued"] += cnt
             elif st == "PROCESSING":
@@ -12974,7 +13220,7 @@ def panel_RFC(
                 item["done"] += cnt
             elif st == "ERROR":
                 item["error"] += cnt
-        
+
         by_type = list(type_map.values())
         by_type.sort(key=lambda x: (-x["total"], x["act_type"]))
 
@@ -12987,9 +13233,9 @@ def panel_RFC(
             .group_by(RequestLog.instance_name, RequestLog.status)
             .all()
         )
-    
+
         instance_map = {}
-    
+
         for name, st, cnt in by_instance_raw:
             name = name or "grupo02"
             item = instance_map.setdefault(
@@ -13003,10 +13249,10 @@ def panel_RFC(
                     "error": 0,
                 }
             )
-    
+
             cnt = int(cnt or 0)
             item["total"] += cnt
-    
+
             if st == "QUEUED":
                 item["queued"] += cnt
             elif st == "PROCESSING":
@@ -13015,12 +13261,12 @@ def panel_RFC(
                 item["done"] += cnt
             elif st == "ERROR":
                 item["error"] += cnt
-    
+
         by_instance = list(instance_map.values())
         by_instance.sort(key=lambda x: (-x["total"], x["instance_name"]))
-        
+
         promo_map = _promotion_summary_map(db)
-        
+
         latest = (
             base_q.with_entities(
                 RequestLog.id,
@@ -13039,9 +13285,9 @@ def panel_RFC(
             .limit(10)
             .all()
         )
-        
+
         subtitle = f"{period_label} ({PANEL_TZ})"
-        
+
         provider_states = _esc(_providers_status_text(db)).replace("\n", "<br>")
 
         print(
@@ -13065,7 +13311,7 @@ def panel_RFC(
         loca_pos = verifiable_provider_cards.find(
             "ID LUPITA EXPRES"
         )
-        
+
         loca_block = (
             verifiable_provider_cards[
                 loca_pos:loca_pos + 5000
@@ -13073,14 +13319,14 @@ def panel_RFC(
             if loca_pos >= 0
             else ""
         )
-        
+
         loca_match = re.search(
             r'verifiable-provider-count-value'
             r'[^>]*>\s*(\d+)',
             loca_block,
             flags=re.I,
         )
-        
+
         print(
             "VERIFIABLE_CARDS_HTML_COUNT =",
             loca_match.group(1)
@@ -13097,39 +13343,39 @@ def panel_RFC(
                 <strong>⚡ Métricas de entrega</strong>
                 <span class="small">Tiempos promedio del periodo seleccionado.</span>
               </div>
-        
+
               <div class="cards" style="padding:16px; grid-template-columns: repeat(3, minmax(0, 1fr));">
-        
+
                 <div class="card">
                   <div class="label">Tiempo origen</div>
                   <div class="value">{delivery_metrics["avg_provider"]} s</div>
                 </div>
-        
+
                 <div class="card">
                   <div class="label">WhatsApp / Evolution</div>
                   <div class="value">{delivery_metrics["avg_whatsapp"]} s</div>
                 </div>
-        
+
                 <div class="card">
                   <div class="label">Procesamiento bot</div>
                   <div class="value">{delivery_metrics["avg_bot"]} s</div>
                 </div>
-        
+
                 <div class="card">
                   <div class="label">Entrega total promedio</div>
                   <div class="value">{delivery_metrics["avg_total"]} s</div>
                 </div>
-        
+
                 <div class="card">
                   <div class="label">Entrega más rápida</div>
                   <div class="value">{delivery_metrics["fastest"]} s</div>
                 </div>
-        
+
                 <div class="card">
                   <div class="label">Entrega más lenta</div>
                   <div class="value">{delivery_metrics["slowest"]} s</div>
                 </div>
-        
+
               </div>
             </div>
             """
@@ -13141,7 +13387,7 @@ def panel_RFC(
 <strong>Estado de bots WhatsApp</strong>
             <span class="small">Monitorea el estado, uso y actividad de cada bot en tiempo real.</span>
           </div>
-        
+
           <div class="table-wrap">
             <table>
               <thead>
@@ -13159,13 +13405,13 @@ def panel_RFC(
               </thead>
               <tbody>
         """
-        
+
         for b in bot_status_rows:
             state = b["state"]
             color = "green" if state == "open" else "red" if state == "close" else "#92400e"
 
             status_label = "🟢 Conectado" if state == "open" else "🔴 Desconectado" if state == "close" else "🟡 Desconocido"
-        
+
             used_txt = f'{b["used"]}/{b["limit"]}' if b["limit"] else str(b["used"])
 
             if state != "open":
@@ -13177,7 +13423,7 @@ def panel_RFC(
             <button class="btn btn-warning" onclick="disconnectBot('{_esc(b["instance_name"])}')">Desconectar</button>
             <button class="btn btn-danger" onclick="hideBot('{_esc(b["instance_name"])}')">Ocultar</button>
             """
-        
+
             bot_status_html += f"""
                 <tr>
                   <td>{_esc(b["label"])}</td>
@@ -13191,34 +13437,34 @@ def panel_RFC(
                   <td>{actions_html}</td>
                 </tr>
             """
-        
+
         bot_status_html += """
               </tbody>
             </table>
           </div>
-        
+
           <div class="box" style="margin-top:14px;">
             <div class="head"><strong>Nuevo Bot</strong></div>
-        
+
             <div class="filters" style="grid-template-columns: 1fr 1fr 180px;">
               <div>
                 <input id="newBotLabel" placeholder="Nombre">
               </div>
-        
+
               <div>
                 <input id="newBotInstance" placeholder="Instancia">
               </div>
-        
+
               <div>
                 <button class="btn btn-primary" onclick="createBot()">Crear</button>
               </div>
             </div>
           </div>
-        
+
           <div id="botQrBox" style="margin-top:14px;"></div>
         </div>
         """
-    
+
         html = f"""
         <!doctype html>
         <html lang="es">
@@ -13233,40 +13479,40 @@ def panel_RFC(
                 --text: #1f2937;
                 --muted: #6b7280;
                 --line: #e5e7eb;
-            
+
                 --primary: #334155;
                 --primary-dark: #1e293b;
-            
+
                 --success: #166534;
                 --success-dark: #14532d;
-            
+
                 --warning: #a16207;
                 --warning-dark: #854d0e;
-            
+
                 --danger: #991b1b;
                 --danger-dark: #7f1d1d;
-            
+
                 --shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
                 --radius: 18px;
               }}
-            
+
               * {{
                 box-sizing: border-box;
               }}
-            
+
               body {{
                 margin: 0;
                 font-family: Arial, sans-serif;
                 background: var(--bg);
                 color: var(--text);
               }}
-            
+
               .wrap {{
                 max-width: 1500px;
                 margin: 0 auto;
                 padding: 16px;
               }}
-            
+
               .hero {{
                 background: linear-gradient(135deg, #1f2937 0%, #334155 55%, #475569 100%);
                 color: white;
@@ -13275,7 +13521,7 @@ def panel_RFC(
                 margin-bottom: 18px;
                 box-shadow: var(--shadow);
               }}
-            
+
               .hero-top {{
                 display: flex;
                 justify-content: space-between;
@@ -13283,24 +13529,24 @@ def panel_RFC(
                 gap: 16px;
                 flex-wrap: wrap;
               }}
-            
+
               .hero h1 {{
                 margin: 0 0 8px;
                 font-size: 1.9rem;
               }}
-            
+
               .hero-sub {{
                 color: rgba(255,255,255,.88);
                 font-size: .98rem;
               }}
-            
+
               .toolbar {{
                 margin-top: 16px;
                 display: flex;
                 gap: 10px;
                 flex-wrap: wrap;
               }}
-            
+
               .tool-link {{
                 text-decoration: none;
                 padding: 10px 16px;
@@ -13311,17 +13557,17 @@ def panel_RFC(
                 border: 1px solid rgba(255,255,255,.14);
                 transition: .2s ease;
               }}
-            
+
               .tool-link:hover {{
                 background: rgba(255,255,255,.16);
               }}
-            
+
               .tool-link-active {{
                 background: #ffffff;
                 color: var(--primary-dark);
                 border-color: #ffffff;
               }}
-            
+
               .grid-hero {{
                 display: grid;
                 grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
@@ -13333,7 +13579,7 @@ def panel_RFC(
               .grid-hero > .glass {{
                 min-width: 0;
               }}
-            
+
               .glass {{
                 background: rgba(255,255,255,.08);
                 border: 1px solid rgba(255,255,255,.10);
@@ -13341,20 +13587,20 @@ def panel_RFC(
                 padding: 18px;
                 backdrop-filter: blur(8px);
               }}
-            
+
               .section-title {{
                 margin: 0 0 14px;
                 font-size: 1rem;
                 font-weight: 800;
                 letter-spacing: .2px;
               }}
-            
+
               .provider-grid {{
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
                 gap: 12px;
               }}
-            
+
               .provider-card {{
                 background: rgba(255,255,255,.08);
                 border: 1px solid rgba(255,255,255,.12);
@@ -13363,14 +13609,14 @@ def panel_RFC(
                 min-width: 0;
                 overflow: hidden;
               }}
-            
+
               .provider-name {{
                 font-weight: 900;
                 margin-bottom: 6px;
                 font-size: .95rem;
                 line-height: 1.15;
               }}
-            
+
               .provider-actions {{
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -13379,7 +13625,7 @@ def panel_RFC(
                 width: 100%;
                 min-width: 0;
               }}
-            
+
               .provider-actions .btn {{
                 width: 100%;
                 min-width: 0;
@@ -13402,13 +13648,13 @@ def panel_RFC(
                 justify-content: space-between;
                 gap: 8px;
               }}
-            
+
               .verifiable-provider-count-label {{
                 font-size: 11px;
                 font-weight: 800;
                 color: #dbeafe;
               }}
-            
+
               .verifiable-provider-count-value {{
                 margin: 0;
                 font-size: 20px;
@@ -13424,13 +13670,13 @@ def panel_RFC(
                 gap: 8px;
                 margin-top: 9px;
               }}
-            
+
               .verifiable-format-label {{
                 font-size: 11px;
                 font-weight: 800;
                 color: #dbeafe;
               }}
-            
+
               .verifiable-format-select {{
                 width: 100%;
                 min-width: 0;
@@ -13444,11 +13690,11 @@ def panel_RFC(
                 outline: none;
                 cursor: pointer;
               }}
-            
+
               .verifiable-format-select:focus {{
                 border-color: #93c5fd;
               }}
-            
+
               .status-panel {{
                 margin-top: 14px;
                 padding: 12px 14px;
@@ -13459,23 +13705,23 @@ def panel_RFC(
                 font-size: .92rem;
                 line-height: 1.5;
               }}
-            
+
               .broadcast-grid {{
                 display: grid;
                 gap: 12px;
               }}
-            
+
               .broadcast-buttons {{
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
                 gap: 10px;
               }}
-            
+
               .broadcast-free {{
                 display: grid;
                 gap: 10px;
               }}
-            
+
               .broadcast-free textarea {{
                 width: 100%;
                 min-height: 140px;
@@ -13487,7 +13733,7 @@ def panel_RFC(
                 color: var(--text);
                 background: white;
               }}
-            
+
               .box {{
                 background: var(--card);
                 border-radius: var(--radius);
@@ -13496,7 +13742,7 @@ def panel_RFC(
                 margin-bottom: 16px;
                 border: 1px solid #eef2f7;
               }}
-            
+
               .head {{
                 padding: 16px 18px;
                 border-bottom: 1px solid var(--line);
@@ -13507,18 +13753,18 @@ def panel_RFC(
                 flex-wrap: wrap;
                 background: #fafbfc;
               }}
-            
+
               .head strong {{
                 font-size: 1rem;
               }}
-            
+
               .filters {{
                 display: grid;
                 grid-template-columns: repeat(5, minmax(0, 1fr));
                 gap: 10px;
                 padding: 16px;
               }}
-            
+
               .filters input,
               .filters select,
               .input,
@@ -13532,7 +13778,7 @@ def panel_RFC(
                 color: var(--text);
                 outline: none;
               }}
-            
+
               .filters input:focus,
               .filters select:focus,
               .input:focus,
@@ -13540,14 +13786,14 @@ def panel_RFC(
                 border-color: var(--primary);
                 box-shadow: 0 0 0 3px rgba(51, 65, 85, .10);
               }}
-            
+
               .cards {{
                 display: grid;
                 grid-template-columns: repeat(5, minmax(0, 1fr));
                 gap: 12px;
                 margin-bottom: 16px;
               }}
-            
+
               .card {{
                 background: var(--card);
                 border-radius: 18px;
@@ -13556,7 +13802,7 @@ def panel_RFC(
                 border: 1px solid var(--line);
                 position: relative;
               }}
-            
+
               .card::before {{
                 content: "";
                 position: absolute;
@@ -13567,7 +13813,7 @@ def panel_RFC(
                 border-radius: 18px 18px 0 0;
                 background: #cbd5e1;
               }}
-            
+
               .label {{
                 color: var(--muted);
                 font-size: .88rem;
@@ -13576,13 +13822,13 @@ def panel_RFC(
                 text-transform: uppercase;
                 letter-spacing: .3px;
               }}
-            
+
               .value {{
                 font-size: 1.9rem;
                 font-weight: 800;
                 line-height: 1;
               }}
-            
+
               .table-wrap {{
                 width: 100%;
                 overflow-x: auto;
@@ -13590,22 +13836,22 @@ def panel_RFC(
                 scrollbar-gutter: stable;
                 -webkit-overflow-scrolling: touch;
               }}
-            
+
               .table-wrap::-webkit-scrollbar {{
                 height: 11px;
               }}
-            
+
               .table-wrap::-webkit-scrollbar-track {{
                 background: #eef2f7;
                 border-radius: 999px;
               }}
-            
+
               .table-wrap::-webkit-scrollbar-thumb {{
                 background: #94a3b8;
                 border: 2px solid #eef2f7;
                 border-radius: 999px;
               }}
-            
+
               .table-wrap::-webkit-scrollbar-thumb:hover {{
                 background: #64748b;
               }}
@@ -13616,27 +13862,27 @@ def panel_RFC(
                 left: 0;
                 z-index: 2;
               }}
-            
+
               .table-wrap td:first-child {{
                 background: #ffffff;
                 box-shadow: 1px 0 0 #e5e7eb;
               }}
-            
+
               .table-wrap tr:hover td:first-child {{
                 background: #f9fafb;
               }}
-            
+
               .table-wrap th:first-child {{
                 z-index: 4;
                 background: #1f2937;
               }}
-            
+
               .table-wrap table {{
                 width: 100%;
                 border-collapse: collapse;
                 min-width: 1100px;
               }}
-            
+
               th, td {{
                 padding: 12px;
                 border-bottom: 1px solid var(--line);
@@ -13644,7 +13890,7 @@ def panel_RFC(
                 vertical-align: top;
                 font-size: .95rem;
               }}
-            
+
               th {{
                 background: #1f2937;
                 color: white;
@@ -13652,46 +13898,46 @@ def panel_RFC(
                 top: 0;
                 z-index: 1;
               }}
-            
+
               tr:hover td {{
                 background: #f9fafb;
               }}
-            
+
               .right {{
                 text-align: right;
               }}
-            
+
               .mono {{
                 font-family: Consolas, Monaco, monospace;
                 font-size: .9rem;
               }}
-            
+
               .small {{
                 color: var(--muted);
                 font-size: .84rem;
                 line-height: 1.45;
               }}
-            
+
               .status-q {{
                 color: #a16207;
                 font-weight: 800;
               }}
-            
+
               .status-p {{
                 color: #334155;
                 font-weight: 800;
               }}
-            
+
               .status-d {{
                 color: #166534;
                 font-weight: 800;
               }}
-            
+
               .status-e {{
                 color: #991b1b;
                 font-weight: 800;
               }}
-            
+
               .btn {{
                 border: none;
                 border-radius: 12px;
@@ -13702,52 +13948,52 @@ def panel_RFC(
                 transition: .2s ease;
                 font-family: inherit;
               }}
-            
+
               .btn:hover {{
                 transform: translateY(-1px);
               }}
-            
+
               .btn-primary {{
                 background: var(--primary);
                 color: white;
               }}
-            
+
               .btn-primary:hover {{
                 background: var(--primary-dark);
               }}
-            
+
               .btn-success {{
                 background: var(--success);
                 color: white;
               }}
-            
+
               .btn-success:hover {{
                 background: var(--success-dark);
               }}
-            
+
               .btn-danger {{
                 background: var(--danger);
                 color: white;
               }}
-            
+
               .btn-danger:hover {{
                 background: var(--danger-dark);
               }}
-            
+
               .btn-warning {{
                 background: var(--warning);
                 color: white;
               }}
-            
+
               .btn-warning:hover {{
                 background: var(--warning-dark);
               }}
-            
+
               .btn-light {{
                 background: #e5e7eb;
                 color: #111827;
               }}
-            
+
               .btn-light:hover {{
                 background: #d1d5db;
               }}
@@ -13756,38 +14002,38 @@ def panel_RFC(
                 background: #374151;
                 color: white;
               }}
-            
+
               .btn-closed:hover {{
                 background: #1f2937;
               }}
-            
+
               .actions-row {{
                 display: flex;
                 flex-wrap: wrap;
                 gap: 10px;
               }}
-            
+
               .helper {{
                 color: rgba(255,255,255,.82);
                 font-size: .86rem;
                 line-height: 1.45;
               }}
-    
+
               a.btn {{
                 text-decoration: none !important;
               }}
-            
+
               a.btn:hover {{
                 text-decoration: none !important;
               }}
-    
+
               .group-mode-bar {{
                 display: flex;
                 gap: 10px;
                 flex-wrap: wrap;
                 padding: 16px;
               }}
-            
+
               .group-mode-link {{
                 display: inline-flex;
                 align-items: center;
@@ -13801,25 +14047,25 @@ def panel_RFC(
                 text-decoration: none !important;
                 transition: .2s ease;
               }}
-            
+
               .group-mode-link:hover {{
                 background: #eff6ff;
                 border-color: #bfdbfe;
                 text-decoration: none !important;
               }}
-            
+
               .group-mode-link-active {{
                 background: #dbeafe;
                 border-color: #93c5fd;
                 color: #1e3a8a;
               }}
-    
+
               .table-wrap td a {{
                 color: #1d4ed8;
                 text-decoration: none !important;
                 font-weight: 700;
               }}
-            
+
               .table-wrap td a:hover {{
                 color: #1e3a8a;
               }}
@@ -13834,7 +14080,7 @@ def panel_RFC(
                 font-weight: 700;
                 white-space: nowrap;
               }}
-            
+
               .badge-light {{
                 background: #eef2ff;
                 color: #3730a3;
@@ -13844,12 +14090,12 @@ def panel_RFC(
                 background:#dcfce7;
                 color:#166534;
               }}
-            
+
               .badge-warning {{
                 background: #fff7ed;
                 color: #c2410c;
               }}
-            
+
               .badge-danger {{
                 background: #fef2f2;
                 color: #b91c1c;
@@ -13863,7 +14109,7 @@ def panel_RFC(
                 margin-top:18px;
                 padding:12px 0 4px 0;
               }}
-            
+
               .shared-promo-actions .btn{{
                 min-width:220px;
               }}
@@ -13875,21 +14121,21 @@ def panel_RFC(
                 cursor:pointer;
                 user-select:none;
               }}
-            
+
               .collapse-icon{{
                 font-size:14px;
                 font-weight:700;
                 transition:transform .18s ease;
               }}
-            
+
               .collapsible-head.closed .collapse-icon{{
                 transform:rotate(-90deg);
               }}
-            
+
               .collapsible-body.open{{
                 display:block;
               }}
-            
+
               .collapsible-body.closed{{
                 display:none;
               }}
@@ -13902,13 +14148,13 @@ def panel_RFC(
                 margin-bottom: 18px;
                 flex-wrap: wrap;
               }}
-            
+
               .broadcast-target {{
                 min-width: 240px;
                 max-width: 320px;
                 width: 100%;
               }}
-            
+
               .broadcast-label {{
                 display: block;
                 font-size: .9rem;
@@ -13916,7 +14162,7 @@ def panel_RFC(
                 margin-bottom: 6px;
                 color: #e5e7eb;
               }}
-            
+
               .broadcast-select {{
                 width: 100%;
                 border: 1px solid rgba(255,255,255,.14);
@@ -13927,12 +14173,12 @@ def panel_RFC(
                 font: inherit;
                 outline: none;
               }}
-            
+
               .broadcast-select option {{
                 color: #111827;
                 background: white;
               }}
-            
+
               .broadcast-section {{
                 display: grid;
                 gap: 18px;
@@ -13947,7 +14193,7 @@ def panel_RFC(
                 max-width: 100%;
                 box-sizing: border-box;
               }}
-            
+
               .broadcast-communication-grid > .broadcast-left,
               .broadcast-communication-grid > .broadcast-right {{
                 min-width: 0;
@@ -13955,42 +14201,42 @@ def panel_RFC(
                 flex-direction: column;
                 gap: 18px;
               }}
-            
+
               .broadcast-communication-grid .broadcast-block {{
                 min-width: 0;
                 box-sizing: border-box;
               }}
-            
+
               @media (max-width: 1100px) {{
                 .broadcast-communication-grid {{
                   grid-template-columns: 1fr;
                 }}
               }}
-            
+
               .broadcast-block {{
                 background: rgba(255,255,255,.06);
                 border: 1px solid rgba(255,255,255,.08);
                 border-radius: 18px;
                 padding: 16px;
               }}
-            
+
               .broadcast-block-title {{
                 font-size: 1rem;
                 font-weight: 800;
                 margin-bottom: 6px;
                 color: white;
               }}
-            
+
               .broadcast-buttons-grid {{
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 12px;
               }}
-            
+
               .broadcast-buttons-grid > * {{
                 min-width: 0;
               }}
-            
+
               .broadcast-buttons-grid .btn {{
                 width: 100%;
                 min-width: 0;
@@ -13999,7 +14245,7 @@ def panel_RFC(
                 line-height: 1.2;
                 text-align: center;
               }}
-            
+
               .broadcast-buttons-grid .btn {{
                 width: 100%;
                 min-height: 52px;
@@ -14007,7 +14253,7 @@ def panel_RFC(
                 line-height: 1.2;
                 text-align: center;
               }}
-            
+
               .broadcast-textarea {{
                 width: 100%;
                 min-height: 120px;
@@ -14021,12 +14267,12 @@ def panel_RFC(
                 box-sizing: border-box;
                 outline: none;
               }}
-            
+
               .broadcast-textarea:focus {{
                 border-color: rgba(255,255,255,.35);
                 box-shadow: 0 0 0 3px rgba(255,255,255,.10);
               }}
-            
+
               .broadcast-actions {{
                 display: flex;
                 gap: 10px;
@@ -14045,7 +14291,7 @@ def panel_RFC(
                 outline: none;
                 box-sizing: border-box;
               }}
-            
+
               .table-wrap input[type="number"]:focus{{
                 border-color: #334155;
                 box-shadow: 0 0 0 3px rgba(51, 65, 85, .10);
@@ -14064,7 +14310,7 @@ def panel_RFC(
                   grid-template-columns: 1fr;
                 }}
               }}
-            
+
               @media (max-width: 1050px) {{
                 .grid-hero {{
                   grid-template-columns: 1fr;
@@ -14073,59 +14319,59 @@ def panel_RFC(
                 .provider-grid {{
                   grid-template-columns: repeat(2, minmax(0, 1fr));
                 }}
-            
+
                 .broadcast-buttons {{
                   grid-template-columns: 1fr;
                 }}
-            
+
                 .cards {{
                   grid-template-columns: repeat(3, minmax(0, 1fr));
                 }}
               }}
-            
+
               @media (max-width: 900px) {{
                 .wrap {{
                   padding: 12px;
                 }}
-            
+
                 .hero {{
                   padding: 18px;
                   border-radius: 20px;
                 }}
-            
+
                 .hero h1 {{
                   font-size: 1.45rem;
                 }}
-            
+
                 .cards {{
                   grid-template-columns: repeat(2, minmax(0, 1fr));
                 }}
-            
+
                 .filters {{
                   grid-template-columns: 1fr;
                 }}
-            
+
                 .head {{
                   padding: 14px 16px;
                 }}
-            
+
                 .card {{
                   padding: 14px;
                 }}
-            
+
                 .value {{
                   font-size: 1.6rem;
                 }}
-            
+
                 .broadcast-actions {{
                   flex-direction: column;
                 }}
-            
+
                 .broadcast-actions .btn {{
                   width: 100%;
                 }}
               }}
-            
+
               @media (max-width: 560px) {{
                 .cards {{
                   grid-template-columns: 1fr;
@@ -14134,27 +14380,27 @@ def panel_RFC(
                 .provider-grid {{
                   grid-template-columns: 1fr;
                 }}
-            
+
                 .tool-link,
                 .btn {{
                   width: 100%;
                   justify-content: center;
                 }}
-            
+
                 .actions-row {{
                   flex-direction: column;
                 }}
-                
+
                 .provider-actions {{
                   grid-template-columns: 1fr 1fr;
                 }}
               }}
             </style>
         </head>
-        
+
         <body>
           <div class="wrap">
-        
+
             <div class="hero">
               <div class="hero-top">
                 <div>
@@ -14162,7 +14408,7 @@ def panel_RFC(
                   <div class="hero-sub">{_esc(subtitle)}</div>
                 </div>
               </div>
-        
+
               <div class="toolbar">
                 <a href="/panel?token={_esc(settings.ADMIN_PANEL_TOKEN)}&view=day&group_mode={_esc(group_mode)}" class="tool-link {'tool-link-active' if view == 'day' else ''}">Hoy</a>
                 <a href="/panel?token={_esc(settings.ADMIN_PANEL_TOKEN)}&view=month&group_mode={_esc(group_mode)}" class="tool-link {'tool-link-active' if view == 'month' else ''}">Mes actual</a>
@@ -14201,24 +14447,24 @@ def panel_RFC(
                   Aplicar rango
                 </button>
               </form>
-        
+
               <div class="grid-hero">
                 <div class="glass">
                   <h3 class="section-title">
                     Proveedores RFC verificable
                   </h3>
-                
+
                   <div class="provider-grid">
                     {verifiable_provider_cards}
                   </div>
                 </div>
-        
+
                 <div class="glass">
                   <div class="broadcast-header">
                     <div>
                       <h3 class="section-title" style="margin-bottom:6px;">Mensajes masivos</h3>
                     </div>
-                
+
                     <div class="broadcast-target">
                       <label for="broadcastCategory" class="broadcast-label">Enviar a</label>
                       <select id="broadcastCategory" class="broadcast-select">
@@ -14229,12 +14475,12 @@ def panel_RFC(
                       </select>
                     </div>
                   </div>
-                
+
                   <div class="broadcast-section broadcast-communication-grid">
                     <div class="broadcast-left">
                     <div class="broadcast-block">
                       <div class="broadcast-block-title">Mensajes predefinidos</div>
-                
+
                       <div class="broadcast-buttons-grid">
                         <button class="btn btn-success" onclick="sendBroadcast('activas')">Servicio activo</button>
                         <button class="btn btn-warning" onclick="sendBroadcast('restablecido')">Servicio restablecido</button>
@@ -14242,10 +14488,10 @@ def panel_RFC(
                         <button class="btn btn-closed" onclick="sendBroadcast('cerrado')">Servicio cerrado</button>
                       </div>
                     </div>
-                
+
                     <div class="broadcast-block">
                       <div class="broadcast-block-title">Mensaje libre</div>
-                
+
                       <textarea
                         id="broadcastMessage"
                         class="broadcast-textarea"
@@ -14256,40 +14502,40 @@ def panel_RFC(
                         <div style="font-size:12px;font-weight:700;margin-bottom:8px;">
                           Audio opcional
                         </div>
-                    
+
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                           <button type="button" class="btn btn-warning" onclick="startPanelAudioRecording('free')">
                             Grabar audio
                           </button>
-                    
+
                           <button type="button" class="btn btn-danger" onclick="stopPanelAudioRecording()" disabled id="freeAudioStopBtn">
                             Detener
                           </button>
-                    
+
                           <button type="button" class="btn btn-light" onclick="clearPanelAudio('free')">
                             Quitar audio
                           </button>
-                    
+
                           <span id="freeAudioStatus" style="font-size:12px;color:#d1d5db;font-weight:700;">
                             Sin audio
                           </span>
                         </div>
-                    
+
                         <audio id="freeAudioPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
                       </div>
-                
+
                       <div class="broadcast-actions">
                         <button class="btn btn-success" onclick="sendFreeBroadcast()">Enviar mensaje libre</button>
                         <button class="btn btn-light" onclick="clearBroadcast()">Limpiar</button>
                       </div>
                       </div>
-                      
+
                     </div>
 
                     <div class="broadcast-right">
                       <div class="broadcast-block">
                         <div class="broadcast-block-title">Mensaje privado a mini gestores RFC</div>
-                    
+
                       <div style="font-size:12px;color:#d1d5db;margin-bottom:8px;font-weight:600;">
                         Selecciona qué mini gestores RFC recibirán el aviso por privado.
                       </div>
@@ -14303,7 +14549,7 @@ def panel_RFC(
                         >
                           Seleccionar todos configurados
                         </button>
-                    
+
                         <button
                           type="button"
                           class="btn btn-light"
@@ -14312,7 +14558,7 @@ def panel_RFC(
                         >
                           Quitar selección
                         </button>
-                    
+
                         <span
                           id="privateBotSelectedCount"
                           style="font-size:11px;color:#d1d5db;font-weight:700;"
@@ -14320,14 +14566,14 @@ def panel_RFC(
                           0 seleccionados
                         </span>
                       </div>
-                    
+
                       <div
                         id="privateBotTargets"
                         style="max-height:220px;overflow:auto;border:1px solid #e5e7eb;border-radius:12px;padding:10px;background:#f8fafc;color:#111827;"
                       >
                         Cargando bots...
                       </div>
-                    
+
                       <textarea
                         id="privateBotsBroadcastMessage"
                         class="broadcast-textarea"
@@ -14339,33 +14585,33 @@ def panel_RFC(
                         <div style="font-size:12px;font-weight:800;margin-bottom:8px;">
                           Audio opcional
                         </div>
-                    
+
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
                           <button type="button" class="btn btn-warning" onclick="startPanelAudioRecording('private')">
                             Grabar audio
                           </button>
-                    
+
                           <button type="button" class="btn btn-danger" onclick="stopPanelAudioRecording()" disabled id="privateAudioStopBtn">
                             Detener
                           </button>
-                    
+
                           <button type="button" class="btn btn-light" onclick="clearPanelAudio('private')">
                             Quitar audio
                           </button>
-                    
+
                           <span id="privateAudioStatus" style="font-size:12px;color:#64748b;font-weight:800;">
                             Sin audio
                           </span>
                         </div>
-                    
+
                         <audio id="privateAudioPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
                       </div>
-                    
+
                       <div
                         id="privateBotsBroadcastProgress"
                         style="display:none;margin-top:10px;padding:10px;border-radius:10px;background:#f8fafc;border:1px solid #e5e7eb;font-size:12px;color:#111827;font-weight:600;"
                       ></div>
-                    
+
                       <div class="broadcast-actions">
                         <button class="btn btn-success" onclick="sendPrivateBotsBroadcast()">Enviar privado a seleccionados</button>
                         <button class="btn btn-light" onclick="document.getElementById('privateBotsBroadcastMessage').value=''">Limpiar</button>
@@ -14376,31 +14622,31 @@ def panel_RFC(
                 </div>
               </div>
             </div>
-        
+
             <form class="box" method="get" action="/panel">
               <input type="hidden" name="token" value="{_esc(settings.ADMIN_PANEL_TOKEN)}">
-              
+
               <div class="head">
                 <strong>Filtros</strong>
                 <span class="small">Aplica filtros para localizar información específica rápidamente.</span>
               </div>
-              
+
               <div class="filters">
                 <input type="hidden" name="view" value="{_esc(view)}">
                 <input type="hidden" name="group_mode" value="{_esc(group_mode)}">
                 <input type="hidden" name="date_from" value="{_esc(date_from)}">
                 <input type="hidden" name="date_to" value="{_esc(date_to)}">
-                
+
                 <input name="group_jid" placeholder="Grupo cliente" value="{_esc(group_jid)}">
                 <input type="hidden" name="provider_name" value="">
                 <input name="status" placeholder="Estado" value="{_esc(status)}">
                 <input name="act_type" placeholder="Tipo de RFC" value="{_esc(act_type)}">
-                
+
                 <button type="submit" class="btn btn-primary">Filtrar</button>
               </div>
             </form>
         """
-        
+
         html += """
         <div class="box">
           <div class="head collapsible-head open" onclick="toggleSection('promoCompartidaBody', this)">
@@ -14434,7 +14680,7 @@ def panel_RFC(
                 step="1"
                 placeholder="Total CLON"
               >
-            
+
               <input
                 id="sharedPromoIdcifTotal"
                 type="number"
@@ -14442,7 +14688,7 @@ def panel_RFC(
                 step="1"
                 placeholder="Total IDCIF"
               >
-            
+
               <input
                 id="sharedPromoVerifiableTotal"
                 type="number"
@@ -14459,10 +14705,10 @@ def panel_RFC(
                 placeholder="Precio verificable"
               >
             </div>
-        
+
             <div class="box" style="padding:14px;margin-top:8px;background:#f8fafc;border:1px solid #e5e7eb;">
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end;">
-                
+
                 <div>
                   <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#374151;">
                     Tipo de bolsa RFC
@@ -14472,33 +14718,33 @@ def panel_RFC(
                     <option value="credit">Crédito</option>
                   </select>
                 </div>
-            
+
                 <div>
                   <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#374151;">
                     Abono
                   </label>
                   <input id="sharedPromoCreditAbono" type="number" min="0" placeholder="N/A" value="" disabled>
                 </div>
-            
+
                 <div>
                   <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#374151;">
                     Debe
                   </label>
                   <input id="sharedPromoCreditDebe" type="number" min="0" placeholder="N/A" value="" disabled>
                 </div>
-            
+
               </div>
-            
+
               <div class="helper" style="margin-top:12px;">
                 Selecciona los grupos que usarán la misma bolsa compartida. Si un grupo consume RFC, se descuentan del mismo saldo para todos.
               </div>
-            
+
               <div style="margin-top:10px;font-size:13px;color:#6b7280;">
                 Ejemplo: si 4 grupos comparten una bolsa de 1000 RFC y uno consume 50,
                 el saldo disponible será 950 para todos los grupos asociados.
               </div>
             </div>
-        
+
             <div class="box" style="padding:14px; margin-top:8px; background:#f8fafc; border:1px solid #e5e7eb;">
               <div style="display:grid; grid-template-columns: 1.2fr auto auto auto; gap:10px; align-items:center;">
                 <input
@@ -14506,28 +14752,28 @@ def panel_RFC(
                   placeholder="Buscar grupo por nombre..."
                   oninput="filterSharedPromoGroups()"
                 >
-        
+
                 <label style="display:flex;align-items:center;gap:6px;font-size:14px;">
                   <input type="checkbox" id="filterNormalGroups" checked onchange="filterSharedPromoGroups()">
                   Normales
                 </label>
-        
+
                 <label style="display:flex;align-items:center;gap:6px;font-size:14px;">
                   <input type="checkbox" id="filterTestGroups" onchange="filterSharedPromoGroups()">
                   Pruebas
                 </label>
-        
+
                 <label style="display:flex;align-items:center;gap:6px;font-size:14px;">
                   <input type="checkbox" id="filterProviderGroups" onchange="filterSharedPromoGroups()">
                   Orígenes
                 </label>
               </div>
-        
+
               <div class="helper" style="margin-top:10px;">
                 Selecciona los grupos que compartirán el mismo saldo. Por defecto se muestran solo grupos normales.
               </div>
             </div>
-        
+
             <div
               id="sharedPromoGroups"
               style="max-height:360px;overflow:auto;border:1px solid #e5e7eb;padding:12px;border-radius:14px;background:#fff;margin-top:12px;"
@@ -14539,23 +14785,23 @@ def panel_RFC(
         for gid in sorted(group_ids, key=lambda x: _group_name_cached(x, group_cache).lower()):
             group_name = _group_name_cached(gid, group_cache)
             upper_name = group_name.upper()
-        
+
             is_test = (
                 "PRUEBA" in upper_name
                 or "PRUEBAS" in upper_name
                 or "TEST" in upper_name
             )
-        
+
             is_provider = (
                 upper_name.startswith("PROV ")
                 or "PROV " in upper_name
                 or "PROVEEDOR" in upper_name
             )
-        
+
             group_kind = "normal"
             badge_text = "Normal"
             badge_class = "badge-light"
-        
+
             if is_test:
                 group_kind = "test"
                 badge_text = "Prueba"
@@ -14564,7 +14810,7 @@ def panel_RFC(
                 group_kind = "provider"
                 badge_text = "Origen"
                 badge_class = "badge-danger"
-        
+
             html += f'''
             <label
               class="shared-promo-item"
@@ -14584,7 +14830,7 @@ def panel_RFC(
             '''
         html += """
             </div>
-        
+
             <div class="shared-promo-actions">
               <button class="btn btn-success" onclick="applySharedPromotion()">
                 Aplicar bolsa RFC compartida
@@ -14593,7 +14839,7 @@ def panel_RFC(
               <button class="btn btn-primary" type="button" onclick="addGroupToSharedPromotion()">
                 Agregar grupo a bolsa existente
               </button>
-        
+
               <button class="btn btn-light" type="button" onclick="clearSharedPromotionSelection()">
                 Limpiar selección
               </button>
@@ -14727,52 +14973,52 @@ def panel_RFC(
             document.getElementById(
               "manager_name_" + inst
             );
-        
+
           const clonEl =
             document.getElementById(
               "price_clon_" + inst
             );
-        
+
           const idcifEl =
             document.getElementById(
               "price_idcif_" + inst
             );
-        
+
           const verifiableEl =
             document.getElementById(
               "price_verifiable_" + inst
             );
-        
+
           const noteEl =
             document.getElementById(
               "price_note_" + inst
             );
-        
+
           const managerName =
             managerEl
               ? managerEl.value.trim()
               : "";
-        
+
           const clonPrice =
             clonEl
               ? clonEl.value.trim()
               : "";
-        
+
           const idcifPrice =
             idcifEl
               ? idcifEl.value.trim()
               : "";
-        
+
           const verifiablePrice =
             verifiableEl
               ? verifiableEl.value.trim()
               : "";
-        
+
           const note =
             noteEl
               ? noteEl.value.trim()
               : "";
-        
+
           window.rfcBotUpdate({
             instance: inst,
             action: "set_price",
@@ -14966,9 +15212,9 @@ def panel_RFC(
             const fragmentQs = new URLSearchParams(
               window.location.search || ""
             );
-            
+
             fragmentQs.set("v", String(Date.now()));
-            
+
             fetch(
               "/panel/rfc-bot-control-fragment?" +
               fragmentQs.toString(),
@@ -14984,7 +15230,7 @@ def panel_RFC(
                     "HTTP " + r.status
                   );
                 }
-            
+
                 return r.text();
               })
               .then(function(html) {
@@ -15042,14 +15288,14 @@ def panel_RFC(
 
         for r in by_instance:
             inst = (r["instance_name"] or "").strip()
-        
+
             bot_credit = _bot_credit_stats(db, inst)
             bot_used = bot_credit["used"]
             bot_limit = bot_credit["limit"]
             bot_available = bot_credit["available"] if bot_limit > 0 else "∞"
-        
+
             bot_blocked = is_instance_blocked(inst)
-        
+
             status_badge = (
                 '<span class="badge badge-danger">BLOQUEADO</span>'
                 if bot_blocked else
@@ -15062,7 +15308,7 @@ def panel_RFC(
                 if bot_blocked else
                 f"""<button class="btn btn-danger" onclick="blockBot('{inst_js}')">Bloquear</button>"""
             )
-        
+
             html += f"""
                 <tr>
                   <td><strong>{_esc(bot_labels_map.get(inst) or inst)}</strong></td>
@@ -15071,7 +15317,7 @@ def panel_RFC(
                   <td class="right">{bot_limit}</td>
                   <td class="right">{bot_available}</td>
                   <td>{status_badge}</td>
-        
+
                   <td>
                     <div style="display:flex;gap:8px;align-items:center;min-width:180px;">
                       <input
@@ -15088,7 +15334,7 @@ def panel_RFC(
                       </button>
                     </div>
                   </td>
-        
+
                   <td>
                     <div style="display:flex;gap:8px;align-items:center;min-width:180px;">
                       <input
@@ -15104,7 +15350,7 @@ def panel_RFC(
                       </button>
                     </div>
                   </td>
-        
+
                   <td>
                     <div style="display:flex;flex-wrap:wrap;gap:8px;">
                       <button class="btn btn-light" onclick="resetBotUsage('{_esc(inst)}')">
@@ -15115,7 +15361,7 @@ def panel_RFC(
                   </td>
                 </tr>
             """
-        
+
         html += """
               </tbody>
             </table>
@@ -15139,7 +15385,7 @@ def panel_RFC(
               </thead>
               <tbody>
         """
-    
+
         if by_instance:
             for r in by_instance:
                 html += f"""
@@ -15151,7 +15397,7 @@ def panel_RFC(
                 """
         else:
             html += '<tr><td colspan="3">Sin datos.</td></tr>'
-    
+
         html += """
               </tbody>
             </table>
@@ -15258,7 +15504,7 @@ def panel_RFC(
               </thead>
               <tbody>
         """
-    
+
         if by_type:
             for r in by_type:
                 html += f"""
@@ -15270,7 +15516,7 @@ def panel_RFC(
                 """
         else:
             html += '<tr><td colspan="3">Sin datos.</td></tr>'
-    
+
         html += """
               </tbody>
             </table>
@@ -15304,7 +15550,7 @@ def panel_RFC(
             if all_blocked
             else '<button class="btn btn-danger" onclick="toggleAllGroups()">Bloquear todos los grupos</button>'
         )
-        
+
         html += f"""
         <div class="box">
           <div class="head">
@@ -15323,18 +15569,18 @@ def panel_RFC(
             <strong>Agregar grupo manualmente</strong>
             <span class="small">Registra un grupo nuevo indicando su ID, nombre y categoría.</span>
           </div>
-        
+
           <div class="filters" style="grid-template-columns: 1.2fr 1fr 220px 220px;">
             <div>
               <div class="small">Group JID</div>
               <input id="manual_group_jid" placeholder="120363000000000000@g.us">
             </div>
-        
+
             <div>
               <div class="small">Nombre del grupo</div>
               <input id="manualGroupName" placeholder="Nombre del grupo">
             </div>
-        
+
             <div>
               <div class="small">Categoría</div>
               <select id="manualGroupCategory">
@@ -15343,7 +15589,7 @@ def panel_RFC(
                 <option value="otro" selected>Otro</option>
               </select>
             </div>
-        
+
             <div style="display:flex;align-items:end;">
               <button type="button" class="btn btn-primary" style="width:100%;" onclick="addManualGroup()">
                 Agregar grupo
@@ -15382,7 +15628,7 @@ def panel_RFC(
               </thead>
               <tbody>
         """
-    
+
         if by_group:
             for r in by_group:
                 blocked = is_group_blocked(r["group_jid"])
@@ -15428,30 +15674,30 @@ def panel_RFC(
                     )
                     or ""
                 ).strip().upper()
-                
+
                 provider_options = [
                     ("", "Automático"),
                     ("VERIF1", "LUPITA EXPRES"),
                     ("VERIF3", "ROMA EXPRES"),
                     ("VERIF4", "ROBERTO LENTO"),
                 ]
-                
+
                 provider_options_html = ""
-                
+
                 for code, label in provider_options:
                     selected_attr = (
                         " selected"
                         if selected_provider_code == code
                         else ""
                     )
-                
+
                     provider_options_html += (
                         f'<option value="{_esc(code)}"'
                         f'{selected_attr}>'
                         f'{_esc(label)}'
                         f'</option>'
                     )
-                
+
                 provider_selector_html = f"""
                 <div
                   style="
@@ -15470,7 +15716,7 @@ def panel_RFC(
                   >
                     Enviar a proveedor
                   </label>
-                
+
                   <select
                     id="verifiable_provider_{_esc(r['group_jid'])}"
                     style="
@@ -15484,7 +15730,7 @@ def panel_RFC(
                   >
                     {provider_options_html}
                   </select>
-                
+
                   <button
                     type="button"
                     class="btn"
@@ -15503,30 +15749,30 @@ def panel_RFC(
                   </button>
                 </div>
                 """
-                
+
                 block_btn = (
                     f'<button class="btn btn-success" onclick="toggleGroupBlock(\'{r["group_jid"]}\', \'unblock\')">Desbloquear</button>'
-                    if blocked else 
+                    if blocked else
                     f'<button class="btn btn-danger" onclick="toggleGroupBlock(\'{r["group_jid"]}\', \'block\')">Bloquear</button>'
                     f'<button class="btn btn-light" onclick="hideGroupFromPanel(\'{r["group_jid"]}\')">Ocultar</button>'
                 )
-                
+
                 action_btn = f'''
                 <div style="display:flex;align-items:center;gap:8px;">
                   {block_btn}
                 </div>
                 '''
-        
+
                 group_key = (r["group_jid"] or "").replace("@g.us", "").strip()
                 promo_info = (
                     promo_map.get(r["group_jid"])
                     or promo_map.get(group_key)
                 )
-        
+
                 if promo_info:
                     status = "Activa" if promo_info["available"] > 0 else "Agotada"
                     promo_badge_class = "badge-success" if promo_info["available"] > 0 else "badge-danger"
-                
+
                     is_shared = bool((promo_info.get("shared_key") or "").strip()) and (promo_info.get("shared_count", 0) > 1)
                     shared_text = "Compartida" if is_shared else "Individual"
                     shared_badge_class = "badge-warning" if is_shared else "badge-light"
@@ -15536,7 +15782,7 @@ def panel_RFC(
                         f'<div class="small" style="margin-top:4px;color:#6b7280;">{_esc(client_key)}</div>'
                         if is_shared and client_key else ""
                     )
-                
+
                     promo_cell = f"""
                     <span class="badge {promo_badge_class}">{status}</span>
                     <span class="badge {shared_badge_class}" style="margin-left:6px;">{shared_text}</span><br>
@@ -15551,7 +15797,7 @@ def panel_RFC(
                        Bolsa RFC
                     </a>
                     """
-        
+
                 html += f"""
                 <tr>
                   <td>
@@ -15564,7 +15810,7 @@ def panel_RFC(
                   <td>{promo_cell}</td>
                   <td>
                     {group_verifiable_badge}<br>
-                
+
                     <button
                       type="button"
                       class="btn"
@@ -15594,7 +15840,7 @@ def panel_RFC(
                 """
         else:
             html += '<tr><td colspan="9">Sin datos.</td></tr>'
-    
+
         html += """
               </tbody>
             </table>
@@ -15602,7 +15848,7 @@ def panel_RFC(
           </div>
         </div>
         """
-    
+
         html += """
         <div class="box">
           <div class="head collapsible-head open" onclick="toggleSection('recentRequestsWrap', this)">
@@ -15632,7 +15878,7 @@ def panel_RFC(
               </thead>
               <tbody>
         """
-    
+
         if latest:
             for r in latest:
                 status_class = {
@@ -15641,7 +15887,7 @@ def panel_RFC(
                     "DONE": "status-d",
                     "ERROR": "status-e",
                 }.get(r.status, "")
-    
+
                 html += f"""
                 <tr>
                   <td>{r.id}</td>
@@ -15657,7 +15903,7 @@ def panel_RFC(
                 """
         else:
             html += '<tr><td colspan="9">Sin solicitudes en este periodo.</td></tr>'
-    
+
         html += f"""
               </tbody>
             </table>
@@ -15665,7 +15911,7 @@ def panel_RFC(
         </div>
       </div>
     </div>
-    
+
       <script>
         const PANEL_STREAM_ENABLED = {json.dumps(PANEL_STREAM_ENABLED)};
         let broadcastRunning = false;
@@ -15673,39 +15919,39 @@ def panel_RFC(
         let panelAudioRecorder = null;
         let panelAudioChunks = [];
         let panelAudioTarget = null;
-        
+
         let panelAudioBase64 = {{
           free: "",
           private: ""
         }};
-        
+
         function setPanelAudioStatus(target, text) {{
           const id = target === "private" ? "privateAudioStatus" : "freeAudioStatus";
           const el = document.getElementById(id);
           if (el) el.textContent = text;
         }}
-        
+
         function setPanelAudioStopEnabled(target, enabled) {{
           const id = target === "private" ? "privateAudioStopBtn" : "freeAudioStopBtn";
           const btn = document.getElementById(id);
           if (btn) btn.disabled = !enabled;
         }}
-        
+
         function setPanelAudioPreview(target, blob) {{
           const id = target === "private" ? "privateAudioPreview" : "freeAudioPreview";
           const audio = document.getElementById(id);
           if (!audio) return;
-        
+
           if (!blob) {{
             audio.style.display = "none";
             audio.removeAttribute("src");
             return;
           }}
-        
+
           audio.src = URL.createObjectURL(blob);
           audio.style.display = "block";
         }}
-        
+
         function blobToDataUrl(blob) {{
           return new Promise((resolve, reject) => {{
             const reader = new FileReader();
@@ -15714,84 +15960,84 @@ def panel_RFC(
             reader.readAsDataURL(blob);
           }});
         }}
-        
+
         async function startPanelAudioRecording(target) {{
           if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {{
             alert("Tu navegador no permite grabar audio aquí.");
             return;
           }}
-        
+
           if (panelAudioRecorder && panelAudioRecorder.state === "recording") {{
             alert("Ya hay una grabación activa.");
             return;
           }}
-        
+
           panelAudioTarget = target;
           panelAudioChunks = [];
-        
+
           try {{
             const stream = await navigator.mediaDevices.getUserMedia({{ audio: true }});
-        
+
             let options = {{}};
-        
+
             if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {{
               options = {{ mimeType: "audio/webm;codecs=opus" }};
             }} else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {{
               options = {{ mimeType: "audio/ogg;codecs=opus" }};
             }}
-        
+
             panelAudioRecorder = new MediaRecorder(stream, options);
-        
+
             panelAudioRecorder.ondataavailable = (event) => {{
               if (event.data && event.data.size > 0) {{
                 panelAudioChunks.push(event.data);
               }}
             }};
-        
+
             panelAudioRecorder.onstop = async () => {{
               try {{
                 const blob = new Blob(panelAudioChunks, {{
                   type: panelAudioRecorder.mimeType || "audio/webm"
                 }});
-        
+
                 const dataUrl = await blobToDataUrl(blob);
-        
+
                 panelAudioBase64[panelAudioTarget] = dataUrl;
-        
+
                 setPanelAudioPreview(panelAudioTarget, blob);
                 setPanelAudioStatus(panelAudioTarget, "Audio listo para enviar");
               }} catch (e) {{
                 console.error(e);
                 setPanelAudioStatus(panelAudioTarget, "Error preparando audio");
               }}
-        
+
               try {{
                 stream.getTracks().forEach(track => track.stop());
               }} catch (e) {{}}
-        
+
               setPanelAudioStopEnabled(panelAudioTarget, false);
               panelAudioRecorder = null;
             }};
-        
+
             panelAudioRecorder.start();
             panelAudioBase64[target] = "";
             setPanelAudioPreview(target, null);
             setPanelAudioStatus(target, "Grabando...");
             setPanelAudioStopEnabled(target, true);
-        
+
           }} catch (e) {{
             console.error(e);
             alert("No se pudo acceder al micrófono.");
             setPanelAudioStopEnabled(target, false);
           }}
         }}
-        
+
         function stopPanelAudioRecording() {{
           if (panelAudioRecorder && panelAudioRecorder.state === "recording") {{
             panelAudioRecorder.stop();
           }}
         }}
-        
+
         function clearPanelAudio(target) {{
           panelAudioBase64[target] = "";
           setPanelAudioPreview(target, null);
@@ -15874,9 +16120,9 @@ def panel_RFC(
                 method: "POST"
               }}
             );
-        
+
             const data = await res.json();
-        
+
             if (!data.ok) {{
               alert(
                 data.error
@@ -15884,28 +16130,28 @@ def panel_RFC(
               );
               return;
             }}
-        
+
             location.reload();
-        
+
           }} catch (e) {{
             alert(
               "No se pudo conectar con el servidor"
             );
           }}
         }}
-        
-        
+
+
         async function saveVerifiableProviderWeight(
           providerName
         ) {{
           const input = document.getElementById(
             "weight_" + providerName
           );
-        
+
           const weight = Number(
             input?.value || 0
           );
-        
+
           if (
             Number.isNaN(weight)
             || weight < 0
@@ -15915,7 +16161,7 @@ def panel_RFC(
             );
             return;
           }}
-        
+
           try {{
             const res = await fetch(
               "/panel/verifiable-provider/weight",
@@ -15932,9 +16178,9 @@ def panel_RFC(
                 }})
               }}
             );
-        
+
             const data = await res.json();
-        
+
             if (!data.ok) {{
               alert(
                 data.error
@@ -15942,27 +16188,27 @@ def panel_RFC(
               );
               return;
             }}
-        
+
             alert(
               "Prioridad actualizada"
             );
-        
+
             location.reload();
-        
+
           }} catch (e) {{
             alert(
               "No se pudo conectar con el servidor"
             );
           }}
         }}
-    
+
         async function toggleProvider(provider, action) {{
           const url = `/panel/provider/${{provider}}/${{action}}`;
-    
+
           try {{
             const res = await fetch(url, {{ method: "POST" }});
             const data = await res.json();
-    
+
             if (data.ok) {{
               location.reload();
             }} else {{
@@ -15972,11 +16218,11 @@ def panel_RFC(
             alert("No se pudo conectar con el servidor");
           }}
         }}
-    
+
         async function refreshSID() {{
           const sid = prompt("Pega el nuevo PHPSESSID");
           if (!sid) return;
-    
+
           try {{
             const res = await fetch("/panel/provider3/session", {{
               method: "POST",
@@ -15987,9 +16233,9 @@ def panel_RFC(
                 phpsessid: sid
               }})
             }});
-    
+
             const data = await res.json();
-    
+
             if (data.ok) {{
               alert("SID actualizada");
               location.reload();
@@ -16004,7 +16250,7 @@ def panel_RFC(
         async function refreshHID() {{
           const hid = prompt("Pega el nuevo HID de LAZARO WEB 1");
           if (!hid) return;
-        
+
           try {{
             const res = await fetch("/panel/provider4/hid", {{
               method: "POST",
@@ -16015,9 +16261,9 @@ def panel_RFC(
                 hid: hid
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert("HID de LAZARO WEB 1 actualizado");
               location.reload();
@@ -16032,7 +16278,7 @@ def panel_RFC(
         async function refreshHID10() {{
           const hid = prompt("Pega el nuevo HID de LAZARO WEB 2", "D0cuExprRServ2");
           if (!hid) return;
-        
+
           try {{
             const res = await fetch("/panel/provider10/hid", {{
               method: "POST",
@@ -16043,9 +16289,9 @@ def panel_RFC(
                 hid: hid
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert("HID de LAZARO WEB 2 actualizado");
               location.reload();
@@ -16060,7 +16306,7 @@ def panel_RFC(
         async function refreshHID11() {{
           const hid = prompt("Pega el nuevo HID de LAZARO WEB 3", "D0cuExprRServ3");
           if (!hid) return;
-        
+
           try {{
             const res = await fetch("/panel/provider11/hid", {{
               method: "POST",
@@ -16071,9 +16317,9 @@ def panel_RFC(
                 hid: hid
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert("HID de LAZARO WEB 3 actualizado");
               location.reload();
@@ -16088,7 +16334,7 @@ def panel_RFC(
         async function saveProviderWeight(providerName) {{
           const input = document.getElementById("weight_" + providerName);
           const weight = input ? input.value : 0;
-        
+
           const res = await fetch("/panel/provider-weight", {{
             method: "POST",
             headers: {{"Content-Type": "application/json"}},
@@ -16097,26 +16343,26 @@ def panel_RFC(
               weight: weight
             }})
           }});
-        
+
           const data = await res.json();
-        
+
           if (!data.ok) {{
             alert("Error: " + (data.error || "No se pudo guardar"));
             return;
           }}
-        
+
           alert("Peso actualizado: " + providerName + " = " + data.weight);
         }}
 
         async function saveBotLimit(instanceName) {{
           const input = document.getElementById(`bot_limit_${{instanceName}}`);
           const value = Number((input?.value || "0").trim());
-        
+
           if (Number.isNaN(value) || value < 0) {{
             alert("Ingresa un límite válido.");
             return;
           }}
-        
+
           try {{
             const res = await fetch(`/panel/instance/${{encodeURIComponent(instanceName)}}/limit`, {{
               method: "POST",
@@ -16127,9 +16373,9 @@ def panel_RFC(
                 limit: value
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(`Límite actualizado para ${{instanceName}}: ${{data.limit}}`);
               location.reload();
@@ -16211,18 +16457,18 @@ def panel_RFC(
           const select = document.getElementById(
             "verifiable_provider_" + groupJid
           );
-        
+
           if (!select) {{
             alert(
               "No se encontró el selector de proveedor."
             );
             return;
           }}
-        
+
           const providerCode = (
             select.value || ""
           ).trim();
-        
+
           try {{
             const response = await fetch(
               "/panel/group/"
@@ -16239,9 +16485,9 @@ def panel_RFC(
                 }})
               }}
             );
-        
+
             const data = await response.json();
-        
+
             if (!response.ok || !data.ok) {{
               alert(
                 data.detail
@@ -16250,9 +16496,9 @@ def panel_RFC(
               );
               return;
             }}
-        
+
             location.reload();
-        
+
           }} catch (error) {{
             alert(
               "Error de conexión al guardar "
@@ -16264,11 +16510,11 @@ def panel_RFC(
         async function hideGroupFromPanel(groupJid) {{
           const ok = confirm("¿Quitar este grupo visualmente del panel?");
           if (!ok) return;
-        
+
           const res = await fetch(`/panel/group/${{encodeURIComponent(groupJid)}}/hide`, {{
             method: "POST"
           }});
-        
+
           const data = await res.json();
           if (data.ok) {{
             location.reload();
@@ -16280,18 +16526,18 @@ def panel_RFC(
         async function getBotQr(instanceName) {{
           const box = document.getElementById("botQrBox");
           if (!box) return;
-        
+
           box.innerHTML = "<strong>Generando QR...</strong>";
-        
+
           try {{
             const res = await fetch(`/panel/instance/${{instanceName}}/qr`);
             const data = await res.json();
-        
+
             if (!data.ok) {{
               box.innerHTML = `<div style="color:red;font-weight:800;">Error: ${{data.error || "No se pudo generar QR"}}</div>`;
               return;
             }}
-        
+
             const payload = data.data || {{}};
             const qr =
               payload.base64 ||
@@ -16304,7 +16550,7 @@ def panel_RFC(
               payload.instance?.qrcode ||
               payload.instance?.qr ||
               "";
-        
+
             if (qr && String(qr).startsWith("data:image")) {{
               box.innerHTML = `
                 <div style="padding:14px;border:1px solid #e5e7eb;border-radius:14px;background:white;">
@@ -16324,7 +16570,7 @@ def panel_RFC(
                 <pre style="white-space:pre-wrap;background:#111827;color:white;padding:14px;border-radius:12px;">${{JSON.stringify(payload, null, 2)}}</pre>
               `;
             }}
-        
+
           }} catch (e) {{
             box.innerHTML = `<div style="color:red;font-weight:800;">Error de conexión</div>`;
           }}
@@ -16335,30 +16581,30 @@ def panel_RFC(
           await fetch(`/panel/bots/${{i}}/disconnect?token={_esc(settings.ADMIN_PANEL_TOKEN)}`,{{method:"POST"}});
           location.reload();
         }}
-        
+
         async function hideBot(i){{
           if(!confirm("Ocultar?")) return;
           await fetch(`/panel/bots/${{i}}/hide?token={_esc(settings.ADMIN_PANEL_TOKEN)}`,{{method:"POST"}});
           location.reload();
         }}
-        
+
         async function createBot(){{
           const label=document.getElementById("newBotLabel").value;
           const instance=document.getElementById("newBotInstance").value;
-        
+
           const r=await fetch(`/panel/bots/create?token={_esc(settings.ADMIN_PANEL_TOKEN)}`,{{
             method:"POST",
             headers:{{"Content-Type":"application/json"}},
             body:JSON.stringify({{label,instance_name:instance}})
           }});
-        
+
           const d=await r.json();
-        
+
           if(!d.ok){{
             alert(d.error||"error");
             return;
           }}
-        
+
           alert("Token: "+d.token);
           location.reload();
         }}
@@ -16366,16 +16612,16 @@ def panel_RFC(
         async function updateProvider7Credentials() {{
           const access_token = prompt("PROVIDER7_ACCESS_TOKEN:");
           if (access_token === null) return;
-        
+
           const jsessionid = prompt("PROVIDER7_JSESSIONID:");
           if (jsessionid === null) return;
-        
+
           const oficialia = prompt("PROVIDER7_OFICIALIA:");
           if (oficialia === null) return;
-        
+
           const rfc_usuario = prompt("PROVIDER7_RFC_USUARIO:");
           if (rfc_usuario === null) return;
-        
+
           try {{
             const res = await fetch("/panel/provider7/update-credentials", {{
               method: "POST",
@@ -16389,9 +16635,9 @@ def panel_RFC(
                 rfc_usuario
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert("Credenciales de Provider7 actualizadas");
               location.reload();
@@ -16402,16 +16648,16 @@ def panel_RFC(
             alert("Error de conexión al actualizar Provider7");
           }}
         }}
-        
+
         async function rechargeBotLimit(instanceName) {{
           const input = document.getElementById(`bot_recharge_${{instanceName}}`);
           const value = Number((input?.value || "").trim());
-        
+
           if (Number.isNaN(value) || value <= 0) {{
             alert("Ingresa una recarga válida mayor a 0.");
             return;
           }}
-        
+
           try {{
             const res = await fetch(`/panel/instance/${{encodeURIComponent(instanceName)}}/recharge`, {{
               method: "POST",
@@ -16422,9 +16668,9 @@ def panel_RFC(
                 amount: value
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(`Recarga aplicada a ${{instanceName}}. Nuevo límite: ${{data.limit}}`);
               location.reload();
@@ -16435,18 +16681,18 @@ def panel_RFC(
             alert("Error de conexión al recargar el bot.");
           }}
         }}
-        
+
         async function resetBotUsage(instanceName) {{
           const ok = confirm(`¿Seguro que deseas resetear las usadas de ${{instanceName}}?`);
           if (!ok) return;
-        
+
           try {{
             const res = await fetch(`/panel/instance/${{encodeURIComponent(instanceName)}}/reset-usage`, {{
               method: "POST"
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(`Usadas reseteadas para ${{instanceName}}.`);
               location.reload();
@@ -16457,18 +16703,18 @@ def panel_RFC(
             alert("Error de conexión al resetear el consumo.");
           }}
         }}
-        
+
         async function blockBot(instanceName) {{
           const ok = confirm(`¿Bloquear ${{instanceName}} para nuevas solicitudes?`);
           if (!ok) return;
-        
+
           try {{
             const res = await fetch(`/panel/instance/${{encodeURIComponent(instanceName)}}/block`, {{
               method: "POST"
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(`${{instanceName}} bloqueado.`);
               location.reload();
@@ -16479,15 +16725,15 @@ def panel_RFC(
             alert("Error de conexión al bloquear el bot.");
           }}
         }}
-        
+
         async function unblockBot(instanceName) {{
           try {{
             const res = await fetch(`/panel/instance/${{encodeURIComponent(instanceName)}}/unblock`, {{
               method: "POST"
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(`${{instanceName}} desbloqueado.`);
               location.reload();
@@ -16498,19 +16744,19 @@ def panel_RFC(
             alert("Error de conexión al desbloquear el bot.");
           }}
         }}
-        
+
         async function addGroupToSharedPromotion() {{
           const selected = Array.from(document.querySelectorAll(".shared-promo-group:checked"))
             .map(el => el.value);
-        
+
           if (selected.length !== 1) {{
             alert("Selecciona solo un grupo para agregarlo a una bolsa existente");
             return;
           }}
-        
+
           const shared_key = prompt("Ingresa la clave de la bolsa compartida existente:");
           if (!shared_key) return;
-        
+
           try {{
             const res = await fetch("/panel/promotions/add-group", {{
               method: "POST",
@@ -16522,9 +16768,9 @@ def panel_RFC(
                 shared_key: shared_key
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(data.message || "Grupo agregado correctamente");
               location.reload();
@@ -16540,17 +16786,17 @@ def panel_RFC(
           const group_jid = (document.getElementById("manualGroupJid")?.value || "").trim();
           const custom_name = (document.getElementById("manualGroupName")?.value || "").trim();
           const category = (document.getElementById("manualGroupCategory")?.value || "otro").trim();
-        
+
           if (!group_jid) {{
             alert("Ingresa el Group JID");
             return;
           }}
-        
+
           if (!group_jid.endsWith("@g.us")) {{
             alert("El Group JID debe terminar en @g.us");
             return;
           }}
-        
+
           try {{
             const res = await fetch("/panel/groups/manual-add", {{
               method: "POST",
@@ -16563,9 +16809,9 @@ def panel_RFC(
                 category
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(data.message || "Grupo agregado");
               location.reload();
@@ -16584,21 +16830,21 @@ def panel_RFC(
             "Ingresa el límite individual "
             + "de CLON/IDCIF para este grupo:"
           );
-        
+
           if (value === null) {{
             return;
           }}
-        
+
           const verifiableValue = prompt(
             "Ingresa el límite individual "
             + "de RFC verificables para "
             + "este grupo:"
           );
-        
+
           if (verifiableValue === null) {{
             return;
           }}
-        
+
           try {{
             const res = await fetch(
               "/panel/promotions/set-group-limit",
@@ -16619,9 +16865,9 @@ def panel_RFC(
                 }})
               }}
             );
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(
                 data.message
@@ -16645,12 +16891,12 @@ def panel_RFC(
         async function sendBroadcast(type) {{
           const ok = confirm("¿Seguro que deseas enviar este mensaje masivamente?");
           if (!ok) return;
-        
+
           if (broadcastRunning) return;
           broadcastRunning = true;
-        
+
           const category = document.getElementById("broadcastCategory")?.value || "all";
-        
+
           try {{
             const res = await fetch(`/panel/broadcast/${{type}}`, {{
               method: "POST",
@@ -16661,9 +16907,9 @@ def panel_RFC(
                 category: category
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(data.message || "Envío iniciado");
             }} else {{
@@ -16672,27 +16918,27 @@ def panel_RFC(
           }} catch (e) {{
             alert("No se pudo conectar con el servidor");
           }}
-        
+
           broadcastRunning = false;
         }}
-    
+
         async function sendFreeBroadcast() {{
           const textarea = document.getElementById("broadcastMessage");
           const message = textarea.value.trim();
           const audioBase64 = panelAudioBase64.free || "";
           const category = document.getElementById("broadcastCategory")?.value || "all";
-        
+
           if (!message && !audioBase64) {{
             alert("Escribe un mensaje o graba un audio");
             return;
           }}
-        
+
           const ok = confirm("¿Seguro que deseas enviar este mensaje masivamente?");
           if (!ok) return;
-        
+
           if (broadcastRunning) return;
           broadcastRunning = true;
-        
+
           try {{
             const res = await fetch("/panel/broadcast/free", {{
               method: "POST",
@@ -16705,9 +16951,9 @@ def panel_RFC(
                 category: category
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(data.message || "Envío iniciado");
               textarea.value = "";
@@ -16718,7 +16964,7 @@ def panel_RFC(
           }} catch (e) {{
             alert("No se pudo conectar con el servidor");
           }}
-        
+
           broadcastRunning = false;
         }}
 
@@ -16727,57 +16973,57 @@ def panel_RFC(
         function getPrivateBotChecks() {{
           return Array.from(document.querySelectorAll(".privateBotCheck"));
         }}
-        
+
         function syncPrivateBotSelectCounter() {{
           const counter = document.getElementById("privateBotSelectedCount");
           if (!counter) return;
-        
+
           const checks = getPrivateBotChecks();
           const enabled = checks.filter(x => !x.disabled);
           const selected = enabled.filter(x => x.checked);
-        
+
           counter.textContent = `${{selected.length}} de ${{enabled.length}} configurados seleccionados`;
         }}
-        
+
         function selectAllPrivateBots(checked) {{
           const checks = getPrivateBotChecks();
-        
+
           checks.forEach(chk => {{
             if (!chk.disabled) {{
               chk.checked = checked;
             }}
           }});
-        
+
           syncPrivateBotSelectCounter();
         }}
 
         async function loadPrivateBotTargets() {{
           const box = document.getElementById("privateBotTargets");
           if (!box) return;
-        
+
           try {{
             const res = await fetch("/panel/broadcast/private-bots/targets?token={_esc(settings.ADMIN_PANEL_TOKEN)}");
             const data = await res.json();
-        
+
             if (!data.ok) {{
               box.innerHTML = `<div style="color:#b91c1c;">${{data.error || "No se pudieron cargar los bots"}}</div>`;
               return;
             }}
-        
+
             const bots = data.bots || [];
-        
+
             if (!bots.length) {{
               box.innerHTML = `<div style="color:#64748b;">No hay mini gestores RFC registrados.</div>`;
               return;
             }}
-        
+
             box.innerHTML = bots.map(bot => {{
               const disabled = bot.configured ? "" : "disabled";
               const checked = bot.configured ? "" : "";
               const status = bot.configured
                 ? `<span style="color:#15803d;font-weight:700;">Configurado</span>`
                 : `<span style="color:#b91c1c;font-weight:700;">Sin número privado</span>`;
-        
+
               return `
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px;border-bottom:1px solid #e5e7eb;">
                   <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer;">
@@ -16795,7 +17041,7 @@ def panel_RFC(
                       <span style="font-size:11px;color:#64748b;">${{bot.jid || "Sin JID"}}</span>
                     </span>
                   </label>
-        
+
                   <div style="text-align:right;">
                     <div style="font-size:11px;">${{status}}</div>
                     <button
@@ -16811,26 +17057,26 @@ def panel_RFC(
             }}).join("");
 
             syncPrivateBotSelectCounter();
-        
+
           }} catch (e) {{
             box.innerHTML = `<div style="color:#b91c1c;">Error cargando mini gestores RFC</div>`;
           }}
         }}
-        
+
         async function setPrivateBotTarget(instanceName) {{
           const value = prompt(
             "Ingresa el número privado/JID que recibirá avisos para " + instanceName + "\\n\\nEjemplo: 8991234567, 528991234567 o 528991234567@s.whatsapp.net"
           );
-        
+
           if (value === null) return;
-        
+
           const clean = value.trim();
-        
+
           if (!clean) {{
             alert("Número vacío");
             return;
           }}
-        
+
           try {{
             const res = await fetch(`/panel/bots/${{encodeURIComponent(instanceName)}}/private-target?token={_esc(settings.ADMIN_PANEL_TOKEN)}`, {{
               method: "POST",
@@ -16841,44 +17087,44 @@ def panel_RFC(
                 jid: clean
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (!data.ok) {{
               alert(data.error || "No se pudo guardar el número privado");
               return;
             }}
-        
+
             alert("Número privado guardado: " + data.jid);
             loadPrivateBotTargets();
-        
+
           }} catch (e) {{
             alert("Error de conexión al guardar número privado");
           }}
         }}
-        
+
         async function sendPrivateBotsBroadcast() {{
           const textarea = document.getElementById("privateBotsBroadcastMessage");
           const message = textarea.value.trim();
           const audioBase64 = panelAudioBase64.private || "";
-        
+
           if (!message && !audioBase64) {{
             alert("Escribe un mensaje privado o graba un audio.");
             return;
           }}
-        
+
           const selected = Array.from(document.querySelectorAll(".privateBotCheck:checked"))
             .map(x => x.value)
             .filter(Boolean);
-        
+
           if (!selected.length) {{
             alert("Selecciona al menos un bot interno.");
             return;
           }}
-        
+
           const ok = confirm(`¿Enviar este mensaje privado a ${{selected.length}} bot(s) interno(s)?`);
           if (!ok) return;
-        
+
           try {{
             const res = await fetch("/panel/broadcast/private-bots?token={_esc(settings.ADMIN_PANEL_TOKEN)}", {{
               method: "POST",
@@ -16891,43 +17137,43 @@ def panel_RFC(
                 selected_instances: selected
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (!data.ok) {{
               alert(data.error || "No se pudo enviar el mensaje privado");
               return;
             }}
-        
+
             alert(data.message || "Mensaje privado en cola");
             textarea.value = "";
             clearPanelAudio("private");
             startPrivateBotsBroadcastProgress(data.job_id);
-        
+
           }} catch (e) {{
             alert("No se pudo conectar con el servidor");
           }}
         }}
-        
+
         function startPrivateBotsBroadcastProgress(jobId) {{
           const box = document.getElementById("privateBotsBroadcastProgress");
-        
+
           if (box) {{
             box.style.display = "block";
             box.innerHTML = "Enviando privados...";
           }}
-        
+
           if (privateBotsProgressTimer) {{
             clearInterval(privateBotsProgressTimer);
           }}
-        
+
           privateBotsProgressTimer = setInterval(async () => {{
             try {{
               const res = await fetch(`/panel/broadcast/private-bots/progress/${{jobId}}?token={_esc(settings.ADMIN_PANEL_TOKEN)}`);
               const data = await res.json();
-        
+
               if (!box) return;
-        
+
               box.innerHTML = `
                 Estado: <strong>${{data.status || "pending"}}</strong><br>
                 Enviados: <strong>${{data.sent || 0}}</strong> /
@@ -16936,12 +17182,12 @@ def panel_RFC(
                 Saltados: <strong>${{data.skipped || 0}}</strong><br>
                 Actual: ${{data.current || ""}}
               `;
-        
+
               if (data.status === "done" || data.status === "error") {{
                 clearInterval(privateBotsProgressTimer);
                 privateBotsProgressTimer = null;
               }}
-        
+
             }} catch (e) {{
               if (box) {{
                 box.innerHTML = "No se pudo consultar el progreso.";
@@ -16951,11 +17197,11 @@ def panel_RFC(
             }}
           }}, 2000);
         }}
-        
+
         document.addEventListener("DOMContentLoaded", () => {{
           loadPrivateBotTargets();
         }});
-    
+
         function clearBroadcast() {{
           document.getElementById("broadcastMessage").value = "";
         }}
@@ -16964,17 +17210,17 @@ def panel_RFC(
           const msg = action === "block"
             ? "¿Bloquear este grupo? El bot dejará de responder silenciosamente."
             : "¿Desbloquear este grupo?";
-        
+
           const ok = confirm(msg);
           if (!ok) return;
-        
+
           try {{
             const res = await fetch(`/panel/group/${{encodeURIComponent(groupJid)}}/${{action}}`, {{
               method: "POST"
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               location.reload();
             }} else {{
@@ -16988,14 +17234,14 @@ def panel_RFC(
         async function toggleAllGroups() {{
           const ok = confirm("¿Seguro que deseas cambiar el estado de todos los grupos cliente?");
           if (!ok) return;
-        
+
           try {{
             const res = await fetch("/panel/groups/toggle-all", {{
               method: "POST"
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert(data.message || "Estado actualizado");
               location.reload();
@@ -17010,7 +17256,7 @@ def panel_RFC(
         async function applySharedPromotion() {{
           const selected = Array.from(document.querySelectorAll(".shared-promo-group:checked"))
             .map(el => el.value);
-        
+
           const promo_name = document.getElementById("sharedPromoName").value || "";
           const client_key = document.getElementById("sharedPromoClientKey").value || "";
           const shared_key = client_key.trim().toUpperCase();
@@ -17021,13 +17267,13 @@ def panel_RFC(
             )?.value
             || ""
           );
-        
+
           const promo_type = document.getElementById("sharedPromoType").value || "paid";
           const is_credit = promo_type === "credit";
-        
+
           let credit_abono_raw = document.getElementById("sharedPromoCreditAbono").value || "";
           let credit_debe_raw = document.getElementById("sharedPromoCreditDebe").value || "";
-        
+
           if (!is_credit) {{
             credit_abono_raw = "0";
             credit_debe_raw = "0";
@@ -17042,14 +17288,14 @@ def panel_RFC(
             )?.value
             || 0
           );
-        
+
           const idcif_total = Number(
             document.getElementById(
               "sharedPromoIdcifTotal"
             )?.value
             || 0
           );
-        
+
           const verifiable_total = Number(
             document.getElementById(
               "sharedPromoVerifiableTotal"
@@ -17062,25 +17308,25 @@ def panel_RFC(
             + idcif_total
             + verifiable_total
           );
-        
+
           const credit_abono = Number(credit_abono_raw);
           const credit_debe = Number(credit_debe_raw);
-        
+
           if (!selected.length) {{
             alert("Selecciona al menos un grupo");
             return;
           }}
-        
+
           if (!total_actas || total_actas <= 0) {{
             alert("Ingresa un total de RFC válido");
             return;
           }}
-        
+
           if (!shared_key) {{
             alert("Ingresa una bolsa compartida");
             return;
           }}
-        
+
           try {{
             const res = await fetch("/panel/promotions/apply", {{
               method: "POST",
@@ -17103,9 +17349,9 @@ def panel_RFC(
                 credit_debe
               }})
             }});
-        
+
             const data = await res.json();
-        
+
             if (data.ok) {{
               alert("Bolsa RFC compartida aplicada correctamente");
               location.reload();
@@ -17120,10 +17366,10 @@ def panel_RFC(
         function toggleSharedPromoCreditFields() {{
           const promoType = document.getElementById("sharedPromoType");
           const isCredit = promoType && promoType.value === "credit";
-        
+
           const abono = document.getElementById("sharedPromoCreditAbono");
           const debe = document.getElementById("sharedPromoCreditDebe");
-        
+
           if (abono) {{
             if (isCredit) {{
               abono.disabled = false;
@@ -17133,7 +17379,7 @@ def panel_RFC(
               abono.value = "";
             }}
           }}
-        
+
           if (debe) {{
             if (isCredit) {{
               debe.disabled = false;
@@ -17144,33 +17390,33 @@ def panel_RFC(
             }}
           }}
         }}
-        
+
         document.addEventListener("DOMContentLoaded", () => {{
           const promoType = document.getElementById("sharedPromoType");
           if (promoType) {{
             promoType.addEventListener("change", toggleSharedPromoCreditFields);
             toggleSharedPromoCreditFields();
           }}
-        
+
           filterSharedPromoGroups();
           if (PANEL_STREAM_ENABLED && !document.hidden) {{
             startRecentRequestsStream();
           }}
-        
+
           const sections = [
             "grupoClienteBody",
             "promoCompartidaBody",
             "recentRequestsWrap"
           ];
-        
+
           sections.forEach(id => {{
             const body = document.getElementById(id);
             const head = body?.previousElementSibling;
-        
+
             if (!body || !head) return;
-        
+
             const state = localStorage.getItem(id);
-        
+
             if (state === "closed") {{
               body.classList.remove("open");
               body.classList.add("closed");
@@ -17184,53 +17430,53 @@ def panel_RFC(
           const showNormal = document.getElementById("filterNormalGroups")?.checked;
           const showTest = document.getElementById("filterTestGroups")?.checked;
           const showProvider = document.getElementById("filterProviderGroups")?.checked;
-        
+
           const items = document.querySelectorAll(".shared-promo-item");
-        
+
           items.forEach(item => {{
             const name = item.dataset.name || "";
             const kind = item.dataset.kind || "normal";
-        
+
             const matchesSearch = !search || name.includes(search);
-        
+
             let matchesKind = false;
             if (kind === "normal" && showNormal) matchesKind = true;
             if (kind === "test" && showTest) matchesKind = true;
             if (kind === "provider" && showProvider) matchesKind = true;
-        
+
             item.style.display = (matchesSearch && matchesKind) ? "flex" : "none";
           }});
         }}
-        
+
         function clearSharedPromotionSelection() {{
           document.querySelectorAll(".shared-promo-group").forEach(el => {{
             el.checked = false;
           }});
-        
+
           const searchInput = document.getElementById("sharedPromoSearch");
           if (searchInput) searchInput.value = "";
-        
+
           const normal = document.getElementById("filterNormalGroups");
           const test = document.getElementById("filterTestGroups");
           const provider = document.getElementById("filterProviderGroups");
-        
+
           if (normal) normal.checked = true;
           if (test) test.checked = false;
           if (provider) provider.checked = false;
-        
+
           filterSharedPromoGroups();
         }}
 
         function toggleSection(bodyId, headEl) {{
           const body = document.getElementById(bodyId);
           if (!body) return;
-        
+
           const isClosed = body.classList.contains("closed");
-        
+
           if (isClosed) {{
             body.classList.remove("closed");
             body.classList.add("open");
-            headEl.classList.remove("closed");    
+            headEl.classList.remove("closed");
             localStorage.setItem(bodyId, "open");
           }} else {{
             body.classList.remove("open");
@@ -17243,7 +17489,7 @@ def panel_RFC(
         async function refreshRecentRequests() {{
           const wrap = document.getElementById("recentRequestsWrap");
           if (!wrap) return;
-        
+
           const params = new URLSearchParams({{
             view: document.querySelector('input[name="view"]')?.value || "day",
             group_jid: document.querySelector('input[name="group_jid"]')?.value || "",
@@ -17253,18 +17499,18 @@ def panel_RFC(
             date_from: document.querySelector('input[name="date_from"]')?.value || "",
             date_to: document.querySelector('input[name="date_to"]')?.value || "",
           }});
-        
+
           try {{
             const res = await fetch(`/panel/recent-requests?${{params.toString()}}`);
             if (!res.ok) throw new Error("No se pudo actualizar solicitudes recientes");
-        
+
             const html = await res.text();
             wrap.innerHTML = html;
           }} catch (e) {{
             console.error("RECENT_REQUESTS_REFRESH_ERROR =", e);
           }}
         }}
-        
+
         let recentRequestsTimer = null;
 
         function startRecentRequestsStream() {{
@@ -17300,7 +17546,7 @@ def panel_RFC(
             final_loca_pos = html.find(
                 "ID LUPITA EXPRES"
             )
-            
+
             final_loca_block = (
                 html[
                     final_loca_pos:final_loca_pos + 5000
@@ -17308,14 +17554,14 @@ def panel_RFC(
                 if final_loca_pos >= 0
                 else ""
             )
-            
+
             final_loca_match = re.search(
                 r'verifiable-provider-count-value'
                 r'[^>]*>\s*(\d+)',
                 final_loca_block,
                 flags=re.I,
             )
-            
+
             print(
                 "VERIFIABLE_FINAL_HTML_COUNT =",
                 final_loca_match.group(1)
@@ -17323,13 +17569,13 @@ def panel_RFC(
                 else "NO_ENCONTRADO",
                 flush=True,
             )
-            
+
             redis_conn.setex(cache_key, PANEL_HTML_TTL, html)
         except Exception:
             pass
-            
+
         return HTMLResponse(content=html)
-        
+
     except Exception as e:
         print("panel_RFC error:", repr(e), flush=True)
         return HTMLResponse(
@@ -17773,7 +18019,7 @@ def startup():
         _get_or_create_provider(db, "PROVIDER11", False)
         _get_or_create_provider(db, "PROVIDER12", False)
         _get_or_create_provider(db, "MAYAPROVIDER", False)
-    
+
         current = _get_app_setting(db, "PROVIDER3_PHPSESSID", "")
         if not current and settings.PROVIDER3_PHPSESSID:
             _set_app_setting(db, "PROVIDER3_PHPSESSID", settings.PROVIDER3_PHPSESSID)
@@ -17968,7 +18214,7 @@ def test_provider3_session(
             "ok": False,
             "error": str(e),
         }
-        
+
 
 
 
@@ -18264,14 +18510,14 @@ def _api_public_error_code(raw_error: str | None) -> str:
         "SHARED_GROUP_LIMIT_REACHED",
     }:
         return "GROUP_LIMIT_REACHED"
-    
+
     if code in {
         "DELIVERY_FAILED",
         "PDF_SEND_FAILED",
         "PROVIDER3_PDF_SEND_FAILED",
     }:
         return "DELIVERY_FAILED"
-    
+
     if code in {
         "PROVIDER6_ACT_TYPE_NOT_ALLOWED",
     }:
@@ -18418,13 +18664,13 @@ def api_v1_create_RFC(
                 "charged": bool(existing.api_charged),
                 "charged_amount": _money(existing.api_price) if existing.api_charged else 0.0,
             }
-        
+
             if existing.status == "DONE":
                 resp["pdf_url"] = f"/api/v1/RFC/{existing.id}/pdf"
-        
+
             if existing.status == "ERROR":
                 resp.update(_api_request_error_fields(existing))
-        
+
             return resp
 
     _ensure_api_panel_group(db, client)
@@ -18569,10 +18815,10 @@ def api_v1_get_RFC_pdf(
             "error_message": API_ERROR_MESSAGES["REQUEST_NOT_DONE"],
             "status": row.status,
         }
-    
+
         if row.status == "ERROR":
             detail.update(_api_request_error_fields(row))
-    
+
         raise HTTPException(status_code=400, detail=detail)
 
     if not row.api_result_base64:
@@ -18636,7 +18882,7 @@ def api_v1_list_RFC(
     items = []
 
     base_url = EVOLUTION_BASE_URL or "http://127.0.0.1:8080"
-    
+
     for r in rows:
         item = {
             "request_id": r.id,
@@ -18649,15 +18895,15 @@ def api_v1_list_RFC(
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         }
-    
+
         if r.status == "DONE" and r.api_result_base64:
             item["pdf_url"] = f"{base_url}/api/v1/RFC/{r.id}/pdf"
-    
+
         if r.status == "ERROR":
             item.update(_api_request_error_fields(r))
-    
+
         items.append(item)
-    
+
     return {
         "ok": True,
         "items": items,
@@ -19394,7 +19640,7 @@ def _pick_matching_processing_req_for_pdf(
 
     if not candidates and lookup_id:
         today_limit = _utc_now_naive() - timedelta(hours=18)
-    
+
         candidates = (
             db.query(RequestLog)
             .filter(
@@ -19409,7 +19655,7 @@ def _pick_matching_processing_req_for_pdf(
             .limit(20)
             .all()
         )
-    
+
         print("PROVIDER_PDF_MATCH_STAGE_ANY_GROUP =", [
             {
                 "id": r.id,
@@ -19450,7 +19696,7 @@ def _pick_matching_processing_req_for_pdf(
         "candidate_ids": [r.id for r in candidates],
         "candidate_types": [r.act_type for r in candidates],
     }, flush=True)
-    
+
     # Si el PDF trae tipo claro y hay candidatos con la misma CURP,
     # escoger SOLO el request cuyo tipo coincida.
     if detected_pdf_type:
@@ -19458,7 +19704,7 @@ def _pick_matching_processing_req_for_pdf(
             r for r in candidates
             if is_chain(r.curp) or _expected_act_type_group(r.act_type) == detected_pdf_type
         ]
-    
+
         if len(typed_candidates) == 1:
             r = typed_candidates[0]
             print("PROVIDER_PDF_SMART_DETECTED_TYPE_MATCH =", {
@@ -19469,7 +19715,7 @@ def _pick_matching_processing_req_for_pdf(
                 "matched_instance_name": r.instance_name,
             }, flush=True)
             return r
-    
+
         if len(typed_candidates) > 1:
             same_request_keys = {
                 (
@@ -19532,12 +19778,12 @@ def _pick_matching_processing_req_for_pdf(
                 "typed_candidate_instances": [r.instance_name for r in typed_candidates],
             }, flush=True)
             return None
-    
+
     # Si no detectó tipo claro, usa validación vieja SOLO si hay un candidato.
     # Si hay varios con misma CURP, no escoger por antigüedad porque puede cruzar nacimiento/matrimonio.
     if len(candidates) == 1:
         r = candidates[0]
-    
+
         if _pdf_matches_req_type(pdf_bytes, r):
             print("PROVIDER_PDF_SINGLE_CANDIDATE_TYPE_OK =", {
                 "matched_req_id": r.id,
@@ -19546,7 +19792,7 @@ def _pick_matching_processing_req_for_pdf(
                 "matched_instance_name": r.instance_name,
             }, flush=True)
             return r
-    
+
         print("PROVIDER_PDF_SINGLE_CANDIDATE_TYPE_UNCONFIRMED_SOFT_MATCH =", {
             "matched_req_id": r.id,
             "matched_act_type": r.act_type,
@@ -19554,7 +19800,7 @@ def _pick_matching_processing_req_for_pdf(
             "matched_instance_name": r.instance_name,
         }, flush=True)
         return r
-    
+
     if len(candidates) > 1:
         same_request_keys = {
             (
@@ -19615,7 +19861,7 @@ def _pick_matching_processing_req_for_pdf(
     if lookup_id:
         try:
             today_limit = _utc_now_naive() - timedelta(hours=18)
-    
+
             debug_rows = (
                 db.query(RequestLog)
                 .filter(
@@ -19628,7 +19874,7 @@ def _pick_matching_processing_req_for_pdf(
             )
         except Exception as dbg_exc:
             print("PROVIDER_PDF_UNMATCHED_DB_DEBUG_ERROR =", str(dbg_exc), flush=True)
-    
+
     print("PROVIDER_PDF_NO_SAFE_TYPE_MATCH =", {
         "lookup_id": lookup_id,
         "source_chat_id": source_chat_id,
@@ -19636,7 +19882,7 @@ def _pick_matching_processing_req_for_pdf(
         "webhook_instance_name": instance_name,
         "candidates": len(candidates),
     }, flush=True)
-    
+
     print("PROVIDER_PDF_UNMATCHED_DB_DEBUG =", [
         {
             "id": r.id,
@@ -19653,7 +19899,7 @@ def _pick_matching_processing_req_for_pdf(
         }
         for r in debug_rows
     ], flush=True)
-    
+
     return None
 
 
@@ -19813,7 +20059,7 @@ def _is_admin(requester_wa_id: str, from_me: bool = False) -> bool:
     requester = requester.replace("+", "").replace(" ", "").strip()
 
     return from_me or requester in admins
-    
+
 
 def _reply_to_origin(source_group_id: str | None, requester_wa_id: str, text: str, instance_name: str = None):
     if source_group_id:
@@ -19875,6 +20121,18 @@ def _verifiable_provider_settings_rows(
     for provider in (
         load_verifiable_providers()
     ):
+        # ISAAC_PRIVATE_DOCIFY_ONLY_V1
+        # VERIF5 existe para routing interno,
+        # pero nunca aparece en panel principal.
+        if (
+            str(
+                provider.get("code")
+                or ""
+            ).strip().upper()
+            == "VERIF5"
+        ):
+            continue
+
         db_name = (
             provider["db_name"]
         )
@@ -20123,12 +20381,12 @@ def _verifiable_provider_cards_html(
             <div class="verifiable-provider-count-label">
               RFC entregados
             </div>
-        
+
             <div class="verifiable-provider-count-value">
               {provider_done_count}
             </div>
           </div>
-          
+
           <div class="verifiable-format-row">
             <div class="verifiable-format-label">
               Formato
@@ -20270,7 +20528,7 @@ def _promotion_available(promo: GroupPromotion) -> int:
         )
         or 0
     )
-    
+
     verifiable_used = int(
         getattr(
             promo,
@@ -20285,7 +20543,7 @@ def _promotion_available(promo: GroupPromotion) -> int:
         + idcif_total
         + verifiable_total
     )
-    
+
     used = (
         clon_used
         + idcif_used
@@ -20598,7 +20856,7 @@ def _providers_status_text(db: Session) -> str:
                 f" | CURP restantes: {curp_left if curp_left is not None else 'N/D'}"
                 f" | CADENA restantes: {cadena_left if cadena_left is not None else 'N/D'}"
             )
-    
+
     if p4.is_enabled:
         if p4_cached.get("error"):
             provider4_extra = f" | ERROR: {p4_cached.get('error')}"
@@ -21256,7 +21514,7 @@ def panel_set_group_verifiable(
             or MAIN_PANEL_INSTANCE,
         "verifiable_enabled": enabled,
     }
-    
+
 
 @app.post("/panel/group/{group_jid}/name")
 def panel_set_group_name(
@@ -21299,12 +21557,12 @@ def panel_set_group_promotion(
             payload.get("clon_total"),
             field_name="CLON_TOTAL",
         )
-    
+
         idcif_total = _safe_nonnegative_int(
             payload.get("idcif_total"),
             field_name="IDCIF_TOTAL",
         )
-    
+
         verifiable_total = (
             _safe_nonnegative_int(
                 payload.get(
@@ -21314,7 +21572,7 @@ def panel_set_group_promotion(
                     "VERIFIABLE_TOTAL",
             )
         )
-    
+
         price_per_verifiable = (
             _optional_nonnegative_decimal(
                 payload.get(
@@ -21324,16 +21582,16 @@ def panel_set_group_promotion(
                     "PRICE_PER_VERIFIABLE",
             )
         )
-    
+
     except ValueError as exc:
         return _payload_value_error(exc)
-    
+
     total_actas = (
         clon_total
         + idcif_total
         + verifiable_total
     )
-    
+
     if total_actas <= 0:
         try:
             total_actas = (
@@ -21346,11 +21604,11 @@ def panel_set_group_promotion(
             )
         except ValueError as exc:
             return _payload_value_error(exc)
-    
+
         clon_total = total_actas
         idcif_total = 0
         verifiable_total = 0
-    
+
     promo_name = (payload.get("promo_name") or "").strip()
     price_per_piece = (payload.get("price_per_piece") or "").strip()
 
@@ -21367,12 +21625,12 @@ def panel_set_group_promotion(
             payload.get("credit_abono"),
             field_name="CREDIT_ABONO",
         )
-    
+
         credit_debe = _safe_nonnegative_int(
             payload.get("credit_debe"),
             field_name="CREDIT_DEBE",
         )
-    
+
     except ValueError as exc:
         return _payload_value_error(exc)
 
@@ -21414,13 +21672,13 @@ def panel_set_group_promotion(
         row.verifiable_total = (
             verifiable_total
         )
-        
+
         row.verifiable_used = 0
 
         row.price_per_verifiable = (
             price_per_verifiable
         )
-        
+
         row.shared_group_used_verifiable = 0
 
         row.used_actas = 0
@@ -21435,7 +21693,7 @@ def panel_set_group_promotion(
 
         row.shared_group_limit_actas = None
         row.shared_group_used_actas = 0
-        
+
         row.shared_group_limit_verifiable = None
         row.shared_group_used_verifiable = 0
 
@@ -21470,7 +21728,7 @@ def panel_set_group_promotion(
             ),
             shared_group_limit_actas=None,
             shared_group_used_actas=0,
-            
+
             shared_group_limit_verifiable=None,
             shared_group_used_verifiable=0,
         )
@@ -21713,38 +21971,38 @@ def panel_recharge_group_promotion(
             current_family_total = int(
                 leader.idcif_total or 0
             )
-        
+
         elif family == "VERIFICABLE":
             current_family_total = int(
                 leader.verifiable_total or 0
             )
-        
+
         else:
             current_family_total = int(
                 leader.clon_total or 0
             )
-        
+
         new_family_total = (
             current_family_total
             + extra_RFC
         )
-        
+
         for r in rows:
             if family == "IDCIF":
                 r.idcif_total = (
                     new_family_total
                 )
-        
+
             elif family == "VERIFICABLE":
                 r.verifiable_total = (
                     new_family_total
                 )
-        
+
             else:
                 r.clon_total = (
                     new_family_total
                 )
-        
+
             r.total_actas = (
                 int(r.clon_total or 0)
                 + int(r.idcif_total or 0)
@@ -21753,7 +22011,7 @@ def panel_recharge_group_promotion(
                     or 0
                 )
             )
-        
+
             r.used_actas = (
                 int(r.clon_used or 0)
                 + int(r.idcif_used or 0)
@@ -21762,7 +22020,7 @@ def panel_recharge_group_promotion(
                     or 0
                 )
             )
-        
+
             r.warning_sent_200 = False
             r.warning_sent_100 = False
             r.warning_sent_50 = False
@@ -21770,7 +22028,7 @@ def panel_recharge_group_promotion(
             r.warning_sent_0 = False
             r.is_active = True
             r.updated_at = _utc_now_naive()
-        
+
         new_total = int(leader.clon_total or 0) + int(leader.idcif_total or 0) + int(leader.verifiable_total or 0)
         current_used = int(leader.clon_used or 0) + int(leader.idcif_used or 0) + int(leader.verifiable_used or 0)
         available = max(0, new_total - current_used)
@@ -21844,7 +22102,7 @@ def panel_recharge_group_promotion(
             int(row.idcif_total or 0)
             + extra_RFC
         )
-    
+
     elif family == "VERIFICABLE":
         row.verifiable_total = (
             int(
@@ -21853,19 +22111,19 @@ def panel_recharge_group_promotion(
             )
             + extra_RFC
         )
-    
+
     else:
         row.clon_total = (
             int(row.clon_total or 0)
             + extra_RFC
         )
-    
+
     row.total_actas = (
         int(row.clon_total or 0)
         + int(row.idcif_total or 0)
         + int(row.verifiable_total or 0)
     )
-    
+
     row.used_actas = (
         int(row.clon_used or 0)
         + int(row.idcif_used or 0)
@@ -22000,7 +22258,7 @@ def _unwrap_message(msg: dict) -> dict:
         break
 
     return current
-    
+
 
 def _get_latest_request(
     db: Session,
@@ -22097,11 +22355,11 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
         #print("WEBHOOK PAYLOAD =", payload, flush=True)
         event = payload.get("event", "")
         data = payload.get("data", {})
-        
+
         instance_name = payload.get("instance", "default")
         print("WEBHOOK_INSTANCE =", instance_name, flush=True)
         print("WEBHOOK_IS_INSTANCE_BLOCKED =", is_instance_blocked(instance_name), flush=True)
-        
+
         event_norm = str(event or "").strip().lower()
 
         if event_norm not in {"messages.upsert", "messages_upsert"}:
@@ -22117,17 +22375,17 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
             .filter(BotControl.instance_name == instance_name)
             .first()
         )
-        
+
         if bot_row and bot_row.is_active is False:
             print("IGNORED_REASON = inactive_instance", flush=True)
             print("INACTIVE_INSTANCE =", instance_name, flush=True)
-        
+
             return {
                 "ok": True,
                 "ignored": "inactive_instance",
                 "instance_name": instance_name,
             }
-        
+
         if is_instance_blocked(instance_name):
             print("IGNORED_REASON = instance_blocked_early", flush=True)
             print("BLOCKED_INSTANCE =", instance_name, flush=True)
@@ -22136,32 +22394,32 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 "ignored": "instance_blocked",
                 "instance_name": instance_name
             }
-                
+
         key = data.get("key", {})
         message = data.get("message", {})
         push_name = data.get("pushName", "")
-        
+
         remote_jid = key.get("remoteJid", "")
         from_me = key.get("fromMe", False)
         participant = key.get("participant", "")
         msg_id = key.get("id", "")
-        
+
         is_group = remote_jid.endswith("@g.us")
         source_chat_id = remote_jid
         source_group_id = remote_jid if is_group else None
-        
+
         if webhook_msg_seen(msg_id, source_chat_id):
             print("IGNORED_REASON = duplicate_msg_id_global", flush=True)
             print("IGNORED_MSG_ID =", msg_id, flush=True)
             print("IGNORED_SOURCE_CHAT_ID =", source_chat_id, flush=True)
-        
+
             return {
                 "ok": True,
                 "ignored": "duplicate_msg_id_global",
                 "msg_id": msg_id,
                 "source_chat_id": source_chat_id,
             }
-        
+
         requester_wa_id = _resolve_requester_wa_id(data, key, is_group)
 
         print("ADMIN_DEBUG_REMOTE_JID =", remote_jid, flush=True)
@@ -22171,27 +22429,27 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
         print("ADMIN_DEBUG_REQUESTER_WA_ID =", requester_wa_id, flush=True)
         print("ADMIN_DEBUG_ADMIN_PHONES =", settings.ADMIN_PHONE, flush=True)
 
-        
+
         text_body = ""
         if "conversation" in message:
             text_body = message.get("conversation", "")
         elif "extendedTextMessage" in message:
             text_body = message.get("extendedTextMessage", {}).get("text", "")
-        
+
         text_upper = normalize_text(text_body)
 
         # =========================
         # COMANDO: /groupid
         # =========================
         cmd_text = (text_body or "").strip().lower()
-        
+
         if is_group and cmd_text in {"/groupid", "groupid", "/idgrupo", "idgrupo"}:
             msg = (
                 "🆔 ID del grupo:\n"
                 f"{source_group_id}\n\n"
                 f"Instancia: {instance_name}"
             )
-        
+
             try:
                 send_group_text(
                     source_group_id,
@@ -22204,21 +22462,21 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 }, flush=True)
             except Exception as e:
                 print("RFC_GROUPID_SEND_ERROR =", str(e), flush=True)
-        
+
             return {
                 "ok": True,
                 "command": "groupid",
                 "group_jid": source_group_id,
                 "instance": instance_name,
             }
-        
+
         # =========================
         # BLOQUEO DE BUCLE ENTRE BOTS
         # =========================
         if from_me and not text_upper.startswith("/"):
             print("IGNORED_REASON = from_me_early", flush=True)
             return {"ok": True, "ignored": "from_me_early"}
-        
+
         BOT_WARNING_PHRASES = [
             "LA CADENA, IDENTIFICADOR ELECTRONICO O CODIGO DE VERIFICACION",
             "DEBE TENER EXACTAMENTE 20 DIGITOS",
@@ -22227,7 +22485,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
             "NO SE DETECTO UNA CURP VALIDA",
             "LA CURP DEBE TENER EXACTAMENTE 18 CARACTERES",
         ]
-        
+
         if any(p in text_upper for p in BOT_WARNING_PHRASES):
             print("IGNORED_REASON = bot_warning_text", flush=True)
             print("BOT_WARNING_TEXT =", repr(text_body[:120]), flush=True)
@@ -22236,7 +22494,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
         if is_bot_generated_text(text_body):
             print("WEBHOOK_IGNORED_BOT_GENERATED_TEXT =", repr(text_body[:100]), flush=True)
             return {"ok": True, "ignored": "bot_generated_text"}
-        
+
         admin_commands = (
             "/GROUPID",
             "/ADDGROUP",
@@ -22263,7 +22521,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
         print("EARLY_FROM_ME =", from_me, flush=True)
         print("EARLY_REMOTE_JID =", remote_jid, flush=True)
         print("EARLY_MESSAGE_KEYS =", list(message.keys()) if isinstance(message, dict) else [], flush=True)
-        
+
         if from_me and not any(text_upper.startswith(cmd) for cmd in admin_commands):
             print("IGNORED_REASON = from_me", flush=True)
             print("IGNORED_FROM_ME_REMOTE_JID =", remote_jid, flush=True)
@@ -22273,14 +22531,14 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
         provider_groups = _all_provider_groups()
         is_provider_message = source_chat_id in provider_groups
         is_admin_command = text_upper.startswith("/")
-        
+
         if is_group and not is_provider_message and not is_admin_command:
             ignore_group, ignore_reason = _should_ignore_group_for_instance(
                 db,
                 source_group_id,
                 instance_name,
             )
-        
+
             if ignore_group:
                 print("IGNORED_GROUP_AUTH_EARLY =", {
                     "reason": ignore_reason,
@@ -22288,14 +22546,14 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     "instance_name": instance_name,
                     "text": text_body[:120],
                 }, flush=True)
-        
+
                 return {
                     "ok": True,
                     "ignored": ignore_reason,
                     "source_group_id": source_group_id,
                     "instance_name": instance_name,
                 }
-        
+
         if is_group and not is_provider_message:
             try:
                 _ensure_group_owner(db, source_group_id, instance_name)
@@ -22307,13 +22565,13 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 "⚠️ Este bot alcanzó su límite de solicitudes.\n\n"
                 "Por el momento está bloqueado para nuevas entradas."
             )
-        
+
             if source_group_id:
                 if should_send_extra_text(source_group_id):
                     send_group_text(source_group_id, msg, instance_name)
             else:
                 send_text(requester_wa_id, msg, instance_name)
-        
+
             return {"ok": True, "ignored": "instance_blocked"}
 
         print("WEBHOOK_SOURCE_GROUP_ID =", source_group_id, flush=True)
@@ -22323,14 +22581,14 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
             print("IGNORED_REASON = group_blocked", flush=True)
             print("IGNORED_GROUP =", source_group_id, flush=True)
             print("IGNORED_INSTANCE =", instance_name, flush=True)
-        
+
             if (instance_name or "").strip() == MAIN_PANEL_INSTANCE:
                 msg = (
                     "🔒 *Grupo bloqueado*\n\n"
                     "Este grupo tiene un pago pendiente.\n"
                     "Para reactivar el servicio, por favor contRFC al administrador."
                 )
-                
+
                 try:
                     if should_send_extra_text(source_group_id):
                         send_group_text(
@@ -22340,9 +22598,9 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         )
                 except Exception as e:
                     print("BLOCKED_GROUP_PAYMENT_NOTICE_ERROR =", str(e), flush=True)
-        
+
             return {"ok": True, "ignored": "group_blocked_payment_pending"}
-    
+
         terms = extract_request_terms(text_body)
         problem = detect_identifier_problem(text_body)
 
@@ -22353,7 +22611,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
 
         if not bot_is_open() and terms and not is_provider_message and not is_admin_command:
             bot_name = bot_label(instance_name, db) or instance_name or "RFC"
-        
+
             msg = (
                 f"*{bot_name}*\n"
                 "El sistema está cerrado.\n\n"
@@ -22394,7 +22652,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
 
             quoted_msg_id = _extract_quoted_message_id(message, data)
             text_norm = (text_body or "").strip().upper()
-            
+
             print("PROVIDER_QUOTED_MSG_ID =", quoted_msg_id, flush=True)
             print("PROVIDER_TEXT_NORM =", text_norm, flush=True)
 
@@ -22402,32 +22660,32 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
             doc = None
             doc_mode = "none"
             media_message_id = msg_id
-            
+
             msg_unwrapped = _unwrap_message(message) or message
-            
+
             if "documentMessage" in msg_unwrapped:
                 doc_mode = "direct_document"
                 doc = msg_unwrapped.get("documentMessage")
                 media_message_id = msg_id
-            
+
             elif "documentWithCaptionMessage" in msg_unwrapped:
                 doc_mode = "direct_document_with_caption"
                 doc_wrap = msg_unwrapped.get("documentWithCaptionMessage", {})
                 doc = doc_wrap.get("message", {}).get("documentMessage")
                 media_message_id = msg_id
-            
+
             elif "extendedTextMessage" in msg_unwrapped:
                 ext = msg_unwrapped.get("extendedTextMessage", {})
                 ctx = ext.get("contextInfo", {}) or {}
                 quoted = _unwrap_message(ctx.get("quotedMessage", {}) or {})
-            
+
                 quoted_doc_msg_id = ctx.get("stanzaId", "") or ctx.get("quotedStanzaID", "") or ""
-            
+
                 if "documentMessage" in quoted:
                     doc_mode = "quoted_document"
                     doc = quoted.get("documentMessage")
                     media_message_id = quoted_doc_msg_id or msg_id
-            
+
                 elif "documentWithCaptionMessage" in quoted:
                     doc_mode = "quoted_document_with_caption"
                     doc_wrap = quoted.get("documentWithCaptionMessage", {})
@@ -22549,9 +22807,9 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                                 "negative_act_group": negative_act_group,
                                 "provider_id": provider_id,
                             }, flush=True)
-                    
+
                             return {"ok": True, "ignored": "negative_reply_type_mismatch"}
-                            
+
                         print("PROVIDER_NEGATIVE_MATCHED_PROVIDER =", open_req.provider_name, flush=True)
                         print("PROVIDER_NEGATIVE_MATCHED_CURP =", open_req.curp, flush=True)
 
@@ -22595,13 +22853,13 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         .order_by(RequestLog.created_at.desc())
                         .all()
                     )
-                    
+
                     if negative_act_group:
                         typed_candidates = [
                             r for r in candidates
                             if _expected_act_type_group(r.act_type) == negative_act_group
                         ]
-                    
+
                         print("PROVIDER_NEGATIVE_TYPED_CANDIDATES =", {
                             "provider_id": provider_id,
                             "negative_act_group": negative_act_group,
@@ -22609,11 +22867,11 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             "candidate_types": [r.act_type for r in candidates],
                             "typed_ids": [r.id for r in typed_candidates],
                         }, flush=True)
-                    
+
                         open_req = typed_candidates[0] if len(typed_candidates) == 1 else None
                     else:
                         open_req = candidates[0] if len(candidates) == 1 else None
-                    
+
                         if len(candidates) > 1:
                             print("PROVIDER_NEGATIVE_AMBIGUOUS_SAME_CURP_NO_TYPE =", {
                                 "provider_id": provider_id,
@@ -22662,23 +22920,23 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         .order_by(RequestLog.created_at.desc())
                         .first()
                     )
-                
+
                     if open_req:
                         print("PROVIDER8_SIN_FALLBACK_MATCHED_REQ_ID =", open_req.id, flush=True)
                         print("PROVIDER8_SIN_FALLBACK_MATCHED_CURP =", open_req.curp, flush=True)
-                
+
                         open_req.status = "ERROR"
                         open_req.error_message = "SIN REGISTRO"
                         open_req.updated_at = _utc_now_naive()
                         db.commit()
-                
+
                         msg = (
                             f"❌ No hay registros disponibles.\n"
                             f"Dato: {open_req.curp}\n"
                             f"Tipo: {open_req.act_type}\n\n"
                             f"Verificar que la CURP esté certificada en RENAPO"
                         )
-                
+
                         try:
                             client_instance = open_req.instance_name or "grupo02"
                             if open_req.source_group_id:
@@ -22687,21 +22945,21 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                                 send_text(open_req.requester_wa_id, msg, instance_name=client_instance)
                         except Exception as notify_exc:
                             print("PROVIDER8_SIN_FALLBACK_NOTIFY_ERROR =", str(notify_exc), flush=True)
-                
+
                         return {"ok": True, "provider_result": "provider8_sin_fallback_last_processing"}
-                
+
                     print("PROVIDER8_SIN_FALLBACK_WITHOUT_MATCH =", source_chat_id, flush=True)
 
             if doc:
                 filename = doc.get("fileName") or ""
                 filename_id = _extract_identifier_from_filename_local(filename)
-            
+
                 print("PROVIDER_DOC_FILENAME =", filename, flush=True)
                 print("PROVIDER_DOC_FILENAME_IDENTIFIER =", filename_id, flush=True)
-            
+
                 provider_msg_ts = data.get("messageTimestamp")
                 webhook_received_ts = time.time()
-            
+
                 print("PROVIDER_EVENT_MESSAGE_TIMESTAMP =", provider_msg_ts, flush=True)
                 print("WEBHOOK_RECEIVED_TS =", webhook_received_ts, flush=True)
 
@@ -22712,21 +22970,21 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         print("PROVIDER_TO_WEBHOOK_LAG_S =", round(lag_s, 3), flush=True)
                 except Exception as ts_exc:
                     print("PROVIDER_TO_WEBHOOK_LAG_ERROR =", str(ts_exc), flush=True)
-            
+
                 pdf_received_ts = time.time()
                 print("PROVIDER1_PDF_RECEIVED =", media_message_id, pdf_received_ts, flush=True)
-            
+
                 open_req = None
                 lookup_id = filename_id or provider_id
-            
+
                 media_b64_start_ts = time.time()
                 print("PROVIDER1_MEDIA_B64_START =", media_message_id, media_b64_start_ts, flush=True)
                 print("PDF_RECEIVED_TO_MEDIA_B64_START_S =", round(media_b64_start_ts - pdf_received_ts, 3), flush=True)
-            
+
                 t_media_b64_start = time.perf_counter()
                 t0 = time.perf_counter()
                 print("T_DOC_DETECTED =", source_chat_id, media_message_id, flush=True)
-            
+
                 t1 = time.perf_counter()
 
                 try:
@@ -22736,14 +22994,14 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         "filename": filename,
                         "lookup_id": lookup_id,
                     }, flush=True)
-                
+
                     media_json = get_media_base64("document", media_message_id, instance_name)
-                
+
                     print("GET_MEDIA_BASE64_CALL_OK =", {
                         "media_message_id": media_message_id,
                         "elapsed_s": round(time.perf_counter() - t1, 3),
                     }, flush=True)
-                
+
                 except Exception as media_exc:
                     print("GET_MEDIA_BASE64_CALL_ERROR =", {
                         "media_message_id": media_message_id,
@@ -22752,15 +23010,15 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         "lookup_id": lookup_id,
                         "error": str(media_exc),
                     }, flush=True)
-                
+
                     return {
                         "ok": True,
                         "ignored": "provider_pdf_media_download_failed",
                         "error": str(media_exc),
                     }
-                
+
                 print("T_GET_MEDIA_BASE64 =", round(time.perf_counter() - t1, 3), flush=True)
-            
+
                 print(
                     "PROVIDER1_MEDIA_B64_DONE =",
                     media_message_id,
@@ -22776,17 +23034,17 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     or media_json.get("media")
                     or ""
                 )
-                
+
                 if not media_b64:
                     print("PROVIDER_PDF_BASE64_EMPTY =", media_json, flush=True)
                     return {"ok": True, "ignored": "provider_pdf_base64_empty"}
-                
+
                 if media_b64.startswith("data:"):
                     parts = media_b64.split(",", 1)
                     media_b64 = parts[1] if len(parts) > 1 else media_b64
-                
+
                 media_b64 = media_b64.replace("\n", "").replace("\r", "").strip()
-                
+
                 missing_padding = len(media_b64) % 4
                 if missing_padding:
                     media_b64 += "=" * (4 - missing_padding)
@@ -22794,10 +23052,10 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 t_decode = time.perf_counter()
                 pdf_bytes = base64.b64decode(media_b64, validate=False)
                 print("T_BASE64_DECODE =", round(time.perf_counter() - t_decode, 3), flush=True)
-                
+
                 print("PDF_HEADER =", pdf_bytes[:8], flush=True)
                 print("PDF_BYTES_LEN =", len(pdf_bytes), flush=True)
-                
+
                 if b"%PDF" not in pdf_bytes[:20]:
                     print("PROVIDER_PDF_INVALID_BINARY", flush=True)
                     return {"ok": True, "ignored": "provider_pdf_invalid_binary"}
@@ -22810,7 +23068,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     pdf_bytes=pdf_bytes,
                     instance_name=instance_name,
                 )
-                
+
                 print("PROVIDER_PDF_FALLBACK_MATCH =", {
                     "lookup_id": lookup_id,
                     "quoted_msg_id": quoted_msg_id,
@@ -22820,7 +23078,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     "matched_instance_name": getattr(open_req, "instance_name", None),
                     "matched_act_type": getattr(open_req, "act_type", None),
                 }, flush=True)
-                
+
                 if not open_req:
                     print("PROVIDER_PDF_WITHOUT_SAFE_MATCH =", {
                         "filename": filename,
@@ -22828,14 +23086,14 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         "source_chat_id": source_chat_id,
                         "quoted_msg_id": quoted_msg_id,
                     }, flush=True)
-                
+
                     fallback_req = None
                     if lookup_id:
                         fallback_filters = [
                             RequestLog.curp == lookup_id,
                             _provider_pdf_match_status_filter(),
                         ]
-                        
+
                         fallback_req = (
                             db.query(RequestLog)
                             .filter(*fallback_filters)
@@ -22845,16 +23103,16 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             )
                             .first()
                         )
-                
+
                     if fallback_req:
                         active_count = (
                             db.query(RequestLog)
                             .filter(*fallback_filters)
                             .count()
                         )
-                
+
                         print("PROVIDER_PDF_LAST_RESORT_ACTIVE_COUNT =", active_count, flush=True)
-                
+
                         if active_count == 1:
                             print("PROVIDER_PDF_LAST_RESORT_MATCH =", fallback_req.id, flush=True)
                             open_req = fallback_req
@@ -22883,14 +23141,14 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         "filename": filename,
                         "source_chat_id": source_chat_id,
                     }, flush=True)
-                
+
                     reroute_req = _find_same_curp_req_by_act_type(
                         db,
                         curp=open_req.curp,
                         provider_group_id=source_chat_id,
                         detected_type=detected_pdf_type,
                     )
-                
+
                     if reroute_req and reroute_req.id != open_req.id:
                         print("PROVIDER_PDF_REROUTED_TO_SAME_CURP_CORRECT_ACT_TYPE =", {
                             "old_req_id": open_req.id,
@@ -22900,16 +23158,16 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             "detected_pdf_type": detected_pdf_type,
                             "filename": filename,
                         }, flush=True)
-                
+
                         open_req = reroute_req
                         is_chain_req = is_chain(open_req.curp)
-                
+
                     else:
                         open_req.status = "PROCESSING"
                         open_req.error_message = "WRONG_ACT_TYPE_PDF_PENDING_RETRY"
                         open_req.updated_at = _utc_now_naive()
                         db.commit()
-                
+
                         try:
                             support_key = f"support_wrong_type_pending:{open_req.id}"
                             if redis_conn.set(support_key, "1", ex=120, nx=True):
@@ -22925,39 +23183,39 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                                 )
                         except Exception as support_exc:
                             print("NOTIFY_SUPPORT_ERROR_FAILED =", str(support_exc), flush=True)
-                
+
                         return {"ok": True, "ignored": "provider_pdf_wrong_act_type_pending_retry"}
-                
+
                 if is_chain_req:
                     print("PROVIDER_CHAIN_SKIP_ACT_TYPE_VALIDATION =", open_req.curp, flush=True)
-                
+
                 if not is_chain_req:
                     term_check = _validate_pdf_term_detailed(
                         pdf_bytes,
                         open_req.curp,
                         open_req.act_type,
                     )
-                
+
                     term_status = term_check.get("status")
                     term_reason = term_check.get("reason")
                     found_curps = term_check.get("found_curps") or []
-                
+
                     expected_term_norm = re.sub(r"[^A-Z0-9]", "", (open_req.curp or "").upper())
                     filename_id_norm = re.sub(r"[^A-Z0-9]", "", (filename_id or "").upper())
                     provider_id_norm = re.sub(r"[^A-Z0-9]", "", (provider_id or "").upper())
-                
+
                     filename_matches_expected = bool(
                         expected_term_norm
                         and filename_id_norm
                         and filename_id_norm == expected_term_norm
                     )
-                
+
                     provider_text_matches_expected = bool(
                         expected_term_norm
                         and provider_id_norm
                         and provider_id_norm == expected_term_norm
                     )
-                
+
                     if term_status == "MISMATCH":
                         print("PROVIDER_PDF_WRONG_INTERNAL_CURP =", {
                             "req_id": open_req.id,
@@ -22969,12 +23227,12 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             "provider_id": provider_id,
                             "source_chat_id": source_chat_id,
                         }, flush=True)
-                
+
                         open_req.status = "PROCESSING"
                         open_req.error_message = "WRONG_CURP_IN_PDF_PENDING_RETRY"
                         open_req.updated_at = _utc_now_naive()
                         db.commit()
-                
+
                         try:
                             support_key = f"support_wrong_curp_pending:{open_req.id}"
                             if redis_conn.set(support_key, "1", ex=120, nx=True):
@@ -22990,9 +23248,9 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                                 )
                         except Exception as support_exc:
                             print("NOTIFY_SUPPORT_WRONG_CURP_PENDING_FAILED =", str(support_exc), flush=True)
-                
+
                         return {"ok": True, "ignored": "provider_pdf_wrong_internal_curp_pending_retry"}
-                
+
                     if term_status == "UNCERTAIN":
                         # Aquí NO hay CURP interna diferente.
                         # Solo no se pudo leer bien el texto interno.
@@ -23018,12 +23276,12 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                                 "reason": term_reason,
                                 "source_chat_id": source_chat_id,
                             }, flush=True)
-                
+
                             open_req.status = "PROCESSING"
                             open_req.error_message = "WRONG_CURP_IN_PDF_PENDING_RETRY"
                             open_req.updated_at = _utc_now_naive()
                             db.commit()
-                
+
                             try:
                                 support_key = f"support_wrong_curp_uncertain:{open_req.id}"
                                 if redis_conn.set(support_key, "1", ex=120, nx=True):
@@ -23040,37 +23298,37 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                                     )
                             except Exception as support_exc:
                                 print("NOTIFY_SUPPORT_WRONG_CURP_UNCERTAIN_FAILED =", str(support_exc), flush=True)
-                
+
                             return {"ok": True, "ignored": "provider_pdf_curp_uncertain_pending_retry"}
 
                 if open_req.provider_name == "PROVIDER8":
                     try:
                         from app.services.provider7 import procesar_pdf_externo_provider8
-                
+
                         result = procesar_pdf_externo_provider8(
                             pdf_bytes=pdf_bytes,
                             term=open_req.curp,
                             act_type=open_req.act_type,
                             filename=filename or f"{open_req.curp}.pdf",
                         )
-                
+
                         pdf_bytes = result["pdf_bytes"]
-                
+
                         print("PROVIDER8_POSTPROCESS_OK =", {
                             "req_id": open_req.id,
                             "estado": result.get("estado"),
                             "folio": result.get("folio"),
                             "pdf_bytes_len": len(pdf_bytes),
                         }, flush=True)
-                
+
                     except Exception as e:
                         print("PROVIDER8_POSTPROCESS_ERROR =", str(e), flush=True)
-                
+
                         open_req.status = "ERROR"
                         open_req.error_message = f"PROVIDER8_POSTPROCESS_ERROR: {str(e)[:300]}"
                         open_req.updated_at = _utc_now_naive()
                         db.commit()
-                
+
                         try:
                             _notify_support_error(
                                 open_req,
@@ -23079,13 +23337,13 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             )
                         except Exception as support_exc:
                             print("PROVIDER8_POSTPROCESS_SUPPORT_NOTIFY_ERROR =", str(support_exc), flush=True)
-                
+
                         return {"ok": True, "ignored": "provider8_postprocess_failed"}
-                
+
                 t_encode = time.perf_counter()
                 safe_media_b64 = base64.b64encode(pdf_bytes).decode()
                 print("T_BASE64_REENCODE_FINAL =", round(time.perf_counter() - t_encode, 3), flush=True)
-                
+
                 # Dedupe fuerte:
                 # 1) provider_pdf_done = solo si ya se entregó correctamente.
                 # 2) provider_pdf_sending = candado temporal mientras se está entregando.
@@ -23093,17 +23351,17 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 if redis_conn.get(done_key):
                     print("PROVIDER_PDF_ALREADY_DONE_IGNORED =", done_key, flush=True)
                     return {"ok": True, "ignored": "provider_pdf_already_done"}
-                
+
                 sending_key = f"provider_pdf_sending:{open_req.id}"
                 already_processing = redis_conn.set(sending_key, "1", ex=300, nx=True)
-                
+
                 if not already_processing:
                     print("PROVIDER_PDF_DUPLICATE_SENDING_IGNORED =", sending_key, flush=True)
                     return {"ok": True, "ignored": "provider_pdf_duplicate_sending"}
-                
+
                 match_term = filename_id or provider_id or open_req.curp or "NO_TERM"
                 pdf_dedupe_key = f"provider_pdf:{open_req.id}:{source_chat_id}:{match_term}:{filename or 'nofile'}"
-                
+
                 already_sent = redis_conn.set(pdf_dedupe_key, "1", ex=3600, nx=True)
                 if not already_sent:
                     print("PROVIDER_PDF_DUPLICATE_IGNORED =", pdf_dedupe_key, flush=True)
@@ -23114,7 +23372,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         print("PDF_SENDING_DELETE_AFTER_DUPLICATE_ERROR =", str(redis_del_exc), flush=True)
 
                     return {"ok": True, "ignored": "provider_pdf_duplicate"}
-                
+
                 open_req.pdf_url = None
                 open_req.provider_media_url = "BASE64_FROM_MEDIA_MESSAGE"
                 open_req.status = "PROCESSING"
@@ -23137,7 +23395,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     "source_group_id": open_req.source_group_id,
                     "doc_mode": doc_mode,
                 }, flush=True)
-    
+
                 total_relay_s = None
                 t4 = time.perf_counter()
                 try:
@@ -23156,7 +23414,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             "filename": filename or f"{open_req.curp}.pdf",
                             "pdf_url": getattr(open_req, "pdf_url", None),
                         }, flush=True)
-                
+
                     except Exception as r2_exc:
                         print("R2_SAVE_BEFORE_DELIVERY_ERROR =", {
                             "req_id": getattr(open_req, "id", None),
@@ -23164,22 +23422,22 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             "filename": filename,
                             "error": str(r2_exc),
                         }, flush=True)
-                
+
                     _deliver_pdf_result(
                         open_req,
                         safe_media_b64,
                         filename=filename or f"{open_req.curp}.pdf",
                     )
                     print("T_DELIVER_PDF_RESULT =", round(time.perf_counter() - t4, 3), flush=True)
-                
+
                 except Exception as delivery_exc:
                     print("DELIVERY_FAILED =", str(delivery_exc), flush=True)
-                
+
                     open_req.status = "ERROR"
                     open_req.error_message = f"DELIVERY_FAILED_PENDING_RETRY: {str(delivery_exc)[:300]}"
                     open_req.updated_at = _utc_now_naive()
                     db.commit()
-                
+
                     try:
                         if getattr(open_req, "pdf_url", None):
                             request_queue.enqueue_in(
@@ -23188,7 +23446,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                                 open_req.id,
                                 1,
                             )
-                
+
                             print("MAIN_DELIVERY_FAILED_RETRY_SCHEDULED =", {
                                 "req_id": open_req.id,
                                 "pdf_url": open_req.pdf_url,
@@ -23202,17 +23460,17 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             }, flush=True)
                     except Exception as retry_exc:
                         print("MAIN_DELIVERY_FAILED_RETRY_SCHEDULE_ERROR =", str(retry_exc), flush=True)
-                
+
                     try:
                         redis_conn.delete(pdf_dedupe_key)
                     except Exception as redis_del_exc:
                         print("PDF_DEDUPE_DELETE_AFTER_DELIVERY_FAILED_ERROR =", str(redis_del_exc), flush=True)
-                
+
                     try:
                         redis_conn.delete(sending_key)
                     except Exception as redis_del_exc:
                         print("PDF_SENDING_DELETE_AFTER_DELIVERY_FAILED_ERROR =", str(redis_del_exc), flush=True)
-                
+
                     try:
                         _notify_support_error(
                             open_req,
@@ -23221,14 +23479,14 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         )
                     except Exception as support_exc:
                         print("DELIVERY_FAILED_SUPPORT_NOTIFY_ERROR =", str(support_exc), flush=True)
-                
+
                     return {"ok": True, "ignored": "delivery_failed"}
 
                 open_req.status = "DONE"
                 open_req.error_message = None
                 open_req.updated_at = _utc_now_naive()
                 db.commit()
-                
+
                 try:
                     redis_conn.set(done_key, "1", ex=3600)
                     redis_conn.delete(sending_key)
@@ -23280,7 +23538,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     try:
                         if open_req.instance_name:
                             _increment_rfc_bot_family_used(db, open_req.instance_name, open_req.act_type)
-                        
+
                             used, limit_value, blocked_now = increment_bot_used_and_maybe_block(
                                 db,
                                 open_req.instance_name
@@ -23290,10 +23548,10 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             print("BOT_BLOCKED_NOW =", blocked_now, flush=True)
                         else:
                             print("BOT_INSTANCE_MISSING_FOR_REQ =", open_req.id, flush=True)
-                
+
                     except Exception as bot_limit_exc:
                         print("BOT_LIMIT_UPDATE_ERROR =", str(bot_limit_exc), flush=True)
-                
+
                     t3 = time.perf_counter()
                     try:
                          from app.worker import _handle_group_promotion_after_done
@@ -23322,14 +23580,14 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     print("TOTAL_DELIVERY_TIME =", open_req.total_delivery_time, flush=True)
                 except Exception as e:
                     print("TOTAL_DELIVERY_TIME_ERROR =", str(e), flush=True)
-                
+
                 t_save = time.perf_counter()
                 db.commit()
                 print("T_DB_COMMIT_FINAL_METRICS =", round(time.perf_counter() - t_save, 3), flush=True)
-                
+
                 print("T_TOTAL_PROVIDER1_RELAY =", total_relay_s, flush=True)
                 print("PROVIDER1_PDF_RELAYED =", open_req.id, time.time(), flush=True)
-        
+
                 return {"ok": True, "provider_result": "pdf_delivered"}
 
             # 2) SI NO HAY PDF, INTENTAR TEXTO
@@ -23343,22 +23601,22 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
             # Esos ya se manejan arriba por quoted_msg_id.
             if text_body and _is_no_record_message(text_upper):
                 no_record_ids = _extract_provider_no_record_identifiers(text_body)
-            
+
                 # Fallback viejo: por si viene un solo dato y extract_identifier_loose sí lo detectó.
                 if not no_record_ids and provider_id:
                     no_record_ids = [provider_id]
-            
+
                 if not no_record_ids:
                     print("PROVIDER_NO_RECORD_WITHOUT_IDENTIFIER =", {
                         "text_body": text_body,
                         "source_chat_id": source_chat_id,
                     }, flush=True)
-            
+
                     return {"ok": True, "ignored": "provider_no_record_without_identifier"}
-            
+
                 matched_req_ids = []
                 unmatched_ids = []
-            
+
                 for no_record_id in no_record_ids:
                     open_req = (
                         db.query(RequestLog)
@@ -23370,7 +23628,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         .order_by(RequestLog.created_at.asc())
                         .first()
                     )
-            
+
                     if not open_req:
                         open_req = (
                             db.query(RequestLog)
@@ -23381,7 +23639,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             .order_by(RequestLog.created_at.desc())
                             .first()
                         )
-            
+
                         print("PROVIDER_NO_RECORD_FALLBACK_MATCH =", {
                             "provider_id": no_record_id,
                             "matched_req_id": getattr(open_req, "id", None),
@@ -23389,19 +23647,19 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             "matched_source_group_id": getattr(open_req, "source_group_id", None),
                             "matched_instance_name": getattr(open_req, "instance_name", None),
                         }, flush=True)
-            
+
                     if not open_req:
                         unmatched_ids.append(no_record_id)
                         continue
-            
+
                     print("PROVIDER_NO_RECORD_MATCHED_REQ_ID =", open_req.id, flush=True)
                     print("PROVIDER_NO_RECORD_MATCHED_CURP =", open_req.curp, flush=True)
-            
+
                     open_req.status = "ERROR"
                     open_req.error_message = "SIN REGISTRO"
                     open_req.updated_at = _utc_now_naive()
                     db.commit()
-            
+
                     _deliver_text_result(
                         open_req,
                         (
@@ -23411,15 +23669,15 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             f"Verificar que la CURP esté certificada en RENAPO"
                         ),
                     )
-            
+
                     matched_req_ids.append(open_req.id)
-            
+
                 print("PROVIDER_NO_RECORD_TEXT_LIST_RESULT =", {
                     "ids_detected": no_record_ids,
                     "matched_req_ids": matched_req_ids,
                     "unmatched_ids": unmatched_ids,
                 }, flush=True)
-            
+
                 if matched_req_ids:
                     return {
                         "ok": True,
@@ -23427,15 +23685,15 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         "matched_req_ids": matched_req_ids,
                         "unmatched_ids": unmatched_ids,
                     }
-            
+
                 print("PROVIDER_NO_RECORD_WITHOUT_MATCH =", {
                     "text_body": text_body,
                     "ids_detected": no_record_ids,
                     "source_chat_id": source_chat_id,
                 }, flush=True)
-            
+
                 return {"ok": True, "ignored": "provider_no_record_without_match"}
-            
+
             print("PROVIDER_RAW_MESSAGE_KEYS =", list(message.keys()), flush=True)
             print("PROVIDER_RAW_MESSAGE =", message, flush=True)
             print("PROVIDER_UNHANDLED_MESSAGE =", message, flush=True)
@@ -23448,9 +23706,9 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         send_group_text(source_group_id, problem, instance_name=instance_name)
                 else:
                     send_text(requester_wa_id, problem, instance_name=instance_name)
-        
+
                 return {"ok": True, "ignored": "invalid_identifier"}
-        
+
             # Conversación natural: no marcar como error
             return {"ok": True, "ignored": "natural_text"}
 
@@ -23497,7 +23755,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 send_text(requester_wa_id, "⚠️ Usa /GROUPID dentro de un grupo.", instance_name=instance_name)
 
             return {"ok": True}
-        
+
         if text_upper.startswith("/ADDGROUP"):
             if not _is_admin(requester_wa_id, from_me):
                 print("ADDGROUP_DENIED_USER =", requester_wa_id, flush=True)
@@ -23677,7 +23935,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
 
             _reply_to_origin(source_group_id, requester_wa_id, "✅ PROVIDER2 desactivado")
             return {"ok": True}
-        
+
         # =========================
         # FLUJO NORMAL DE USUARIO
         # =========================
@@ -23687,7 +23945,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 is_authorized_group(db, source_group_id)
                 or (ALLOW_LEGACY_KNOWN_GROUPS and is_legacy_known_group(db, source_group_id))
             )
-        
+
             if not group_allowed:
                 print("IGNORED_REASON = group_not_authorized", flush=True)
                 print("IGNORED_GROUP =", source_group_id, flush=True)
@@ -23698,30 +23956,30 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
             print("IGNORED_REASON = user_not_authorized", flush=True)
             print("IGNORED_USER =", requester_wa_id, flush=True)
             return {"ok": True, "ignored": "user_not_authorized"}
-        
+
         if not text_body:
             print("IGNORED_REASON = no_text", flush=True)
             return {"ok": True, "ignored": "no_text"}
-        
+
         print("REQUEST_TEXT =", text_body, flush=True)
         print("REQUEST_TERMS =", terms, flush=True)
-        
+
         if not terms:
             print("IGNORED_REASON = no_identifier", flush=True)
-        
+
             problem_msg = detect_identifier_problem(text_body)
-        
+
             if problem_msg:
                 final_msg = problem_msg
-        
+
                 if source_group_id:
                     if should_send_extra_text(source_group_id):
                         send_group_text(source_group_id, final_msg, instance_name=instance_name)
                 else:
                     send_text(requester_wa_id, final_msg, instance_name=instance_name)
-        
+
             return {"ok": True, "ignored": "no_identifier"}
-        
+
         act_type = detect_act_type(text_body)
         print("REQUEST_ACT_TYPE =", act_type, flush=True)
 
@@ -23729,7 +23987,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
 
         for term in terms:
             print("PROCESSING_TERM =", term, flush=True)
-        
+
             #last_done = get_last_done_request(db, term, act_type)
             last_req = _get_latest_request(db, term, act_type, source_chat_id)
 
@@ -23752,18 +24010,18 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                             f"Dato: {term}\n"
                             f"Tipo: {act_type}"
                         )
-    
+
                         if source_group_id:
                             if should_send_extra_text(source_group_id):
                                 send_group_text(source_group_id, done_msg, instance_name=instance_name)
                         else:
                             send_text(requester_wa_id, done_msg, instance_name=instance_name)
-    
+
                         continue
-        
+
             base_request_key = build_request_key(term, act_type, source_chat_id)
             day_start, day_end = _bot_day_bounds()
-        
+
             # contar intentos previos de ese mismo dato/tipo/grupo
             same_requests_count = (
                 db.query(RequestLog)
@@ -23776,7 +24034,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 )
                 .count()
             )
-        
+
             # máximo 3 intentos
             if same_requests_count >= 3:
                 limit_msg = (
@@ -23784,18 +24042,18 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     f"Dato: {term}\n"
                     f"Tipo: {act_type}"
                 )
-        
+
                 if source_group_id:
                     if should_send_extra_text(source_group_id):
                         send_group_text(source_group_id, limit_msg, instance_name=instance_name)
                 else:
                     send_text(requester_wa_id, limit_msg, instance_name=instance_name)
-        
+
                 continue
-        
+
             # request_key único por intento
             request_key = f"{base_request_key}:{_mx_now().strftime('%Y%m%d')}:try_{same_requests_count + 1}:{uuid.uuid4().hex[:6]}"
-        
+
             # 2) si existe una anterior en ERROR, reutilizar SOLO la más reciente en error
             error_existing = (
                 db.query(RequestLog)
@@ -23812,7 +24070,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 .order_by(RequestLog.created_at.desc())
                 .first()
             )
-        
+
             if error_existing:
                 error_existing.request_key = request_key
                 error_existing.curp = term
@@ -23829,39 +24087,39 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 #error_existing.provider_name = None
                 #error_existing.provider_group_id = None
                 error_existing.provider_message = None
-                
+
                 now_utc = _utc_now_naive()
 
                 error_existing.provider_media_url = None
                 error_existing.pdf_url = None
-                
+
                 #error_existing.created_at = now_utc
                 error_existing.updated_at = now_utc
                 error_existing.expires_at = now_utc + timedelta(days=settings.HISTORY_DAYS)
-                
+
                 db.commit()
-                
+
                 _enqueue_process_request(error_existing, "requeue_error_existing")
                 created_any = True
-        
+
                 print("REQUEUED_EXISTING_REQUEST_ID =", error_existing.id, flush=True)
                 print("REQUEUED_EXISTING_TERM =", error_existing.curp, flush=True)
                 print("REQUEUED_EXISTING_TYPE =", error_existing.act_type, flush=True)
-        
+
                 retry_msg = (
                     f"🔁 Reintentando solicitud\n"
                     f"Dato: {term}\n"
                     f"Tipo: {act_type}"
                 )
-        
+
                 if source_group_id:
                     if should_send_extra_text(source_group_id):
                         send_group_text(source_group_id, retry_msg, instance_name=instance_name)
                 else:
                     send_text(requester_wa_id, retry_msg, instance_name=instance_name)
-        
+
                 continue
-        
+
             # 3) si no existe, crear nueva
             row = RequestLog(
                 request_key=request_key,
@@ -23878,7 +24136,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 updated_at=_utc_now_naive(),
                 expires_at=_utc_now_naive() + timedelta(days=settings.HISTORY_DAYS),
             )
-        
+
             db.add(row)
             try:
                 db.commit()
@@ -23901,11 +24159,11 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     updated_at=_utc_now_naive(),
                     expires_at=_utc_now_naive() + timedelta(days=settings.HISTORY_DAYS),
                 )
-            
+
                 db.add(row)
                 db.commit()
                 db.refresh(row)
-                    
+
             _enqueue_process_request(row, "manual_requeue")
             created_any = True
 
@@ -23919,7 +24177,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 },
                 flush=True,
             )
-        
+
             print("ENQUEUED_REQUEST_ID =", row.id, flush=True)
             print("ENQUEUED_TERM =", row.curp, flush=True)
             print("ENQUEUED_TYPE =", row.act_type, flush=True)
@@ -23927,9 +24185,9 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
 
         if created_any:
             actor = push_name or requester_wa_id
-        
+
             bot_name = bot_label(instance_name, db) or instance_name or "RFC"
-        
+
             ack_msg = (
                 f"{bot_name}\n"
                 f"Solicitud recibida de {actor}.\n"
@@ -23948,7 +24206,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 },
                 flush=True,
             )
-        
+
             try:
                 if source_group_id:
                     ack_queue.enqueue(
@@ -23966,7 +24224,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                         instance_name=instance_name,
                         job_timeout=60,
                     )
-            
+
                 print(
                     "WEBHOOK_ACK_ENQUEUED =",
                     {
@@ -23976,7 +24234,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                     },
                     flush=True,
                 )
-            
+
             except Exception as ack_enqueue_exc:
                 print("WEBHOOK_ACK_ENQUEUE_ERROR =", str(ack_enqueue_exc), flush=True)
 
@@ -23988,7 +24246,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
                 },
                 flush=True,
             )
-            
+
         else:
             print("IGNORED_REASON = nothing_created", flush=True)
 
@@ -24002,7 +24260,7 @@ async def evolution_webhook(payload: dict, db: Session = Depends(get_db)):
 
         return {"ok": True}
 
-        
+
 
     except Exception as e:
         print("WEBHOOK ERROR:", str(e), payload)
@@ -24420,21 +24678,21 @@ def panel_rfc_bolsas_fragment(request: Request):
                     <strong class="rfc-plan-group-name">
                       {_esc(r["group_name"])}
                     </strong>
-            
+
                     <span class="rfc-plan-group-jid">
                       {_esc(r["group_jid"])}
                     </span>
-            
+
                     <span class="rfc-plan-instance">
                       Bot: {_esc(r["instance_name"])}
                     </span>
                   </div>
-            
+
                   <span class="rfc-plan-status">
                     {idcif_status}
                   </span>
                 </div>
-            
+
                 <div class="rfc-plan-stats">
                   <div class="rfc-plan-stat">
                     <span>CLON disponibles</span>
@@ -24442,21 +24700,21 @@ def panel_rfc_bolsas_fragment(request: Request):
                       {int(r["clon_balance"] or 0)}
                     </strong>
                   </div>
-            
+
                   <div class="rfc-plan-stat">
                     <span>CLON usados</span>
                     <strong>
                       {int(r["clon_used"] or 0)}
                     </strong>
                   </div>
-            
+
                   <div class="rfc-plan-stat">
                     <span>Precio CLON</span>
                     <strong>
                       ${float(r["clon_price"] or 0):.2f}
                     </strong>
                   </div>
-            
+
                   <div class="rfc-plan-stat">
                     <span>Usos IDCIF</span>
                     <strong>
@@ -24464,12 +24722,12 @@ def panel_rfc_bolsas_fragment(request: Request):
                     </strong>
                   </div>
                 </div>
-            
+
                 <div class="rfc-plan-expiry">
                   <span>Vencimiento IDCIF</span>
                   <strong>{_esc(expires_txt)}</strong>
                 </div>
-            
+
                 <div class="rfc-plan-actions">
                   <form
                     method="get"
@@ -24481,23 +24739,23 @@ def panel_rfc_bolsas_fragment(request: Request):
                       name="token"
                       value="{_esc(token)}"
                     >
-            
+
                     <input
                       type="hidden"
                       name="group_jid"
                       value="{_esc(r["group_jid"])}"
                     >
-            
+
                     <input
                       type="hidden"
                       name="instance_name"
                       value="{_esc(r["instance_name"])}"
                     >
-            
+
                     <label>
                       Recarga CLON
                     </label>
-            
+
                     <div class="rfc-plan-form-row">
                       <input
                         name="qty"
@@ -24505,13 +24763,13 @@ def panel_rfc_bolsas_fragment(request: Request):
                         min="1"
                         placeholder="Cantidad"
                       >
-            
+
                       <button type="submit">
                         Recargar
                       </button>
                     </div>
                   </form>
-            
+
                   <form
                     method="get"
                     action="/panel/rfc-plan/renovar-idcif"
@@ -24522,23 +24780,23 @@ def panel_rfc_bolsas_fragment(request: Request):
                       name="token"
                       value="{_esc(token)}"
                     >
-            
+
                     <input
                       type="hidden"
                       name="group_jid"
                       value="{_esc(r["group_jid"])}"
                     >
-            
+
                     <input
                       type="hidden"
                       name="instance_name"
                       value="{_esc(r["instance_name"])}"
                     >
-            
+
                     <label>
                       Renovación IDCIF
                     </label>
-            
+
                     <div class="rfc-plan-form-row">
                       <input
                         name="weeks"
@@ -24547,7 +24805,7 @@ def panel_rfc_bolsas_fragment(request: Request):
                         value="1"
                         title="Semanas"
                       >
-            
+
                       <input
                         name="price"
                         type="number"
@@ -24561,7 +24819,7 @@ def panel_rfc_bolsas_fragment(request: Request):
                         }"
                         title="Precio semanal"
                       >
-            
+
                       <button type="submit">
                         Renovar
                       </button>
@@ -24589,7 +24847,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             box-shadow:
               0 6px 18px rgba(15, 23, 42, .06);
           }}
-        
+
           .rfc-plan-section-head {{
             display: flex;
             justify-content: space-between;
@@ -24599,17 +24857,17 @@ def panel_rfc_bolsas_fragment(request: Request):
             border-bottom: 1px solid #e2e8f0;
             background: #f8fafc;
           }}
-        
+
           .rfc-plan-section-head h3 {{
             margin: 0 0 4px;
             color: #0f172a;
             font-size: 1rem;
           }}
-        
+
           .rfc-plan-section-head small {{
             color: #64748b;
           }}
-        
+
           .rfc-plan-list {{
             display: grid;
             grid-template-columns:
@@ -24618,7 +24876,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             padding: 12px;
             background: #f4f6f8;
           }}
-        
+
           .rfc-plan-card {{
             overflow: hidden;
             border: 1px solid #cfd8e3;
@@ -24627,7 +24885,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             box-shadow:
               0 2px 5px rgba(15, 23, 42, .05);
           }}
-        
+
           .rfc-plan-card-head {{
             display: flex;
             justify-content: space-between;
@@ -24641,13 +24899,13 @@ def panel_rfc_bolsas_fragment(request: Request):
               #f8fafc 100%
             );
           }}
-        
+
           .rfc-plan-group-name {{
             display: block;
             color: #0f172a;
             font-size: 1rem;
           }}
-        
+
           .rfc-plan-group-jid,
           .rfc-plan-instance {{
             display: block;
@@ -24656,7 +24914,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             font-family: Consolas, Monaco, monospace;
             font-size: .73rem;
           }}
-        
+
           .rfc-plan-status {{
             display: inline-flex;
             padding: 5px 9px;
@@ -24666,7 +24924,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             font-size: .72rem;
             font-weight: 900;
           }}
-        
+
           .rfc-plan-stats {{
             display: grid;
             grid-template-columns:
@@ -24674,7 +24932,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             gap: 8px;
             padding: 12px;
           }}
-        
+
           .rfc-plan-stat {{
             padding: 10px 8px;
             border: 1px solid #e2e8f0;
@@ -24682,7 +24940,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             background: #f8fafc;
             text-align: center;
           }}
-        
+
           .rfc-plan-stat span {{
             display: block;
             color: #64748b;
@@ -24690,14 +24948,14 @@ def panel_rfc_bolsas_fragment(request: Request):
             font-weight: 800;
             text-transform: uppercase;
           }}
-        
+
           .rfc-plan-stat strong {{
             display: block;
             margin-top: 5px;
             color: #0f172a;
             font-size: 1rem;
           }}
-        
+
           .rfc-plan-expiry {{
             display: flex;
             justify-content: space-between;
@@ -24709,7 +24967,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             color: #475569;
             font-size: .8rem;
           }}
-        
+
           .rfc-plan-actions {{
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -24718,23 +24976,23 @@ def panel_rfc_bolsas_fragment(request: Request):
             border-top: 1px solid #e2e8f0;
             background: #fafafa;
           }}
-        
+
           .rfc-plan-form {{
             display: grid;
             gap: 6px;
           }}
-        
+
           .rfc-plan-form label {{
             color: #64748b;
             font-size: .72rem;
             font-weight: 800;
           }}
-        
+
           .rfc-plan-form-row {{
             display: flex;
             gap: 6px;
           }}
-        
+
           .rfc-plan-form input {{
             width: 100%;
             min-width: 0;
@@ -24744,7 +25002,7 @@ def panel_rfc_bolsas_fragment(request: Request):
             border-radius: 9px;
             padding: 7px 9px;
           }}
-        
+
           .rfc-plan-form button {{
             min-height: 38px;
             border: 0;
@@ -24756,51 +25014,51 @@ def panel_rfc_bolsas_fragment(request: Request):
             cursor: pointer;
             white-space: nowrap;
           }}
-        
+
           .rfc-plan-empty {{
             padding: 24px;
             color: #64748b;
             text-align: center;
           }}
-        
+
           @media (max-width: 700px) {{
             .rfc-plan-list {{
               grid-template-columns: 1fr;
               padding: 8px;
             }}
-        
+
             .rfc-plan-stats {{
               grid-template-columns: 1fr 1fr;
             }}
-        
+
             .rfc-plan-actions {{
               grid-template-columns: 1fr;
             }}
-        
+
             .rfc-plan-form-row {{
               flex-wrap: wrap;
             }}
-        
+
             .rfc-plan-form button {{
               width: 100%;
             }}
           }}
         </style>
-        
+
         <section class="rfc-plan-section">
           <div class="rfc-plan-section-head">
             <div>
               <h3>
                 💰 Control comercial RFC por grupo
               </h3>
-        
+
               <small>
                 RFC CLON descuenta piezas.
                 RFC IDCIF valida plan semanal.
               </small>
             </div>
           </div>
-        
+
           <div class="rfc-plan-list">
             {cards_html}
           </div>
@@ -24915,10 +25173,10 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
                       Bot: {_esc(r["instance_name"])}
                     </span>
                   </div>
-            
+
                   <b>{idcif_status}</b>
                 </div>
-            
+
                 <div class="rfc-readonly-stats">
                   <div>
                     <span>CLON disponibles</span>
@@ -24926,21 +25184,21 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
                       {int(r["clon_balance"] or 0)}
                     </strong>
                   </div>
-            
+
                   <div>
                     <span>CLON usados</span>
                     <strong>
                       {int(r["clon_used"] or 0)}
                     </strong>
                   </div>
-            
+
                   <div>
                     <span>Precio CLON</span>
                     <strong>
                       ${float(r["clon_price"] or 0):.2f}
                     </strong>
                   </div>
-            
+
                   <div>
                     <span>Usos IDCIF</span>
                     <strong>
@@ -24948,7 +25206,7 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
                     </strong>
                   </div>
                 </div>
-            
+
                 <div class="rfc-readonly-expiry">
                   Vence IDCIF:
                   <strong>{_esc(expires_txt)}</strong>
@@ -24972,22 +25230,22 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
             border-radius: 18px;
             background: #ffffff;
           }}
-        
+
           .rfc-readonly-section-head {{
             padding: 16px 18px;
             border-bottom: 1px solid #e2e8f0;
             background: #f8fafc;
           }}
-        
+
           .rfc-readonly-section-head h3 {{
             margin: 0 0 4px;
             font-size: 1rem;
           }}
-        
+
           .rfc-readonly-section-head small {{
             color: #64748b;
           }}
-        
+
           .rfc-readonly-list {{
             display: grid;
             grid-template-columns:
@@ -24996,14 +25254,14 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
             padding: 12px;
             background: #f4f6f8;
           }}
-        
+
           .rfc-readonly-card {{
             overflow: hidden;
             border: 1px solid #cfd8e3;
             border-radius: 15px;
             background: #ffffff;
           }}
-        
+
           .rfc-readonly-head {{
             display: flex;
             justify-content: space-between;
@@ -25013,33 +25271,33 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
             border-bottom: 1px solid #e2e8f0;
             background: #f8fafc;
           }}
-        
+
           .rfc-readonly-head strong,
           .rfc-readonly-head span {{
             display: block;
           }}
-        
+
           .rfc-readonly-head span {{
             margin-top: 3px;
             color: #64748b;
             font-family: Consolas, Monaco, monospace;
             font-size: .72rem;
           }}
-        
+
           .rfc-readonly-head b {{
             padding: 5px 9px;
             border-radius: 999px;
             background: #e2e8f0;
             font-size: .7rem;
           }}
-        
+
           .rfc-readonly-stats {{
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 8px;
             padding: 12px;
           }}
-        
+
           .rfc-readonly-stats > div {{
             padding: 10px;
             border: 1px solid #e2e8f0;
@@ -25047,7 +25305,7 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
             background: #f8fafc;
             text-align: center;
           }}
-        
+
           .rfc-readonly-stats span {{
             display: block;
             color: #64748b;
@@ -25055,14 +25313,14 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
             font-weight: 800;
             text-transform: uppercase;
           }}
-        
+
           .rfc-readonly-stats strong {{
             display: block;
             margin-top: 4px;
             color: #0f172a;
             font-size: 1rem;
           }}
-        
+
           .rfc-readonly-expiry {{
             margin: 0 12px 12px;
             padding: 9px 11px;
@@ -25071,7 +25329,7 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
             color: #64748b;
             font-size: .78rem;
           }}
-        
+
           @media (max-width: 600px) {{
             .rfc-readonly-list {{
               grid-template-columns: 1fr;
@@ -25079,17 +25337,17 @@ def panel_rfc_bolsas_readonly_fragment(request: Request):
             }}
           }}
         </style>
-        
+
         <section class="rfc-readonly-section">
           <div class="rfc-readonly-section-head">
             <h3>💰 Bolsa RFC por grupo</h3>
-        
+
             <small>
               RFC CLON descuenta piezas.
               RFC IDCIF funciona por plan semanal.
             </small>
           </div>
-        
+
           <div class="rfc-readonly-list">
             {cards_html}
           </div>
@@ -25487,21 +25745,21 @@ def panel_rfc_bot_control_fragment(request: Request):
                     instance_name,
                     COALESCE(label, instance_name) AS label,
                     COALESCE(manager_name, '') AS manager_name,
-            
+
                     COALESCE(sale_price_clon, 0)
                         AS sale_price_clon,
                     COALESCE(sale_price_idcif, 0)
                         AS sale_price_idcif,
                     COALESCE(sale_price_verifiable, 0)
-                        AS sale_price_verifiable, 
+                        AS sale_price_verifiable,
                     COALESCE(sale_price_note, '')
                         AS sale_price_note,
                     sale_price_updated_at,
-            
+
                     COALESCE(clon_limit, 0) AS clon_limit,
                     COALESCE(clon_used, 0) AS clon_used,
                     COALESCE(clon_recharges, 0) AS clon_recharges,
-            
+
                     COALESCE(idcif_limit, 0) AS idcif_limit,
                     COALESCE(idcif_used, 0) AS idcif_used,
                     COALESCE(idcif_recharges, 0) AS idcif_recharges,
@@ -25509,12 +25767,12 @@ def panel_rfc_bot_control_fragment(request: Request):
                     COALESCE(verifiable_enabled, FALSE)
                         AS verifiable_enabled,
                     COALESCE(verifiable_limit, 0)
-                        AS verifiable_limit, 
+                        AS verifiable_limit,
                     COALESCE(verifiable_used, 0)
                         AS verifiable_used,
                     COALESCE(verifiable_recharges, 0)
                         AS verifiable_recharges,
-            
+
                     COALESCE(is_blocked, FALSE) AS is_blocked,
                     COALESCE(is_active, TRUE) AS is_active
                 FROM bot_control
@@ -25548,7 +25806,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             border: 1px solid #cfd8e3;
             border-radius: 16px;
             overflow: hidden;
-        
+
             box-shadow:
               0 2px 5px rgba(15, 23, 42, .05),
               0 8px 18px rgba(15, 23, 42, .04);
@@ -25560,16 +25818,16 @@ def panel_rfc_bot_control_fragment(request: Request):
             align-items: center;
             gap: 14px;
             flex-wrap: wrap;
-            
+
             min-height: 0;
             padding: 12px 16px;
-        
+
             background: linear-gradient(
               180deg,
               #ffffff 0%,
               #f8fafc 100%
             );
-        
+
             border-bottom: 1px solid #dbe2ea;
             position: static;
           }
@@ -25616,16 +25874,16 @@ def panel_rfc_bot_control_fragment(request: Request):
             justify-content: space-between;
             align-items: center;
             gap: 8px;
-        
+
             margin: -14px -14px 13px;
             padding: 11px 14px;
-        
+
             border-bottom: 1px solid #dbe2ea;
             border-radius: 14px 14px 0 0;
-        
+
             background: #f1f5f9;
             color: #0f172a;
-        
+
             font-weight: 900;
             font-size: .92rem;
             letter-spacing: .02em;
@@ -25646,7 +25904,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             padding: 9px 7px;
             text-align: center;
             min-height: 58px;
-        
+
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -25671,7 +25929,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             line-height: 1;
             font-variant-numeric: tabular-nums;
           }
-          
+
           .rfc-control-row {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
@@ -25718,9 +25976,9 @@ def panel_rfc_bot_control_fragment(request: Request):
             display: grid;
             grid-template-columns: repeat(4, minmax(130px, 1fr));
             gap: 6px;
-        
+
             padding: 9px 10px;
-        
+
             border-top: 1px solid #dbe2ea;
             background: #f8fafc;
           }
@@ -25740,7 +25998,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             padding: 12px;
             background: #f4f6f8;
           }
-            
+
           .rfc-manager-price-card {
             background: #ffffff;
             border: 1px solid #cfd8e3;
@@ -25750,7 +26008,7 @@ def panel_rfc_bot_control_fragment(request: Request):
               0 2px 5px rgba(15, 23, 42, .05),
               0 8px 18px rgba(15, 23, 42, .04);
           }
-            
+
           .rfc-manager-price-head {
             display: flex;
             justify-content: space-between;
@@ -25764,7 +26022,7 @@ def panel_rfc_bot_control_fragment(request: Request):
               #f8fafc 100%
             );
           }
-            
+
           .rfc-manager-price-name {
             display: block;
             color: #0f172a;
@@ -25772,7 +26030,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             font-weight: 900;
             line-height: 1.25;
           }
-            
+
           .rfc-manager-price-instance {
             display: block;
             margin-top: 3px;
@@ -25780,24 +26038,24 @@ def panel_rfc_bot_control_fragment(request: Request):
             font-family: Consolas, Monaco, monospace;
             font-size: .76rem;
           }
-            
+
           .rfc-manager-price-body {
             display: grid;
             gap: 12px;
             padding: 14px;
           }
-            
+
           .rfc-manager-price-grid {
             display: grid;
             grid-template-columns:
               repeat(3, minmax(0, 1fr));
             gap: 8px;
           }
-            
+
           .rfc-manager-price-field {
             min-width: 0;
           }
-            
+
           .rfc-manager-price-field label {
             display: block;
             margin-bottom: 5px;
@@ -25806,7 +26064,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             font-weight: 800;
             line-height: 1.2;
           }
-            
+
           .rfc-manager-price-field input {
             width: 100%;
             min-width: 0;
@@ -25819,24 +26077,24 @@ def panel_rfc_bot_control_fragment(request: Request):
             background: #ffffff;
             font: inherit;
           }
-            
+
           .rfc-manager-price-field input:focus {
             outline: none;
             border-color: #334155;
             box-shadow:
               0 0 0 3px rgba(51, 65, 85, .10);
           }
-            
+
           .rfc-manager-price-note {
             grid-column: 1 / -1;
           }
-            
+
           .rfc-manager-price-actions {
             display: grid;
             grid-template-columns: 1fr;
             padding: 0 14px 14px;
           }
-            
+
           .rfc-manager-price-actions .btn {
             width: 100%;
             min-height: 40px;
@@ -25859,7 +26117,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             border-bottom: 1px solid #e2e8f0;
             background: #f8fafc;
           }
-        
+
           .rfc-compact-search {
             width: 100%;
             height: 42px;
@@ -25871,14 +26129,14 @@ def panel_rfc_bot_control_fragment(request: Request):
             color: #0f172a;
             font: inherit;
           }
-        
+
           .rfc-compact-search:focus {
             outline: none;
             border-color: #334155;
             box-shadow:
               0 0 0 3px rgba(51, 65, 85, .10);
           }
-        
+
           .rfc-compact-count {
             display: inline-flex;
             align-items: center;
@@ -25893,25 +26151,25 @@ def panel_rfc_bot_control_fragment(request: Request):
             font-weight: 800;
             white-space: nowrap;
           }
-        
+
           .rfc-bot-card,
           .rfc-manager-price-card {
             display: block;
           }
-        
+
           .rfc-bot-card > summary,
           .rfc-manager-price-card > summary {
             list-style: none;
             cursor: pointer;
             user-select: none;
           }
-        
+
           .rfc-bot-card > summary::-webkit-details-marker,
           .rfc-manager-price-card
             > summary::-webkit-details-marker {
             display: none;
           }
-        
+
           .rfc-details-right {
             display: flex;
             align-items: center;
@@ -25919,7 +26177,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             gap: 10px;
             margin-left: auto;
           }
-        
+
           .rfc-details-toggle {
             display: inline-flex;
             align-items: center;
@@ -25934,27 +26192,27 @@ def panel_rfc_bot_control_fragment(request: Request):
             font-weight: 800;
             white-space: nowrap;
           }
-        
+
           .rfc-details-toggle::after {
             content: "Ver detalles";
           }
-        
+
           details[open]
             .rfc-details-toggle::after {
             content: "Ocultar";
           }
-        
+
           .rfc-details-toggle::before {
             content: "▾";
             margin-right: 6px;
             transition: transform .18s ease;
           }
-        
+
           details[open]
             .rfc-details-toggle::before {
             transform: rotate(180deg);
           }
-        
+
           .rfc-bot-summary-stats {
             display: flex;
             align-items: center;
@@ -25962,7 +26220,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             gap: 6px;
             flex-wrap: wrap;
           }
-        
+
           .rfc-summary-chip {
             display: inline-flex;
             align-items: center;
@@ -25976,7 +26234,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             font-weight: 800;
             white-space: nowrap;
           }
-        
+
           .rfc-filter-empty {
             display: none;
             margin: 12px;
@@ -25987,25 +26245,25 @@ def panel_rfc_bot_control_fragment(request: Request):
             color: #64748b;
             text-align: center;
           }
-        
+
           .rfc-filter-item[hidden] {
             display: none !important;
           }
-        
+
           @media (max-width: 760px) {
             .rfc-compact-toolbar {
               grid-template-columns: 1fr;
             }
-        
+
             .rfc-compact-count {
               justify-self: start;
             }
-        
+
             .rfc-bot-summary-stats {
               width: 100%;
               justify-content: flex-start;
             }
-        
+
             .rfc-details-right {
               width: 100%;
               justify-content: space-between;
@@ -26024,31 +26282,31 @@ def panel_rfc_bot_control_fragment(request: Request):
               grid-template-columns: 1fr;
               padding: 8px;
             }
-            
+
             .rfc-manager-price-grid {
               grid-template-columns: 1fr;
             }
-            
+
             .rfc-manager-price-note {
               grid-column: auto;
             }
-            
+
             .rfc-manager-price-head {
               padding: 12px;
             }
-          
+
             .rfc-bot-actions {
               grid-template-columns: 1fr 1fr;
             }
-            
+
             .rfc-bot-card-header {
               padding: 12px;
             }
-            
+
             .rfc-family-grid {
               padding: 8px;
             }
-          
+
             .rfc-bot-control-list {
               padding: 10px;
             }
@@ -26074,14 +26332,14 @@ def panel_rfc_bot_control_fragment(request: Request):
           <div class="head">
             <div>
               <strong>Control por bot</strong>
-        
+
               <div class="small">
                 Vista compacta. Abre solamente el bot
                 que necesites administrar.
               </div>
             </div>
           </div>
-        
+
           <div class="rfc-compact-toolbar">
             <input
               id="rfcBotControlSearch"
@@ -26097,18 +26355,18 @@ def panel_rfc_bot_control_fragment(request: Request):
                 )
               "
             >
-        
+
             <span class="rfc-compact-count">
               __RFC_BOT_COUNT__ bots
             </span>
           </div>
-        
+
           <div
             class="rfc-bot-control-list"
             id="rfcBotControlList"
           >
         """
-        
+
         html = html.replace(
             "__RFC_BOT_COUNT__",
             str(len(rows)),
@@ -26161,7 +26419,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             verifiable_enabled = bool(
                 r.get("verifiable_enabled")
             )
-            
+
             verifiable_used = int(
                 r.get("verifiable_used")
                 or 0
@@ -26171,12 +26429,12 @@ def panel_rfc_bot_control_fragment(request: Request):
                 r.get("verifiable_limit")
                 or 0
             )
-            
+
             verifiable_recharges = int(
                 r.get("verifiable_recharges")
                 or 0
             )
-            
+
             verifiable_available = (
                 max(
                     verifiable_limit
@@ -26186,19 +26444,19 @@ def panel_rfc_bot_control_fragment(request: Request):
                 if verifiable_limit > 0
                 else None
             )
-            
+
             verifiable_limit_txt = (
                 str(verifiable_limit)
                 if verifiable_limit > 0
                 else "Ilimitado"
             )
-            
+
             verifiable_available_txt = (
                 str(verifiable_available)
                 if verifiable_available is not None
                 else "∞"
             )
-            
+
             verifiable_badge = (
                 '<span class="badge badge-success">'
                 'ACTIVO'
@@ -26209,13 +26467,13 @@ def panel_rfc_bot_control_fragment(request: Request):
                 'DESACTIVADO'
                 '</span>'
             )
-            
+
             verifiable_button_text = (
                 "Desactivar"
                 if verifiable_enabled
                 else "Activar"
             )
-            
+
             verifiable_enabled_js = (
                 "true"
                 if verifiable_enabled
@@ -26293,7 +26551,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                 )
             )
             price_note = str(r.get("sale_price_note") or "").strip()
-            
+
             price_clon_txt = f"{price_clon:.2f}" if price_clon > 0 else ""
             price_idcif_txt = f"{price_idcif:.2f}" if price_idcif > 0 else ""
             price_verifiable_txt = (
@@ -26301,7 +26559,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                 if price_verifiable > 0
                 else ""
             )
-            
+
             price_note_e = _esc(price_note)
 
             sale_price_updated_at = r.get(
@@ -26361,35 +26619,35 @@ def panel_rfc_bot_control_fragment(request: Request):
                     <span class="rfc-bot-name">
                       {label_e}
                     </span>
-            
+
                     <span class="rfc-bot-instance">
                       {inst_e}
                     </span>
                   </div>
-            
+
                   <div class="rfc-bot-summary-stats">
                     <span class="rfc-summary-chip">
                       CLON {clon_used}/{clon_limit_txt}
                     </span>
-            
+
                     <span class="rfc-summary-chip">
                       IDCIF {idcif_used}/{idcif_limit_txt}
                     </span>
-            
+
                     <span class="rfc-summary-chip">
                       VERIF. {verifiable_used}/{
                         verifiable_limit_txt
                       }
                     </span>
                   </div>
-            
+
                   <div class="rfc-details-right">
                     {badge}
-            
+
                     <span class="rfc-details-toggle"></span>
                   </div>
                 </summary>
-            
+
                 <div class="rfc-family-grid">
 
                   <section class="rfc-family-box">
@@ -26738,26 +26996,26 @@ def panel_rfc_bot_control_fragment(request: Request):
                         or label_e
                       }
                     </span>
-            
+
                     <span class="rfc-manager-price-instance">
                       {label_e} · {inst_e}
                     </span>
                   </div>
-            
+
                   <div class="rfc-details-right">
                     <div class="rfc-manager-price-updated">
                       {sale_price_updated_txt}
                     </div>
-            
+
                     <span class="rfc-details-toggle"></span>
                   </div>
                 </summary>
-            
+
                 <div class="rfc-manager-price-body">
                   <div class="rfc-manager-price-grid">
                     <div class="rfc-manager-price-field">
                       <label>Nombre del gestor</label>
-            
+
                       <input
                         id="manager_name_{inst_e}"
                         type="text"
@@ -26765,10 +27023,10 @@ def panel_rfc_bot_control_fragment(request: Request):
                         placeholder="Nombre del gestor"
                       >
                     </div>
-            
+
                     <div class="rfc-manager-price-field">
                       <label>Precio CLON</label>
-            
+
                       <input
                         id="clon_price_{inst_e}"
                         type="number"
@@ -26777,10 +27035,10 @@ def panel_rfc_bot_control_fragment(request: Request):
                         value="{price_clon_txt}"
                       >
                     </div>
-            
+
                     <div class="rfc-manager-price-field">
                       <label>Precio IDCIF</label>
-            
+
                       <input
                         id="idcif_price_{inst_e}"
                         type="number"
@@ -26789,10 +27047,10 @@ def panel_rfc_bot_control_fragment(request: Request):
                         value="{price_idcif_txt}"
                       >
                     </div>
-            
+
                     <div class="rfc-manager-price-field">
                       <label>Precio verificable</label>
-            
+
                       <input
                         id="verifiable_price_{inst_e}"
                         type="number"
@@ -26801,7 +27059,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                         value="{price_verifiable_txt}"
                       >
                     </div>
-            
+
                     <div
                       class="
                         rfc-manager-price-field
@@ -26809,7 +27067,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                       "
                     >
                       <label>Nota</label>
-            
+
                       <input
                         id="price_note_{inst_e}"
                         type="text"
@@ -26819,7 +27077,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                     </div>
                   </div>
                 </div>
-            
+
                 <div class="rfc-manager-price-actions">
                   <button
                     type="button"
@@ -26844,7 +27102,7 @@ def panel_rfc_bot_control_fragment(request: Request):
             </div>
           </div>
         </div>
-        
+
         <div
           class="box"
           style="margin-top:18px;"
@@ -26855,14 +27113,14 @@ def panel_rfc_bot_control_fragment(request: Request):
               <strong>
                 💲 Precios acordados por gestor
               </strong>
-        
+
               <div class="small">
                 Busca un gestor y abre solamente
                 su configuración comercial.
               </div>
             </div>
           </div>
-        
+
           <div class="rfc-compact-toolbar">
             <input
               id="rfcManagerPriceSearch"
@@ -26878,18 +27136,18 @@ def panel_rfc_bot_control_fragment(request: Request):
                 )
               "
             >
-        
+
             <span class="rfc-compact-count">
               {len(rows)} gestores
             </span>
           </div>
-        
+
           <div
             class="rfc-manager-price-list"
             id="rfcManagerPriceList"
           >
             {price_cards_html}
-        
+
             <div
               class="rfc-filter-empty"
               id="rfcManagerPriceEmpty"
@@ -26912,49 +27170,49 @@ def panel_rfc_bot_control_fragment(request: Request):
             ) {
               const input =
                 document.getElementById(inputId);
-        
+
               const list =
                 document.getElementById(listId);
-        
+
               const empty =
                 document.getElementById(emptyId);
-        
+
               if (!input || !list) {
                 return;
               }
-        
+
               const query = String(
                 input.value || ""
               )
                 .trim()
                 .toLowerCase();
-        
+
               const cards = Array.from(
                 list.querySelectorAll(
                   ":scope > .rfc-filter-item"
                 )
               );
-        
+
               let visible = 0;
-        
+
               cards.forEach(function (card) {
                 const searchable = String(
                   card.dataset.search
                   || card.textContent
                   || ""
                 ).toLowerCase();
-        
+
                 const show =
                   !query
                   || searchable.includes(query);
-        
+
                 card.hidden = !show;
-        
+
                 if (show) {
                   visible += 1;
                 }
               });
-        
+
               if (empty) {
                 empty.style.display =
                   visible === 0
@@ -26962,7 +27220,7 @@ def panel_rfc_bot_control_fragment(request: Request):
                     : "none";
               }
             };
-        
+
           document
             .querySelectorAll(
               ".rfc-bot-card, "
@@ -26975,14 +27233,14 @@ def panel_rfc_bot_control_fragment(request: Request):
                   if (!card.open) {
                     return;
                   }
-        
+
                   const parent =
                     card.parentElement;
-        
+
                   if (!parent) {
                     return;
                   }
-        
+
                   parent
                     .querySelectorAll(
                       ":scope > details[open]"
@@ -27029,14 +27287,14 @@ def panel_rfc_bot_control_update(request: Request):
         instance = (q.get("instance") or "").strip()
         action = (q.get("action") or "").strip().lower()
         family = (q.get("family") or "").strip().lower()
-        
+
         value_raw = (q.get("value") or "0").strip()
-        
+
         try:
             value = int(value_raw or 0)
         except ValueError:
             value = 0
-        
+
         manager_name = (q.get("manager_name") or "").strip()
         clon_price_raw = (q.get("clon_price") or "").strip()
         idcif_price_raw = (q.get("idcif_price") or "").strip()
@@ -27123,8 +27381,8 @@ def panel_rfc_bot_control_update(request: Request):
                         "instance": instance,
                     },
                 )
-            
-            
+
+
             elif action == "disable_verifiable":
                 conn.execute(
                     text("""
@@ -27138,8 +27396,8 @@ def panel_rfc_bot_control_update(request: Request):
                         "instance": instance,
                     },
                 )
-            
-            
+
+
             elif action == "set_price":
                 try:
                     clon_price = (
@@ -27147,19 +27405,19 @@ def panel_rfc_bot_control_update(request: Request):
                         if clon_price_raw
                         else Decimal("0")
                     )
-                
+
                     idcif_price = (
                         Decimal(idcif_price_raw)
                         if idcif_price_raw
                         else Decimal("0")
                     )
-                
+
                     verifiable_price = (
                         Decimal(verifiable_price_raw)
                         if verifiable_price_raw
                         else Decimal("0")
                     )
-                
+
                 except Exception:
                     return HTMLResponse(
                         (
@@ -27168,7 +27426,7 @@ def panel_rfc_bot_control_update(request: Request):
                         ),
                         status_code=400,
                     )
-            
+
                 if (
                     clon_price < 0
                     or idcif_price < 0
@@ -27178,7 +27436,7 @@ def panel_rfc_bot_control_update(request: Request):
                         "Los precios no pueden ser negativos.",
                         status_code=400,
                     )
-            
+
                 conn.execute(text("""
                     UPDATE bot_control
                     SET
@@ -27201,7 +27459,7 @@ def panel_rfc_bot_control_update(request: Request):
                     ),
                     "note": price_note or None,
                 })
-            
+
                 conn.execute(text("""
                     INSERT INTO bot_price_history (
                         instance_name,
@@ -27225,7 +27483,7 @@ def panel_rfc_bot_control_update(request: Request):
                     "idcif_price": idcif_price,
                     "note": price_note or None,
                 })
-            
+
             elif action == "set_limit":
                 if family == "clon":
                     wallet = conn.execute(text("""
@@ -27280,7 +27538,7 @@ def panel_rfc_bot_control_update(request: Request):
                             "El límite no puede ser negativo",
                             status_code=400,
                         )
-                
+
                     conn.execute(
                         text("""
                             UPDATE bot_control
@@ -27303,22 +27561,22 @@ def panel_rfc_bot_control_update(request: Request):
                     SELECT
                         COALESCE(clon_limit, 0)
                             AS clon_limit,
-                
+
                         COALESCE(clon_used, 0)
                             AS clon_used,
-                
+
                         COALESCE(idcif_limit, 0)
                             AS idcif_limit,
-                
+
                         COALESCE(idcif_used, 0)
                             AS idcif_used,
-                
+
                         COALESCE(verifiable_limit, 0)
                             AS verifiable_limit,
-                
+
                         COALESCE(verifiable_used, 0)
                             AS verifiable_used
-                
+
                     FROM bot_control
                     WHERE instance_name = :instance
                 """), {
@@ -27443,23 +27701,23 @@ def panel_rfc_bot_control_update(request: Request):
                         before.get("verifiable_limit")
                         or 0
                     )
-                
+
                     used_now = int(
                         before.get("verifiable_used")
                         or 0
                     )
-                
+
                     new_limit = (
                         previous_limit
                         + value
                     )
-                
+
                     available_after = max(
                         new_limit
                         - used_now,
                         0,
                     )
-                
+
                     conn.execute(
                         text("""
                             UPDATE bot_control
@@ -27469,15 +27727,15 @@ def panel_rfc_bot_control_update(request: Request):
                                         verifiable_limit,
                                         0
                                     ) + :value,
-                
+
                                 verifiable_recharges =
                                     COALESCE(
                                         verifiable_recharges,
                                         0
                                     ) + :value,
-                
+
                                 updated_at = now()
-                
+
                             WHERE instance_name = :instance
                         """),
                         {
@@ -27485,7 +27743,7 @@ def panel_rfc_bot_control_update(request: Request):
                             "instance": instance,
                         },
                     )
-                
+
                     conn.execute(
                         text("""
                             INSERT INTO bot_recharge_logs (

@@ -707,16 +707,16 @@ def cut_record_success(group_jid: str, group_name: str, kind: str, count: int = 
     add_clon = 0
     add_idcif = 0
     add_verificable = 0
-    
+
     if kind in ("CURP", "RFC_ONLY"):
         add_clon = count
-    
+
     elif kind in ("RFC_IDCIF", "QR"):
         add_idcif = count
-    
+
     elif kind == "RFC_VERIFICABLE":
         add_verificable = count
-    
+
     else:
         return
 
@@ -895,7 +895,7 @@ def record_success_once(job_data: dict, group_jid: str, group_name: str, kind: s
         nx=True,
         ex=60 * 60 * 24 * 35,
     )
-    
+
     if not ok:
         print(
             "[STATS DUPLICATE IGNORED]",
@@ -903,7 +903,7 @@ def record_success_once(job_data: dict, group_jid: str, group_name: str, kind: s
             flush=True,
         )
         return False
-    
+
     try:
         _save_rfc_panel_request_log(
             {
@@ -940,7 +940,7 @@ def record_success_once(job_data: dict, group_jid: str, group_name: str, kind: s
                 item_key=item_key,
             )
         )
-        
+
         if commercial_recorded is False:
             print(
                 "[RFC_SUCCESS_DUPLICATE_FULLY_IGNORED]",
@@ -952,23 +952,23 @@ def record_success_once(job_data: dict, group_jid: str, group_name: str, kind: s
                 },
                 flush=True,
             )
-        
+
             return False
-        
+
         panel_record_success(
             group_jid=group_jid,
             group_name=group_name,
             kind=kind,
             count=count,
         )
-    
+
         cut_record_success(
             group_jid=group_jid,
             group_name=group_name,
             kind=kind,
             count=count,
         )
-    
+
         print(
             "[COUNT_SUCCESS]",
             {
@@ -980,15 +980,15 @@ def record_success_once(job_data: dict, group_jid: str, group_name: str, kind: s
             },
             flush=True,
         )
-    
+
         return True
-    
+
     except Exception:
         try:
             redis_stats.delete(key)
         except Exception:
             pass
-    
+
         raise
 
 def evolution_headers():
@@ -1464,7 +1464,7 @@ def call_bot_internal_text(
         r.raise_for_status()
 
     return r.json()
-    
+
 def call_bot_internal_media(
     requester_number: str,
     requester_name: str,
@@ -1541,7 +1541,7 @@ def call_bot_internal_media(
     r.raise_for_status()
 
     return r.json()
-    
+
 def _extraer_lugar_emision_desde_texto(raw: str) -> str:
     """
     Detecta MUNICIPIO, ENTIDAD en cualquier parte del texto,
@@ -1753,12 +1753,12 @@ def claim_delivery_once(
             done_key,
             current_job_data=job_data,
         )
-    
+
         if repair_verifiable_after_done:
             _repair_verifiable_finalization_after_delivery(
                 job_data
             )
-    
+
         return False, lock_key, done_key
 
     # Solo un worker puede obtener SET NX.
@@ -1787,12 +1787,12 @@ def claim_delivery_once(
             done_key,
             current_job_data=job_data,
         )
-    
+
         if repair_verifiable_after_done:
             _repair_verifiable_finalization_after_delivery(
                 job_data
             )
-    
+
         return False, lock_key, done_key
 
     return True, lock_key, done_key
@@ -2646,7 +2646,7 @@ def process_verifiable_timeout_job(
                     client_instance
                 ),
             )
-    
+
         print(
             "[RFC VERIFIABLE TIMEOUT SENT]",
             {
@@ -2663,7 +2663,7 @@ def process_verifiable_timeout_job(
             },
             flush=True,
         )
-    
+
     except Exception as send_exc:
         print(
             "[RFC VERIFIABLE TIMEOUT "
@@ -2680,42 +2680,42 @@ def process_verifiable_timeout_job(
             },
             flush=True,
         )
-    
+
         # El cliente NO fue notificado.
         # No borrar pending ni processing.
         release_provider_result_claim(
             request_key
         )
-    
+
         raise
-    
-    
+
+
     # ==========================================
     # EL AVISO SÍ SALIÓ.
     # AHORA SÍ CERRAR LA SOLICITUD.
     # ==========================================
-    
+
     if inflight_key:
         redis_stats.delete(
             inflight_key
         )
-    
+
     if verifiable_processing_key:
         redis_stats.delete(
             verifiable_processing_key
         )
-    
+
     finish_pending(
         request_key,
         provider_message_id=(
             provider_message_id
         ),
     )
-    
+
     release_provider_result_claim(
         request_key
     )
-    
+
     print(
         "[RFC VERIFIABLE TIMEOUT FINALIZED]",
         {
@@ -2726,7 +2726,7 @@ def process_verifiable_timeout_job(
         },
         flush=True,
     )
-    
+
     return {
         "ok": True,
         "timed_out": True,
@@ -2991,13 +2991,13 @@ def process_group_request_job(job_data: dict):
             job_data.get("forced_success_kind")
             or ""
         ).strip().upper()
-        
+
         # Todo resultado nacido del flujo verificable
         # debe contar y descontarse como RFC_VERIFICABLE,
         # aunque internamente se genere como RFC_ONLY.
         if is_verifiable:
             forced_success_kind = "RFC_VERIFICABLE"
-        
+
         if forced_success_kind:
             requested_kind = forced_success_kind
 
@@ -3074,7 +3074,7 @@ def process_group_request_job(job_data: dict):
                 },
                 flush=True,
             )
-        
+
             evolution_send_text_to_group(
                 group_jid,
                 _job_client_message(
@@ -3088,7 +3088,7 @@ def process_group_request_job(job_data: dict):
                 ),
                 instance_name=instance_name,
             )
-        
+
             return
 
         if not _rfc_commercial_check_or_notify(
@@ -3126,20 +3126,20 @@ def process_group_request_job(job_data: dict):
                 original_text=original_text,
                 query=query,
                 instance_name=instance_name,
-            
+
                 is_verifiable=is_verifiable,
-            
+
                 provider_rfc=(
                     job_data.get("provider_rfc")
                     or ""
                 ),
-            
+
                 provider_idcif=(
                     job_data.get("provider_idcif")
                     or ""
                 ),
             )
-            
+
         elif msg_type in ("image", "document") and media_id:
             media_bytes = evolution_get_media_base64(media_id, instance_name=instance_name)
 
@@ -3151,16 +3151,16 @@ def process_group_request_job(job_data: dict):
                 mime_type=mime_type,
                 media_bytes=media_bytes,
                 instance_name=instance_name,
-            
+
                 is_verifiable=is_verifiable,
-            
+
                 provider_rfc=(
                     job_data.get(
                         "provider_rfc"
                     )
                     or ""
                 ),
-            
+
                 provider_idcif=(
                     job_data.get(
                         "provider_idcif"
@@ -3168,7 +3168,7 @@ def process_group_request_job(job_data: dict):
                     or ""
                 ),
             )
-            
+
         else:
             raise RuntimeError("NO_TEXT_OR_MEDIA")
 
@@ -3394,7 +3394,7 @@ def process_group_request_job(job_data: dict):
             )
             or ""
         ).strip().upper()
-        
+
         verifiable_fallback_used = bool(
             result.get(
                 "verifiable_fallback_used"
@@ -3437,46 +3437,46 @@ def process_group_request_job(job_data: dict):
                     "VERIFIABLE_TEXT_ON_"
                     "NON_VERIFIABLE_JOB"
                 )
-        
+
             delivered_rfc = str(
                 result.get("rfc")
                 or job_data.get("provider_rfc")
                 or ""
             ).strip().upper()
-        
+
             delivered_idcif = str(
                 result.get("idcif")
                 or job_data.get("provider_idcif")
                 or ""
             ).strip()
-        
+
             delivery_text = str(
                 result.get("text")
                 or ""
             ).strip()
-        
+
             if not delivered_rfc:
                 raise RuntimeError(
                     "VERIFIABLE_TEXT_RFC_EMPTY"
                 )
-        
+
             if not delivered_idcif:
                 raise RuntimeError(
                     "VERIFIABLE_TEXT_IDCIF_EMPTY"
                 )
-        
+
             if not delivery_text:
                 delivery_text = (
                     f"RFC: {delivered_rfc}\n"
                     f"IDCIF: {delivered_idcif}"
                 )
-        
+
             delivery_item_key = (
                 f"VERIFICABLE_TEXT:"
                 f"{delivered_rfc}:"
                 f"{delivered_idcif}"
             )
-        
+
             (
                 claimed,
                 delivery_lock_key,
@@ -3485,7 +3485,7 @@ def process_group_request_job(job_data: dict):
                 job_data=job_data,
                 item_key=delivery_item_key,
             )
-        
+
             if not claimed:
                 print(
                     "[RFC VERIFICABLE TEXT "
@@ -3499,13 +3499,13 @@ def process_group_request_job(job_data: dict):
                     flush=True,
                 )
                 return
-        
+
             elapsed_seconds = max(
                 0.0,
                 time.time()
                 - request_started_at_epoch,
             )
-        
+
             client_text = _job_client_message(
                 job_data,
                 title="⚠️ Constancia no disponible en SAT",
@@ -3520,14 +3520,14 @@ def process_group_request_job(job_data: dict):
                 result_rfc=delivered_rfc,
                 result_idcif=delivered_idcif,
             )
-        
+
             try:
                 evolution_send_text_to_group(
                     group_jid,
                     client_text,
                     instance_name=instance_name,
                 )
-        
+
             except requests.Timeout as send_exc:
                 print(
                     "[RFC VERIFICABLE TEXT TIMEOUT]",
@@ -3544,27 +3544,27 @@ def process_group_request_job(job_data: dict):
                     },
                     flush=True,
                 )
-            
+
                 release_delivery_claim(
                     delivery_lock_key
                 )
-            
+
                 raise
-        
+
             except Exception as send_exc:
                 release_delivery_claim(
                     delivery_lock_key
                 )
-        
+
                 print(
                     "[RFC VERIFICABLE TEXT "
                     "SEND ERROR]",
                     repr(send_exc),
                     flush=True,
                 )
-        
+
                 raise
-        
+
             try:
                 # Marcar ENTREGA antes de contabilizar. Si PostgreSQL falla
                 # después del envío, el retry repara contabilidad sin reenviar.
@@ -3591,7 +3591,7 @@ def process_group_request_job(job_data: dict):
                         item_key=delivery_item_key,
                     )
                 )
-        
+
                 if (
                     success_recorded
                     and bool(
@@ -3605,11 +3605,11 @@ def process_group_request_job(job_data: dict):
                         job_data,
                         count=1,
                     )
-        
+
                 mark_delivery_accounted(
                     delivery_done_key
                 )
-        
+
                 if (
                     verifiable_request_key
                 ):
@@ -3618,13 +3618,13 @@ def process_group_request_job(job_data: dict):
                             job_data
                         )
                     )
-        
+
                     if not completion_marked:
                         raise RuntimeError(
                             "RFC_VERIFICABLE_"
                             "COMPLETED_24H_MARK_FAILED"
                         )
-        
+
                     finish_pending(
                         verifiable_request_key,
                         provider_message_id=(
@@ -3634,7 +3634,7 @@ def process_group_request_job(job_data: dict):
                             or ""
                         ),
                     )
-        
+
                     print(
                         "[RFC VERIFICABLE TEXT "
                         "PENDING FINISHED]",
@@ -3647,9 +3647,9 @@ def process_group_request_job(job_data: dict):
                         },
                         flush=True,
                     )
-        
+
                 return
-        
+
             except Exception as accounting_exc:
                 print(
                     "[RFC VERIFICABLE TEXT "
@@ -3665,7 +3665,7 @@ def process_group_request_job(job_data: dict):
                     },
                     flush=True,
                 )
-        
+
                 raise
 
         if mode == "batch_zip":
@@ -3694,7 +3694,7 @@ def process_group_request_job(job_data: dict):
                 f"BATCH_ZIP:"
                 f"{query or original_text or file_name}"
             )
-            
+
             (
                 claimed,
                 delivery_lock_key,
@@ -3703,7 +3703,7 @@ def process_group_request_job(job_data: dict):
                 job_data=job_data,
                 item_key=delivery_item_key,
             )
-            
+
             if not claimed:
                 print(
                     "[RFC BATCH ZIP DUPLICATE SUPPRESSED]",
@@ -3711,7 +3711,7 @@ def process_group_request_job(job_data: dict):
                     flush=True,
                 )
                 return
-            
+
             try:
                 evolution_send_media_to_group(
                     group_jid=group_jid,
@@ -3719,7 +3719,7 @@ def process_group_request_job(job_data: dict):
                     file_name=file_name,
                     instance_name=instance_name,
                 )
-            
+
             except requests.Timeout as media_err:
                 print(
                     "[RFC PDF TIMEOUT]",
@@ -3732,22 +3732,22 @@ def process_group_request_job(job_data: dict):
                     },
                     flush=True,
                 )
-            
+
                 release_delivery_claim(
                     delivery_lock_key
                 )
-            
+
                 if is_verifiable:
                     fallback_rfc = (
                         job_data.get("provider_rfc")
                         or ""
                     ).strip().upper()
-            
+
                     fallback_idcif = (
                         job_data.get("provider_idcif")
                         or ""
                     ).strip()
-            
+
                     if fallback_rfc and fallback_idcif:
                         try:
                             evolution_send_text_to_group(
@@ -3766,7 +3766,7 @@ def process_group_request_job(job_data: dict):
                                 ),
                                 instance_name=instance_name,
                             )
-            
+
                             print(
                                 "[RFC VERIFICABLE PDF TIMEOUT "
                                 "TEXT FALLBACK SENT]",
@@ -3780,7 +3780,7 @@ def process_group_request_job(job_data: dict):
                             )
 
                             verifiable_pdf_text_fallback_sent = True
-            
+
                         except Exception as fallback_send_exc:
                             print(
                                 "[RFC VERIFICABLE PDF TIMEOUT "
@@ -3788,22 +3788,22 @@ def process_group_request_job(job_data: dict):
                                 repr(fallback_send_exc),
                                 flush=True,
                             )
-            
+
                             raise
-            
+
                 raise
-            
+
             except Exception as media_err:
                 print(
                     "[RFC BATCH ZIP SEND ERROR]",
                     repr(media_err),
                     flush=True,
                 )
-            
+
                 release_delivery_claim(
                     delivery_lock_key
                 )
-            
+
                 evolution_send_text_to_group(
                     group_jid,
                     _job_client_message(
@@ -3819,7 +3819,7 @@ def process_group_request_job(job_data: dict):
                     ),
                     instance_name=instance_name,
                 )
-            
+
                 return
 
             try:
@@ -3843,7 +3843,7 @@ def process_group_request_job(job_data: dict):
                     )
 
                 success_recorded = False
-            
+
                 if ok_count > 0:
                     success_recorded = (
                         record_success_once(
@@ -3855,7 +3855,7 @@ def process_group_request_job(job_data: dict):
                             item_key=delivery_item_key,
                         )
                     )
-            
+
                 if (
                     success_recorded
                     and bool(
@@ -3869,7 +3869,7 @@ def process_group_request_job(job_data: dict):
                         job_data,
                         count=1,
                     )
-            
+
                 if ok_count > 0:
                     mark_delivery_accounted(
                         delivery_done_key
@@ -3885,13 +3885,13 @@ def process_group_request_job(job_data: dict):
                             job_data
                         )
                     )
-                    
+
                     if not completion_marked:
                         raise RuntimeError(
                             "RFC_VERIFIABLE_"
                             "COMPLETED_24H_MARK_FAILED"
                         )
-                    
+
                     finish_pending(
                         verifiable_request_key,
                         provider_message_id=(
@@ -3901,7 +3901,7 @@ def process_group_request_job(job_data: dict):
                             or ""
                         ),
                     )
-                
+
                     print(
                         "[RFC VERIFIABLE PENDING FINISHED]",
                         {
@@ -3913,7 +3913,7 @@ def process_group_request_job(job_data: dict):
                         },
                         flush=True,
                     )
-            
+
             except Exception as accounting_exc:
                 print(
                     "[RFC BATCH ZIP ACCOUNTING ERROR]",
@@ -3927,9 +3927,9 @@ def process_group_request_job(job_data: dict):
                     },
                     flush=True,
                 )
-            
+
                 raise
-            
+
             return
 
         if mode == "batch_multi":
@@ -3952,7 +3952,7 @@ def process_group_request_job(job_data: dict):
                         or file_name
                         or pdf_url
                     )
-                
+
                     (
                         claimed,
                         delivery_lock_key,
@@ -3962,20 +3962,20 @@ def process_group_request_job(job_data: dict):
                         item_key=item_key,
                         repair_verifiable_after_done=False,
                     )
-                
+
                     if not claimed:
                         if redis_stats.exists(
                             delivery_done_key
                         ):
                             batch_had_done_delivery = True
-                    
+
                         print(
                             "[RFC BATCH ITEM DUPLICATE SUPPRESSED]",
                             item_key,
                             flush=True,
                         )
                         continue
-                
+
                     try:
                         evolution_send_media_to_group(
                             group_jid=group_jid,
@@ -3983,7 +3983,7 @@ def process_group_request_job(job_data: dict):
                             file_name=file_name,
                             instance_name=instance_name,
                         )
-                    
+
                     except requests.Timeout as media_err:
                         print(
                             "[RFC BATCH ITEM TIMEOUT - RETRY]",
@@ -3991,24 +3991,24 @@ def process_group_request_job(job_data: dict):
                             delivery_lock_key,
                             flush=True,
                         )
-                    
+
                         release_delivery_claim(
                             delivery_lock_key
                         )
-                    
+
                         raise
-                    
+
                     except Exception as media_err:
                         print(
                             "[RFC BATCH ITEM SEND ERROR]",
                             repr(media_err),
                             flush=True,
                         )
-                    
+
                         release_delivery_claim(
                             delivery_lock_key
                         )
-                    
+
                         evolution_send_text_to_group(
                             group_jid,
                             _job_client_message(
@@ -4030,7 +4030,7 @@ def process_group_request_job(job_data: dict):
                         ),
                             instance_name=instance_name,
                         )
-                    
+
                         continue
 
                     try:
@@ -4058,13 +4058,13 @@ def process_group_request_job(job_data: dict):
 
                         if success_recorded:
                             provider_success_count += 1
-                    
+
                         mark_delivery_accounted(
                             delivery_done_key
                         )
 
                         delivered_success_count += 1
-                    
+
                     except Exception as accounting_exc:
                         print(
                             "[RFC BATCH ITEM ACCOUNTING ERROR]",
@@ -4076,9 +4076,9 @@ def process_group_request_job(job_data: dict):
                             },
                             flush=True,
                         )
-                    
+
                         raise
-                
+
                 else:
                     print(
                         "[RFC BATCH ITEM CLIENT ERROR HIDDEN]",
@@ -4120,7 +4120,7 @@ def process_group_request_job(job_data: dict):
                     job_data,
                     count=provider_success_count,
                 )
-            
+
             if (
                 (
                     delivered_success_count > 0
@@ -4134,13 +4134,13 @@ def process_group_request_job(job_data: dict):
                         job_data
                     )
                 )
-                
+
                 if not completion_marked:
                     raise RuntimeError(
                         "RFC_VERIFIABLE_"
                         "COMPLETED_24H_MARK_FAILED"
                     )
-                
+
                 finish_pending(
                     verifiable_request_key,
                     provider_message_id=(
@@ -4150,7 +4150,7 @@ def process_group_request_job(job_data: dict):
                         or ""
                     ),
                 )
-            
+
                 print(
                     "[RFC VERIFIABLE PENDING FINISHED]",
                     {
@@ -4167,7 +4167,7 @@ def process_group_request_job(job_data: dict):
                     },
                     flush=True,
                 )
-                
+
             return
 
         pdf_url = (result.get("pdf_url") or "").strip()
@@ -4195,7 +4195,7 @@ def process_group_request_job(job_data: dict):
             or file_name
             or pdf_url
         )
-        
+
         (
             claimed,
             delivery_lock_key,
@@ -4204,7 +4204,7 @@ def process_group_request_job(job_data: dict):
             job_data=job_data,
             item_key=delivery_item_key,
         )
-        
+
         if not claimed:
             print(
                 "[RFC PDF DUPLICATE SUPPRESSED]",
@@ -4220,15 +4220,15 @@ def process_group_request_job(job_data: dict):
             time.time()
             - request_started_at_epoch,
         )
-        
+
         time_caption = (
             "⏱️ Tiempo total: "
             + _format_total_time(
                 elapsed_seconds
             )
         )
-        
-        
+
+
         try:
             evolution_send_media_to_group(
                 group_jid=group_jid,
@@ -4688,19 +4688,19 @@ def process_group_request_job(job_data: dict):
                 )
                 or ""
             ).strip().upper()
-        
+
             corrected_rfc = (
                 job_data.get("provider_rfc")
                 or ""
             ).strip().upper()
-        
+
             match_method = (
                 job_data.get(
                     "provider_match_method"
                 )
                 or ""
             ).strip()
-        
+
             try:
                 evolution_send_text_to_group(
                     group_jid,
@@ -4719,7 +4719,7 @@ def process_group_request_job(job_data: dict):
                     ),
                     instance_name=instance_name,
                 )
-        
+
                 print(
                     "RFC_VERIFIABLE_IDENTIFIER_"
                     "CORRECTION_NOTIFIED =",
@@ -4737,7 +4737,7 @@ def process_group_request_job(job_data: dict):
                     },
                     flush=True,
                 )
-        
+
             except Exception as correction_exc:
                 print(
                     "RFC_VERIFIABLE_IDENTIFIER_"
@@ -4789,7 +4789,7 @@ def process_group_request_job(job_data: dict):
                     job_data,
                     count=1,
                 )
-        
+
             if (
                 success_recorded
                 and is_verifiable
@@ -4800,11 +4800,11 @@ def process_group_request_job(job_data: dict):
                     job_data=job_data,
                     error_code=verifiable_warning_code,
                 )
-        
+
             mark_delivery_accounted(
                 delivery_done_key
             )
-        
+
             # Una vez entregado y contabilizado correctamente,
             # elimina definitivamente el pendiente verificable.
             if (
@@ -4816,13 +4816,13 @@ def process_group_request_job(job_data: dict):
                         job_data
                     )
                 )
-            
+
                 if not completion_marked:
                     raise RuntimeError(
                         "RFC_VERIFIABLE_"
                         "COMPLETED_24H_MARK_FAILED"
                     )
-            
+
                 finish_pending(
                     verifiable_request_key,
                     provider_message_id=(
@@ -4832,7 +4832,7 @@ def process_group_request_job(job_data: dict):
                         or ""
                     ),
                 )
-            
+
                 print(
                     "[RFC VERIFIABLE PENDING FINISHED]",
                     {
@@ -4848,7 +4848,7 @@ def process_group_request_job(job_data: dict):
                     },
                     flush=True,
                 )
-        
+
         except Exception as accounting_exc:
             print(
                 "[RFC DELIVERY ACCOUNTING ERROR]",
@@ -4861,7 +4861,7 @@ def process_group_request_job(job_data: dict):
                 },
                 flush=True,
             )
-        
+
             # No enviar al cliente un mensaje falso
             # diciendo que el archivo no se adjuntó.
             raise
@@ -5478,19 +5478,19 @@ def process_group_request_job(job_data: dict):
                     },
                     flush=True,
                 )
-        
+
             else:
                 try:
                     release_provider_result_claim(
                         verifiable_request_key
                     )
-        
+
                     print(
                         "[RFC VERIFIABLE RESULT CLAIM RELEASED]",
                         verifiable_request_key,
                         flush=True,
                     )
-        
+
                 except Exception as claim_release_exc:
                     print(
                         "[RFC VERIFIABLE RESULT CLAIM "
@@ -5498,29 +5498,75 @@ def process_group_request_job(job_data: dict):
                         repr(claim_release_exc),
                         flush=True,
                     )
-                
+
 def process_rfc_batch_child_job(
     child_payload: dict,
 ):
     """
     Ejecuta un hijo de un mensaje multilínea
     fuera del webhook HTTP.
+
+    DOCIFY_BATCH_RQ_RETRY_WRAPPER_V1
     """
 
     import asyncio
+    import os
 
     from app.rfc_webhook import (
         _RFCBatchSyntheticRequest,
         evolution_rfc_webhook,
     )
 
-    return asyncio.run(
+    result = asyncio.run(
         evolution_rfc_webhook(
             _RFCBatchSyntheticRequest(
                 child_payload
             )
         )
     )
+
+    if (
+        isinstance(result, dict)
+        and result.get("error")
+        == (
+            "verifiable_provider_"
+            "transient_unavailable"
+        )
+    ):
+        print(
+            "RFC_BATCH_CHILD_TRANSIENT_"
+            "PROVIDER_RETRY =",
+            {
+                "pid": os.getpid(),
+                "forced_code": (
+                    result.get(
+                        "forced_code"
+                    )
+                    or ""
+                ),
+                "retries_left": (
+                    result.get(
+                        "retries_left"
+                    )
+                    or 0
+                ),
+            },
+            flush=True,
+        )
+
+        raise RuntimeError(
+            "RFC_BATCH_CHILD_TRANSIENT_"
+            "PROVIDER_UNAVAILABLE:"
+            + str(
+                result.get(
+                    "forced_code"
+                )
+                or ""
+            )
+        )
+
+    return result
+
 
 def evolution_get_media_base64(message_id: str, instance_name=None):
     instance_name = (instance_name or EVOLUTION_INSTANCE).strip()
@@ -6739,31 +6785,31 @@ def _rfc_final_check_global(
                     instance_name,
                     is_blocked,
                     is_active,
-            
+
                     COALESCE(clon_limit, 0)
                         AS clon_limit,
-            
+
                     COALESCE(clon_used, 0)
                         AS clon_used,
-            
+
                     COALESCE(idcif_limit, 0)
                         AS idcif_limit,
-            
+
                     COALESCE(idcif_used, 0)
                         AS idcif_used,
-            
+
                     COALESCE(verifiable_enabled, FALSE)
                         AS verifiable_enabled,
 
                     COALESCE(verifiable_limit, 0)
                         AS verifiable_limit,
-            
+
                     COALESCE(verifiable_used, 0)
                         AS verifiable_used,
-            
+
                     COALESCE(sale_price_verifiable, 0)
                         AS sale_price_verifiable
-            
+
                 FROM bot_control
                 WHERE instance_name = :instance_name
                 LIMIT 1
@@ -7094,12 +7140,12 @@ def _rfc_final_check_global(
                     bot.get("verifiable_limit")
                     or 0
                 )
-                
+
                 verifiable_used = int(
                     bot.get("verifiable_used")
                     or 0
                 )
-                
+
                 if (
                     verifiable_limit > 0
                     and verifiable_used
@@ -7117,7 +7163,7 @@ def _rfc_final_check_global(
                         ),
                         instance_name=instance_name,
                     )
-                
+
                     return False
 
                 group_promo = conn.execute(
@@ -7128,38 +7174,38 @@ def _rfc_final_check_global(
                                 verifiable_total,
                                 0
                             ) AS verifiable_total,
-                
+
                             COALESCE(
                                 verifiable_used,
                                 0
                             ) AS verifiable_used,
-                
+
                             COALESCE(
                                 shared_group_limit_verifiable,
                                 0
                             ) AS shared_limit_verifiable,
-                
+
                             COALESCE(
                                 shared_group_used_verifiable,
                                 0
                             ) AS shared_used_verifiable,
-                
+
                             COALESCE(
                                 shared_key,
                                 ''
                             ) AS shared_key,
-                
+
                             is_active
-                
+
                         FROM group_promotions
-                
+
                         WHERE group_jid = :group_jid
                           AND is_active = TRUE
-                
+
                         ORDER BY
                             updated_at DESC NULLS LAST,
                             id DESC
-                
+
                         LIMIT 1
                     """),
                     {
@@ -7174,7 +7220,7 @@ def _rfc_final_check_global(
                         )
                         or 0
                     )
-                
+
                     group_used = int(
                         group_promo.get(
                             "verifiable_used"
@@ -7195,7 +7241,7 @@ def _rfc_final_check_global(
                         ),
                             instance_name=instance_name,
                         )
-                    
+
                         print(
                             "[RFC_VERIFICABLE_GROUP_NOT_ASSIGNED]",
                             {
@@ -7205,9 +7251,9 @@ def _rfc_final_check_global(
                             },
                             flush=True,
                         )
-                    
+
                         return False
-                
+
                     if group_used >= group_total:
                         _rfc_safe_limit_notice(
                             group_jid,
@@ -7221,7 +7267,7 @@ def _rfc_final_check_global(
                         ),
                             instance_name=instance_name,
                         )
-                
+
                         print(
                             "[RFC_VERIFICABLE_GROUP_LIMIT_REACHED]",
                             {
@@ -7233,23 +7279,23 @@ def _rfc_final_check_global(
                             },
                             flush=True,
                         )
-                
+
                         return False
-                
+
                     shared_limit = int(
                         group_promo.get(
                             "shared_limit_verifiable"
                         )
                         or 0
                     )
-                
+
                     shared_used = int(
                         group_promo.get(
                             "shared_used_verifiable"
                         )
                         or 0
                     )
-                
+
                     if (
                         shared_limit > 0
                         and shared_used >= shared_limit
@@ -7266,7 +7312,7 @@ def _rfc_final_check_global(
                         ),
                             instance_name=instance_name,
                         )
-                
+
                         print(
                             "[RFC_VERIFICABLE_SHARED_GROUP_LIMIT_REACHED]",
                             {
@@ -7278,7 +7324,7 @@ def _rfc_final_check_global(
                             },
                             flush=True,
                         )
-                
+
                         return False
 
                 print(
@@ -7412,7 +7458,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                 raise RuntimeError(
                     "RFC_ACCOUNTING_KEY_EMPTY"
                 )
-            
+
             accounting_result = conn.execute(
                 text("""
                     INSERT INTO rfc_delivery_accounting (
@@ -7453,7 +7499,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                         count,
                 },
             )
-            
+
             if accounting_result.rowcount == 0:
                 print(
                     "[RFC_COMMERCIAL_DUPLICATE_IGNORED]",
@@ -7469,7 +7515,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                     },
                     flush=True,
                 )
-            
+
                 return False
 
             if family == "CLON":
@@ -7583,38 +7629,38 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                                 shared_key,
                                 ''
                             ) AS shared_key,
-                
+
                             COALESCE(
                                 verifiable_total,
                                 0
                             ) AS verifiable_total,
-                
+
                             COALESCE(
                                 verifiable_used,
                                 0
                             ) AS verifiable_used,
-                
+
                             COALESCE(
                                 shared_group_limit_verifiable,
                                 0
                             ) AS shared_limit_verifiable,
-                
+
                             COALESCE(
                                 shared_group_used_verifiable,
                                 0
                             ) AS shared_used_verifiable
-                
+
                         FROM group_promotions
-                
+
                         WHERE group_jid = :group_jid
                           AND is_active = TRUE
-                
+
                         ORDER BY
                             updated_at DESC NULLS LAST,
                             id DESC
-                
+
                         LIMIT 1
-                
+
                         FOR UPDATE
                     """),
                     {
@@ -7644,22 +7690,22 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                 bot_result = conn.execute(
                     text("""
                         UPDATE bot_control
-                
+
                         SET
                             verifiable_used =
                                 COALESCE(
                                     verifiable_used,
                                     0
                                 ) + :count,
-                
+
                             used =
                                 COALESCE(
                                     used,
                                     0
                                 ) + :count,
-                
+
                             updated_at = now()
-                
+
                         WHERE instance_name =
                             :instance_name
                     """),
@@ -7669,7 +7715,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                             instance_name,
                     },
                 )
-                
+
                 if bot_result.rowcount != 1:
                     raise RuntimeError(
                         "RFC_VERIFICABLE_BOT_CONSUME_FAILED"
@@ -7679,14 +7725,14 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                     promo_result = conn.execute(
                         text("""
                             UPDATE group_promotions
-                
+
                             SET
                                 verifiable_used =
                                     COALESCE(
                                         verifiable_used,
                                         0
                                     ) + :count,
-                
+
                                 used_actas =
                                     COALESCE(
                                         clon_used,
@@ -7701,12 +7747,12 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                                         0
                                     )
                                     + :count,
-                
+
                                 updated_at = now()
-                
+
                             WHERE group_jid = :group_jid
                               AND is_active = TRUE
-                
+
                               AND COALESCE(
                                     verifiable_used,
                                     0
@@ -7721,7 +7767,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                             "group_jid": group_jid,
                         },
                     )
-                
+
                     if (
                         promo_requires_consumption
                         and promo_result.rowcount != 1
@@ -7740,26 +7786,26 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                                     verifiable_total,
                                     0
                                 ) AS verifiable_total,
-                
+
                                 COALESCE(
                                     verifiable_used,
                                     0
                                 ) AS verifiable_used
-                
+
                             FROM group_promotions
-                
+
                             WHERE shared_key = :shared_key
                               AND is_active = TRUE
-                
+
                             ORDER BY id
-                
+
                             FOR UPDATE
                         """),
                         {
                             "shared_key": shared_key,
                         },
                     ).mappings().all()
-                
+
                     if not shared_rows:
                         raise RuntimeError(
                             "RFC_VERIFICABLE_SHARED_PROMO_NOT_FOUND"
@@ -7774,7 +7820,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                         )
                         for row in shared_rows
                     }
-                    
+
                     shared_used_values = {
                         int(
                             row.get(
@@ -7784,36 +7830,36 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                         )
                         for row in shared_rows
                     }
-                    
+
                     if len(shared_totals) != 1:
                         raise RuntimeError(
                             "RFC_VERIFICABLE_SHARED_TOTAL_MISMATCH"
                         )
-                    
+
                     if len(shared_used_values) != 1:
                         raise RuntimeError(
                             "RFC_VERIFICABLE_SHARED_USED_MISMATCH"
                         )
-                
+
                     shared_total = int(
                         shared_rows[0].get(
                             "verifiable_total"
                         )
                         or 0
                     )
-                
+
                     shared_used = int(
                         shared_rows[0].get(
                             "verifiable_used"
                         )
                         or 0
                     )
-                
+
                     if shared_total <= 0:
                         raise RuntimeError(
                             "RFC_VERIFICABLE_SHARED_PROMO_NOT_ASSIGNED"
                         )
-                
+
                     if (
                         shared_used + count
                         > shared_total
@@ -7821,18 +7867,18 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                         raise RuntimeError(
                             "RFC_VERIFICABLE_SHARED_PROMO_EXHAUSTED"
                         )
-                
+
                     shared_result = conn.execute(
                         text("""
                             UPDATE group_promotions
-                
+
                             SET
                                 verifiable_used =
                                     COALESCE(
                                         verifiable_used,
                                         0
                                     ) + :count,
-                
+
                                 used_actas =
                                     COALESCE(
                                         clon_used,
@@ -7847,9 +7893,9 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                                         0
                                     )
                                     + :count,
-                
+
                                 updated_at = now()
-                
+
                             WHERE shared_key = :shared_key
                               AND is_active = TRUE
                         """),
@@ -7858,7 +7904,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                             "shared_key": shared_key,
                         },
                     )
-                
+
                     if (
                         shared_result.rowcount
                         != len(shared_rows)
@@ -7866,30 +7912,30 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                         raise RuntimeError(
                             "RFC_VERIFICABLE_SHARED_SYNC_FAILED"
                         )
-                
+
                     group_result = conn.execute(
                         text("""
                             UPDATE group_promotions
-                
+
                             SET
                                 shared_group_used_verifiable =
                                     COALESCE(
                                         shared_group_used_verifiable,
                                         0
                                     ) + :count,
-                
+
                                 updated_at = now()
-                
+
                             WHERE group_jid = :group_jid
                               AND shared_key = :shared_key
                               AND is_active = TRUE
-                
+
                               AND (
                                   COALESCE(
                                       shared_group_limit_verifiable,
                                       0
                                   ) = 0
-                
+
                                   OR COALESCE(
                                       shared_group_used_verifiable,
                                       0
@@ -7906,7 +7952,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                             "shared_key": shared_key,
                         },
                     )
-                
+
                     if group_result.rowcount != 1:
                         raise RuntimeError(
                             "RFC_VERIFICABLE_SHARED_GROUP_CONSUME_FAILED"
@@ -7922,7 +7968,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
                     },
                     flush=True,
                 )
-            
+
                 print(
                     "[RFC_VERIFICABLE_USED_INC]",
                     {
@@ -7972,7 +8018,7 @@ def _rfc_final_after_success_global(job_data: dict, group_jid: str, group_name: 
             },
             flush=True,
         )
-    
+
         raise
 
 
@@ -8185,7 +8231,7 @@ def _rfc_plan_deduct_success(
         accounting_key=accounting_key,
         item_key=item_key,
     )
-    
+
 
 def _rfc_commercial_after_success(
     job_data: dict,
