@@ -250,6 +250,7 @@ def _verifiable_provider_input_mode(
         "VERIF2",
         "VERIF3",
         "VERIF4",
+        "VERIF5",
     }:
         return (
             VERIFIABLE_PROVIDER_INPUT_MODE_ORIGINAL
@@ -300,6 +301,7 @@ def _set_verifiable_provider_input_mode(
         "VERIF2",
         "VERIF3",
         "VERIF4",
+        "VERIF5",
     }:
         raise ValueError(
             "Proveedor verificable inválido"
@@ -331,6 +333,7 @@ BOT_VERIFIABLE_PROVIDER_OPTIONS = {
     "VERIF1": "LUPITA EXPRES",
     "VERIF3": "ROMA EXPRES",
     "VERIF4": "ROBERTO LENTO",
+    "VERIF5": "ISAAC",
 }
 
 
@@ -390,6 +393,15 @@ def _set_bot_verifiable_provider_code(
         "AUTOMÁTICO",
     }:
         code = ""
+
+
+    if (
+        code == "VERIF5"
+        and inst != "docifybot8mx"
+    ):
+        raise ValueError(
+            "ISAAC solo está disponible para DOCIFY MX"
+        )
 
     if code not in BOT_VERIFIABLE_PROVIDER_OPTIONS:
         raise ValueError(
@@ -2844,6 +2856,106 @@ def botpanel_audit_all_groups(
         .all()
     )
 
+
+    # ==========================================================
+    # RFC VERIFICABLE POR PROVEEDOR
+    # ROBERTO = VERIF4
+    # ISAAC   = VERIF5
+    # ==========================================================
+
+    audit_provider_stats_by_key = {}
+
+    audit_request_keys = [
+        str(
+            getattr(r, "request_key", "")
+            or ""
+        ).strip()
+        for r in rows
+        if str(
+            getattr(r, "request_key", "")
+            or ""
+        ).strip()
+    ]
+
+    if audit_request_keys:
+        stat_rows = (
+            db.query(
+                VerifiableProviderStat.request_key,
+                VerifiableProviderStat.provider_db_name,
+                VerifiableProviderStat.provider_name,
+            )
+            .filter(
+                VerifiableProviderStat.request_key.in_(
+                    audit_request_keys
+                )
+            )
+            .all()
+        )
+
+        for stat_row in stat_rows:
+            rk = str(
+                stat_row.request_key
+                or ""
+            ).strip()
+
+            audit_provider_stats_by_key[rk] = (
+                str(
+                    stat_row.provider_db_name
+                    or ""
+                ).strip().upper(),
+                str(
+                    stat_row.provider_name
+                    or ""
+                ).strip().upper(),
+            )
+
+    def _audit_verifiable_provider_code(row):
+        request_key = str(
+            getattr(
+                row,
+                "request_key",
+                "",
+            )
+            or ""
+        ).strip()
+
+        request_provider = str(
+            getattr(
+                row,
+                "provider_name",
+                "",
+            )
+            or ""
+        ).strip().upper()
+
+        stat_db_name, stat_name = (
+            audit_provider_stats_by_key.get(
+                request_key,
+                ("", ""),
+            )
+        )
+
+        provider_text = " ".join([
+            request_provider,
+            stat_db_name,
+            stat_name,
+        ])
+
+        if (
+            "VERIF5" in provider_text
+            or "ISAAC" in provider_text
+        ):
+            return "VERIF5"
+
+        if (
+            "VERIF4" in provider_text
+            or "ROBERTO" in provider_text
+        ):
+            return "VERIF4"
+
+        return "UNKNOWN"
+
+
     totals = {
         "total": len(rows),
         "done": sum(1 for r in rows if r.status == "DONE"),
@@ -2884,6 +2996,41 @@ def botpanel_audit_all_groups(
         ),
     }
 
+
+    done_verif4 = sum(
+        1
+        for r in rows
+        if r.status == "DONE"
+        and _rfc_request_family(
+            getattr(r, "act_type", "")
+        ) == "VERIFICABLE"
+        and _audit_verifiable_provider_code(r)
+        == "VERIF4"
+    )
+
+    done_verif5 = sum(
+        1
+        for r in rows
+        if r.status == "DONE"
+        and _rfc_request_family(
+            getattr(r, "act_type", "")
+        ) == "VERIFICABLE"
+        and _audit_verifiable_provider_code(r)
+        == "VERIF5"
+    )
+
+    done_verif_unknown = sum(
+        1
+        for r in rows
+        if r.status == "DONE"
+        and _rfc_request_family(
+            getattr(r, "act_type", "")
+        ) == "VERIFICABLE"
+        and _audit_verifiable_provider_code(r)
+        == "UNKNOWN"
+    )
+
+
     # ==========================================================
     # CORTE DIARIO + CORTE SEMANAL
     # Aplica al filtro actual:
@@ -2915,6 +3062,9 @@ def botpanel_audit_all_groups(
                 "done_idcif": 0,
                 "verificable": 0,
                 "done_verificable": 0,
+                "done_verif4": 0,
+                "done_verif5": 0,
+                "done_verif_unknown": 0,
             }
 
             current_day = current_day + timedelta(days=1)
@@ -2939,6 +3089,9 @@ def botpanel_audit_all_groups(
                 "done_idcif": 0,
                 "verificable": 0,
                 "done_verificable": 0,
+                "done_verif4": 0,
+                "done_verif5": 0,
+                "done_verif_unknown": 0,
             }
 
         item = daily_cut_map[day_key]
@@ -2963,6 +3116,13 @@ def botpanel_audit_all_groups(
                 item["done_idcif"] += 1
             elif family == "VERIFICABLE":
                 item["done_verificable"] += 1
+                provider_code = _audit_verifiable_provider_code(r)
+                if provider_code == "VERIF4":
+                    item["done_verif4"] += 1
+                elif provider_code == "VERIF5":
+                    item["done_verif5"] += 1
+                else:
+                    item["done_verif_unknown"] += 1
 
     daily_cut_rows = sorted(
         daily_cut_map.values(),
@@ -2991,6 +3151,9 @@ def botpanel_audit_all_groups(
                 "done_clon": 0,
                 "done_idcif": 0,
                 "done_verificable": 0,
+                "done_verif4": 0,
+                "done_verif5": 0,
+                "done_verif_unknown": 0,
             }
 
         item = by_group[gid]
@@ -3016,6 +3179,13 @@ def botpanel_audit_all_groups(
                 item["done_idcif"] += 1
             elif family == "VERIFICABLE":
                 item["done_verificable"] += 1
+                provider_code = _audit_verifiable_provider_code(r)
+                if provider_code == "VERIF4":
+                    item["done_verif4"] += 1
+                elif provider_code == "VERIF5":
+                    item["done_verif5"] += 1
+                else:
+                    item["done_verif_unknown"] += 1
 
     group_rows = list(by_group.values())
     group_rows.sort(key=lambda x: (-x["total"], x["group_name"] or ""))
@@ -3198,6 +3368,18 @@ def botpanel_audit_all_groups(
               <span>RFC verificable</span>
               <strong>{totals["done_verificable"]}</strong>
             </div>
+            <div class="stat">
+              <span>Roberto lento</span>
+              <strong>{done_verif4}</strong>
+            </div>
+            <div class="stat">
+              <span>Isaac</span>
+              <strong>{done_verif5}</strong>
+            </div>
+            <div class="stat">
+              <span>Sin identificar</span>
+              <strong>{done_verif_unknown}</strong>
+            </div>
           </div>
         </div>
     """
@@ -3218,6 +3400,9 @@ def botpanel_audit_all_groups(
                 <th>CLON</th>
                 <th>IDCIF</th>
                 <th>RFC verificable</th>
+                <th>Roberto</th>
+                <th>Isaac</th>
+                <th>Sin identificar</th>
               </tr>
             </thead>
             <tbody>
@@ -3229,6 +3414,9 @@ def botpanel_audit_all_groups(
         weekly_clon = 0
         weekly_idcif = 0
         weekly_verificable = 0
+        weekly_verif4 = 0
+        weekly_verif5 = 0
+        weekly_verif_unknown = 0
         weekly_start = None
 
         for idx, d in enumerate(daily_cut_rows):
@@ -3240,6 +3428,9 @@ def botpanel_audit_all_groups(
             weekly_clon += int(d["done_clon"] or 0)
             weekly_idcif += int(d["done_idcif"] or 0)
             weekly_verificable += int(d["done_verificable"] or 0)
+            weekly_verif4 += int(d["done_verif4"] or 0)
+            weekly_verif5 += int(d["done_verif5"] or 0)
+            weekly_verif_unknown += int(d["done_verif_unknown"] or 0)
 
             html += f"""
               <tr>
@@ -3249,6 +3440,9 @@ def botpanel_audit_all_groups(
                 <td>{int(d["done_clon"] or 0)}</td>
                 <td>{int(d["done_idcif"] or 0)}</td>
                 <td>{int(d["done_verificable"] or 0)}</td>
+                <td>{int(d["done_verif4"] or 0)}</td>
+                <td>{int(d["done_verif5"] or 0)}</td>
+                <td>{int(d["done_verif_unknown"] or 0)}</td>
               </tr>
             """
 
@@ -3264,6 +3458,9 @@ def botpanel_audit_all_groups(
                     <td>{weekly_clon}</td>
                     <td>{weekly_idcif}</td>
                     <td>{weekly_verificable}</td>
+                    <td>{weekly_verif4}</td>
+                    <td>{weekly_verif5}</td>
+                    <td>{weekly_verif_unknown}</td>
                   </tr>
                 """
 
@@ -3272,11 +3469,14 @@ def botpanel_audit_all_groups(
                 weekly_clon = 0
                 weekly_idcif = 0
                 weekly_verificable = 0
+        weekly_verif4 = 0
+        weekly_verif5 = 0
+        weekly_verif_unknown = 0
                 weekly_start = None
     else:
         html += """
               <tr>
-                <td colspan="6">Sin movimientos en este periodo.</td>
+                <td colspan="9">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -3296,6 +3496,9 @@ def botpanel_audit_all_groups(
                 <th>CLON</th>
                 <th>IDCIF</th>
                 <th>RFC verificable</th>
+                <th>Roberto</th>
+                <th>Isaac</th>
+                <th>Sin identificar</th>
               </tr>
             </thead>
             <tbody>
@@ -3313,12 +3516,15 @@ def botpanel_audit_all_groups(
                 <td>{g["done_clon"]}</td>
                 <td>{g["done_idcif"]}</td>
                 <td>{g["done_verificable"]}</td>
+                <td>{g["done_verif4"]}</td>
+                <td>{g["done_verif5"]}</td>
+                <td>{g["done_verif_unknown"]}</td>
               </tr>
             """
     else:
         html += """
               <tr>
-                <td colspan="5">Sin movimientos en este periodo.</td>
+                <td colspan="8">Sin movimientos en este periodo.</td>
               </tr>
         """
 
@@ -11965,6 +12171,7 @@ def panel_verifiable_provider_input_mode(
         "VERIF2",
         "VERIF3",
         "VERIF4",
+        "VERIF5",
     }:
         return {
             "ok": False,
@@ -20558,6 +20765,7 @@ def panel_set_group_verifiable_provider(
         "VERIF2",
         "VERIF3",
         "VERIF4",
+        "VERIF5",
     }
 
     if provider_code not in allowed_codes:

@@ -648,6 +648,7 @@ def _verifiable_provider_uses_rfc_converter(
         "VERIF2",
         "VERIF3",
         "VERIF4",
+        "VERIF5",
     }:
         return False
 
@@ -2867,7 +2868,15 @@ def _verifiable_provider_code_for_instance(
         "VERIF2",
         "VERIF3",
         "VERIF4",
+        "VERIF5",
     }:
+        return ""
+
+
+    if (
+        code == "VERIF5"
+        and inst != "docifybot8mx"
+    ):
         return ""
 
     return code
@@ -3008,6 +3017,7 @@ def _choose_verifiable_provider_for_group(
         "VERIF2",
         "VERIF3",
         "VERIF4",
+        "VERIF5",
     }
 
     if forced_code not in allowed_codes:
