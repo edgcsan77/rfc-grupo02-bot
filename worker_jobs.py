@@ -5274,6 +5274,204 @@ def process_group_request_job(job_data: dict):
                     instance_name=instance_name,
                 )
 
+            # ==========================================
+            # RFC_VERIF4_ACCEPT_PROVIDER_RESULT_V1
+            #
+            # REGLA ROBERTO / VERIF4:
+            # si el proveedor ya entregó RFC + IDCIF,
+            # esos datos se entregan y contabilizan aunque
+            # la validación posterior del SAT reporte:
+            # sin CIF, sin régimen, suspendido, cancelado,
+            # inactivo o datos fiscales incompletos.
+            # ==========================================
+            elif (
+                is_verifiable
+                and (
+                    str(
+                        job_data.get(
+                            "verifiable_provider_db_name"
+                        )
+                        or ""
+                    ).strip().upper()
+                    == "RFC_VERIFIABLE_VERIF4"
+                    or str(
+                        job_data.get(
+                            "verifiable_provider_code"
+                        )
+                        or ""
+                    ).strip().upper()
+                    == "VERIF4"
+                    or str(
+                        job_data.get(
+                            "verifiable_provider_name"
+                        )
+                        or ""
+                    ).strip().upper()
+                    == "ID ROBERTO LENTO"
+                )
+                and str(
+                    job_data.get("provider_rfc")
+                    or ""
+                ).strip()
+                and str(
+                    job_data.get("provider_idcif")
+                    or ""
+                ).strip()
+                and err_code in {
+                    "SIN_DATOS_SAT",
+                    "SAT_CIF_NOT_ISSUED",
+                    "SAT_NO_ACTIVE_REGIME",
+                    "SAT_STATUS_SUSPENDED",
+                    "CLIENT_RFC_CANCELLED",
+                    "CLIENT_RFC_SUSPENDED",
+                    "CLIENT_RFC_INACTIVE",
+                    "CLIENT_RFC_CP_EMPTY",
+                    "CLIENT_RFC_REGIME_EMPTY",
+                    "CLIENT_RFC_CP_AND_REGIME_EMPTY",
+                }
+            ):
+                delivered_rfc = str(
+                    job_data.get("provider_rfc")
+                    or ""
+                ).strip().upper()
+
+                delivered_idcif = str(
+                    job_data.get("provider_idcif")
+                    or ""
+                ).strip()
+
+                delivery_item_key = (
+                    "VERIFICABLE_PROVIDER_ACCEPTED:"
+                    f"{delivered_rfc}:"
+                    f"{delivered_idcif}"
+                )
+
+                (
+                    delivery_claimed,
+                    delivery_lock_key,
+                    delivery_done_key,
+                ) = claim_delivery_once(
+                    job_data,
+                    item_key=delivery_item_key,
+                    repair_verifiable_after_done=True,
+                )
+
+                if not delivery_claimed:
+                    print(
+                        "[RFC VERIF4 RESULT ALREADY DELIVERED]",
+                        {
+                            "request_key":
+                                verifiable_request_key,
+                            "rfc": delivered_rfc,
+                            "idcif": delivered_idcif,
+                        },
+                        flush=True,
+                    )
+                    return
+
+                try:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        _job_client_message(
+                            job_data,
+                            title=(
+                                "✅ RFC verificable localizado"
+                            ),
+                            requester_label=(
+                                requester_label
+                            ),
+                            body=(
+                                f"_RFC localizado_: "
+                                f"*{delivered_rfc}*\n"
+                                f"_IDCIF_: "
+                                f"*{delivered_idcif}*"
+                            ),
+                        ),
+                        instance_name=instance_name,
+                    )
+
+                    verifiable_pdf_text_fallback_sent = True
+
+                    success_recorded = (
+                        record_success_once(
+                            job_data,
+                            group_jid,
+                            group_name,
+                            kind="RFC_VERIFICABLE",
+                            count=1,
+                            item_key=delivery_item_key,
+                        )
+                    )
+
+                    if (
+                        success_recorded
+                        and bool(
+                            job_data.get(
+                                "verifiable_count_provider_success",
+                                True,
+                            )
+                        )
+                    ):
+                        record_verifiable_provider_success(
+                            job_data,
+                            count=1,
+                        )
+
+                    mark_delivery_done(
+                        delivery_lock_key,
+                        delivery_done_key,
+                    )
+
+                    completion_marked = (
+                        mark_verifiable_completed_24h(
+                            job_data
+                        )
+                    )
+
+                    if not completion_marked:
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_"
+                            "COMPLETED_24H_MARK_FAILED"
+                        )
+
+                    from app.verifiable_flow import (
+                        finish_pending
+                        as _finish_pending_verif4
+                    )
+
+                    _finish_pending_verif4(
+                        verifiable_request_key,
+                        provider_message_id=(
+                            job_data.get(
+                                "provider_request_msg_id"
+                            )
+                            or ""
+                        ),
+                    )
+
+                    print(
+                        "[RFC VERIF4 PROVIDER RESULT ACCEPTED]",
+                        {
+                            "request_key":
+                                verifiable_request_key,
+                            "rfc": delivered_rfc,
+                            "idcif": delivered_idcif,
+                            "sat_error_ignored":
+                                err_code,
+                            "success_recorded":
+                                success_recorded,
+                        },
+                        flush=True,
+                    )
+
+                    return
+
+                except Exception:
+                    release_delivery_claim(
+                        delivery_lock_key
+                    )
+                    raise
+
             elif err_code in {
                 "SIN_DATOS_SAT",
                 "SAT_CIF_NOT_ISSUED",
