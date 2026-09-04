@@ -5777,12 +5777,37 @@ def _save_rfc_panel_request_log(job_data: dict, result: dict | None = None, stat
                 "source_group_id": group_jid,
                 "instance_name": str(instance_name or "")[:50],
                 "evolution_message_id": str(msg_id or "")[:120],
+                # RFC_REQUEST_LOG_VERIFIABLE_PROVIDER_V2
+                #
+                # Para verificables guardar el proveedor
+                # REAL que atendió la solicitud.
+                #
+                # Así el historial puede separar:
+                # VERIF4 / Roberto
+                # VERIF5 / Isaac
                 "provider_name": (
-                    "RFC_VERIFICABLE"
+                    (
+                        job_data.get(
+                            "verifiable_provider_name"
+                        )
+                        or job_data.get(
+                            "verifiable_provider_db_name"
+                        )
+                        or "RFC_VERIFICABLE"
+                    )
                     if act_type == "RFC_VERIFICABLE"
                     else "RFC"
                 ),
-                "provider_group_id": "RFC",
+                "provider_group_id": (
+                    (
+                        job_data.get(
+                            "verifiable_provider_group"
+                        )
+                        or "RFC"
+                    )
+                    if act_type == "RFC_VERIFICABLE"
+                    else "RFC"
+                ),
                 "provider_message": original_text,
                 "pdf_url": pdf_url,
                 "pdf_filename": pdf_filename,

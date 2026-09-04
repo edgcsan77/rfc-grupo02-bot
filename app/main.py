@@ -12415,8 +12415,18 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
         }
 
         try {
+          // DOCIFY_VERIFIABLE_SELECTOR_URL_V2
+          //
+          // Tomar el token directamente de la URL real
+          // del mini panel. Evita que {_esc(token)}
+          // llegue literalmente al navegador.
+          const panelBase = (
+            window.location.pathname
+            .replace(/\/$/, "")
+          );
+
           const res = await fetch(
-            "/botpanel/{_esc(token)}"
+            panelBase
             + "/docify-verifiable-provider/"
             + encodeURIComponent(code),
             {
