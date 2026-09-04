@@ -3469,9 +3469,9 @@ def botpanel_audit_all_groups(
                 weekly_clon = 0
                 weekly_idcif = 0
                 weekly_verificable = 0
-        weekly_verif4 = 0
-        weekly_verif5 = 0
-        weekly_verif_unknown = 0
+                weekly_verif4 = 0
+                weekly_verif5 = 0
+                weekly_verif_unknown = 0
                 weekly_start = None
     else:
         html += """
@@ -20765,7 +20765,6 @@ def panel_set_group_verifiable_provider(
         "VERIF2",
         "VERIF3",
         "VERIF4",
-        "VERIF5",
     }
 
     if provider_code not in allowed_codes:

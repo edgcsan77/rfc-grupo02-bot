@@ -2989,6 +2989,25 @@ def _choose_verifiable_provider_for_group(
                 "BOT_FORCED"
             )
 
+    # VERIF5 / ISAAC es exclusivo de docifybot8mx.
+    if (
+        forced_code == "VERIF5"
+        and instance_name != "docifybot8mx"
+    ):
+        print(
+            "RFC_VERIFIABLE_VERIF5_ISOLATION_BLOCK =",
+            {
+                "instance": instance_name,
+                "group_jid": group_jid,
+                "forced_code": forced_code,
+                "selection_mode": selection_mode,
+            },
+            flush=True,
+        )
+
+        forced_code = ""
+        selection_mode = "AUTO"
+
     # ==================================================
     # 3. SIN CONFIGURACIÓN MANUAL = AUTOMÁTICO
     # ==================================================
