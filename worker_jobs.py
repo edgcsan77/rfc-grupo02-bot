@@ -3127,10 +3127,28 @@ def process_group_request_job(job_data: dict):
             # no esperar a Aspose durante la contingencia.
             if (
                 is_verifiable
-                and str(instance_name or "").strip().lower()
-                    == "docifybot8mx"
+                # RFC_VERIF4_ASPOSE_BYPASS_ALL_CLIENTS_V1
+                # Roberto puede responder solicitudes de distintos
+                # bots cliente. El bypass depende del PROVEEDOR,
+                # no del instance_name del cliente.
+                and (
+                    str(
+                        job_data.get(
+                            "verifiable_provider_db_name"
+                        )
+                        or ""
+                    ).strip().upper()
+                    == "RFC_VERIFIABLE_VERIF4"
+                    or str(
+                        job_data.get(
+                            "verifiable_provider_name"
+                        )
+                        or ""
+                    ).strip().upper()
+                    == "ID ROBERTO LENTO"
+                )
                 and os.getenv(
-                    "RFC_DOCIFY_ASPOSE_BYPASS",
+                    "RFC_VERIF4_ASPOSE_BYPASS",
                     "0",
                 ).strip() == "1"
                 and str(
