@@ -2820,6 +2820,14 @@ def botpanel_audit_all_groups(
         == "docifybot8mx"
     )
 
+    # DOCIFY_PROVIDER_AUDIT_ONLY_FINAL_V1
+    # Roberto / Isaac / Sin identificar son exclusivos
+    # del audit de docifybot8mx.
+    show_docify_provider_audit = (
+        _norm_instance(instance_name)
+        == "docifybot8mx"
+    )
+
     period_view = period or "day"
     time_min, time_max, view = _panel_period_bounds(period_view)
 
@@ -3414,9 +3422,9 @@ def botpanel_audit_all_groups(
                 <th>CLON</th>
                 <th>IDCIF</th>
                 <th>RFC verificable</th>
-                <th>Roberto</th>
-                <th>Isaac</th>
-                <th>Sin identificar</th>
+                <th class="docify-provider-col">Roberto</th>
+                <th class="docify-provider-col">Isaac</th>
+                <th class="docify-provider-col">Sin identificar</th>
               </tr>
             </thead>
             <tbody>
@@ -3454,9 +3462,9 @@ def botpanel_audit_all_groups(
                 <td>{int(d["done_clon"] or 0)}</td>
                 <td>{int(d["done_idcif"] or 0)}</td>
                 <td>{int(d["done_verificable"] or 0)}</td>
-                <td>{int(d["done_verif4"] or 0)}</td>
-                <td>{int(d["done_verif5"] or 0)}</td>
-                <td>{int(d["done_verif_unknown"] or 0)}</td>
+                <td class="docify-provider-col">{int(d["done_verif4"] or 0)}</td>
+                <td class="docify-provider-col">{int(d["done_verif5"] or 0)}</td>
+                <td class="docify-provider-col">{int(d["done_verif_unknown"] or 0)}</td>
               </tr>
             """
 
@@ -3472,9 +3480,9 @@ def botpanel_audit_all_groups(
                     <td>{weekly_clon}</td>
                     <td>{weekly_idcif}</td>
                     <td>{weekly_verificable}</td>
-                    <td>{weekly_verif4}</td>
-                    <td>{weekly_verif5}</td>
-                    <td>{weekly_verif_unknown}</td>
+                    <td class="docify-provider-col">{weekly_verif4}</td>
+                    <td class="docify-provider-col">{weekly_verif5}</td>
+                    <td class="docify-provider-col">{weekly_verif_unknown}</td>
                   </tr>
                 """
 
@@ -3510,9 +3518,9 @@ def botpanel_audit_all_groups(
                 <th>CLON</th>
                 <th>IDCIF</th>
                 <th>RFC verificable</th>
-                <th>Roberto</th>
-                <th>Isaac</th>
-                <th>Sin identificar</th>
+                <th class="docify-provider-col">Roberto</th>
+                <th class="docify-provider-col">Isaac</th>
+                <th class="docify-provider-col">Sin identificar</th>
               </tr>
             </thead>
             <tbody>
@@ -3530,9 +3538,9 @@ def botpanel_audit_all_groups(
                 <td>{g["done_clon"]}</td>
                 <td>{g["done_idcif"]}</td>
                 <td>{g["done_verificable"]}</td>
-                <td>{g["done_verif4"]}</td>
-                <td>{g["done_verif5"]}</td>
-                <td>{g["done_verif_unknown"]}</td>
+                <td class="docify-provider-col">{g["done_verif4"]}</td>
+                <td class="docify-provider-col">{g["done_verif5"]}</td>
+                <td class="docify-provider-col">{g["done_verif_unknown"]}</td>
               </tr>
             """
     else:
@@ -3686,6 +3694,24 @@ def botpanel_audit_all_groups(
             "</head>",
             hide_docify_provider_css
             + "</head>",
+            1,
+        )
+
+    # DOCIFY_PROVIDER_AUDIT_HIDE_FINAL_V1
+    # Los demás mini paneles conservan el audit original.
+    if not show_docify_provider_audit:
+        docify_private_css = """
+        <style>
+          .docify-provider-stat,
+          .docify-provider-col {
+            display: none !important;
+          }
+        </style>
+        """
+
+        html = html.replace(
+            "</head>",
+            docify_private_css + "</head>",
             1,
         )
 
