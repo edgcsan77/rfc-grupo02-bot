@@ -3119,6 +3119,52 @@ def process_group_request_job(job_data: dict):
             print("[WORKER QUERY RAW]", repr(query), flush=True)
             print("[WORKER QUERY LINES]", (query or "").splitlines(), flush=True)
 
+            # DOCIFY_VERIFICABLE_ASPOSE_BYPASS_V1
+            # Solo DOCIFY MX verificable.
+            # Si ya tenemos RFC + IDCIF de Roberto,
+            # no esperar a Aspose durante la contingencia.
+            if (
+                is_verifiable
+                and str(instance_name or "").strip().lower()
+                    == "docifybot8mx"
+                and os.getenv(
+                    "RFC_DOCIFY_ASPOSE_BYPASS",
+                    "0",
+                ).strip() == "1"
+                and str(
+                    job_data.get("provider_rfc") or ""
+                ).strip()
+                and str(
+                    job_data.get("provider_idcif") or ""
+                ).strip()
+            ):
+                fake_response = requests.Response()
+                fake_response.status_code = 500
+                fake_response._content = (
+                    b'{"error":"ASPOSE_PDF_CONVERT_FAIL:'
+                    b'DOCIFY_EMERGENCY_BYPASS"}'
+                )
+                fake_response.url = (
+                    BOT_INTERNAL_URL
+                    + "/internal/generate-pdf"
+                )
+
+                print(
+                    "[DOCIFY VERIFICABLE ASPOSE BYPASS]",
+                    {
+                        "rfc":
+                            job_data.get("provider_rfc"),
+                        "idcif":
+                            job_data.get("provider_idcif"),
+                    },
+                    flush=True,
+                )
+
+                raise requests.HTTPError(
+                    "DOCIFY ASPOSE BYPASS",
+                    response=fake_response,
+                )
+
             result = call_bot_internal_text(
                 requester_number=requester_number,
                 requester_name=requester_name,
