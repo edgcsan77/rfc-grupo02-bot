@@ -10517,6 +10517,83 @@ def maya_provider_mode_ui(db: Session = Depends(get_db)):
     return botpanel_provider_mode_ui("as5613f4se", db)
 
 
+
+@app.post(
+    "/botpanel/{token}/verifiable-provider/{provider_code}"
+)
+def botpanel_set_verifiable_provider(
+    token: str,
+    provider_code: str,
+    db: Session = Depends(get_db),
+):
+    instance_name = _bot_instance_from_token(
+        db,
+        token,
+    )
+
+    if not instance_name:
+        return {
+            "ok": False,
+            "error": "Panel no válido",
+        }
+
+    instance_name = _norm_instance(
+        instance_name
+    )
+
+    # Este selector es EXCLUSIVO de DOCIFY MX.
+    if instance_name != "docifybot8mx":
+        return {
+            "ok": False,
+            "error": (
+                "Este selector solo está "
+                "disponible para DOCIFY MX"
+            ),
+        }
+
+    code = str(
+        provider_code or ""
+    ).strip().upper()
+
+    if code not in {
+        "VERIF4",
+        "VERIF5",
+    }:
+        return {
+            "ok": False,
+            "error": "Proveedor no permitido",
+        }
+
+    try:
+        _set_bot_verifiable_provider_code(
+            db,
+            instance_name,
+            code,
+        )
+
+        _clear_panel_cache()
+
+        return {
+            "ok": True,
+            "instance_name": instance_name,
+            "provider_code": code,
+            "provider_label": (
+                BOT_VERIFIABLE_PROVIDER_OPTIONS.get(
+                    code,
+                    code,
+                )
+            ),
+        }
+
+    except Exception as exc:
+        db.rollback()
+
+        return {
+            "ok": False,
+            "error": str(exc),
+        }
+
+
 @app.get("/botpanel/{token}")
 def panel_bot(token: str, db: Session = Depends(get_db)):
     instance_name = _bot_instance_from_token(db, token)
@@ -10611,6 +10688,138 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
     else:
         bot_status_label = "PRENDIDO"
         bot_status_badge = '<span class="badge badge-success">BOT PRENDIDO</span>'
+
+
+    # ========================================================
+    # RFC VERIFICABLE - SELECTOR EXCLUSIVO DOCIFYBOT8MX
+    # ========================================================
+
+    verifiable_provider_code = (
+        _bot_verifiable_provider_code(
+            db,
+            instance_name,
+        )
+    )
+
+    verifiable_provider_box_html = ""
+
+    if (
+        _norm_instance(instance_name)
+        == "docifybot8mx"
+    ):
+        if verifiable_provider_code == "VERIF5":
+            active_provider_label = "ISAAC"
+        elif verifiable_provider_code == "VERIF4":
+            active_provider_label = "ROBERTO LENTO"
+        else:
+            active_provider_label = "AUTOMÁTICO"
+
+        roberto_style = (
+            "background:#166534;"
+            "color:white;"
+            "border:2px solid #166534;"
+            if verifiable_provider_code == "VERIF4"
+            else
+            "background:#f8fafc;"
+            "color:#111827;"
+            "border:1px solid #cbd5e1;"
+        )
+
+        isaac_style = (
+            "background:#2563eb;"
+            "color:white;"
+            "border:2px solid #2563eb;"
+            if verifiable_provider_code == "VERIF5"
+            else
+            "background:#f8fafc;"
+            "color:#111827;"
+            "border:1px solid #cbd5e1;"
+        )
+
+        verifiable_provider_box_html = f"""
+        <div class="box">
+          <div class="head">
+            <strong>
+              Proveedor RFC verificable
+            </strong>
+
+            <span class="small">
+              Selecciona a qué proveedor se enviarán
+              las nuevas solicitudes verificables.
+            </span>
+          </div>
+
+          <div
+            style="
+              padding:16px;
+              display:flex;
+              gap:12px;
+              flex-wrap:wrap;
+              align-items:center;
+            "
+          >
+            <div
+              style="
+                margin-right:10px;
+                font-size:14px;
+              "
+            >
+              Proveedor activo:
+              <strong>
+                {active_provider_label}
+              </strong>
+            </div>
+
+            <button
+              type="button"
+              class="btn"
+              style="{roberto_style}"
+              onclick="
+                fetch(
+                  '/botpanel/{_esc(token)}/verifiable-provider/VERIF4',
+                  {{method:'POST'}}
+                )
+                .then(r => r.json())
+                .then(d => {{
+                  if (d.ok) {{
+                    location.reload();
+                  }} else {{
+                    alert(d.error || 'Error');
+                  }}
+                }})
+              "
+            >
+              ROBERTO LENTO
+            </button>
+
+            <button
+              type="button"
+              class="btn"
+              style="{isaac_style}"
+              onclick="
+                fetch(
+                  '/botpanel/{_esc(token)}/verifiable-provider/VERIF5',
+                  {{method:'POST'}}
+                )
+                .then(r => r.json())
+                .then(d => {{
+                  if (d.ok) {{
+                    location.reload();
+                  }} else {{
+                    alert(d.error || 'Error');
+                  }}
+                }})
+              "
+            >
+              ISAAC
+            </button>
+
+            <span class="small">
+              VERIF4 = Roberto · VERIF5 = Isaac
+            </span>
+          </div>
+        </div>
+        """
 
     html = f"""
     <html>
@@ -10920,6 +11129,8 @@ def panel_bot(token: str, db: Session = Depends(get_db)):
             }
           </div>
         </div>
+
+        {verifiable_provider_box_html}
 
         <div class="box">
           <div class="head">
