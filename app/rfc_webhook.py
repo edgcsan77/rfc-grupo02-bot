@@ -3500,11 +3500,45 @@ def _queue_verifiable_pair_for_pending(
         f"{provider_job_message_id}"
     )
 
+
+    # ======================================================
+    # RFC_VERIFIABLE_VERIF4_PRIORITY_FRONT_V1
+    #
+    # Los resultados completos entregados por Roberto
+    # tienen prioridad sobre trabajos normales de la cola.
+    #
+    # SOLO VERIF4. No afecta Isaac ni otros proveedores.
+    # ======================================================
+    verif4_priority_front = (
+        str(
+            job_data.get(
+                "verifiable_provider_code"
+            )
+            or ""
+        ).strip().upper()
+        == "VERIF4"
+        or str(
+            job_data.get(
+                "verifiable_provider_db_name"
+            )
+            or ""
+        ).strip().upper()
+        == "RFC_VERIFIABLE_VERIF4"
+        or str(
+            job_data.get(
+                "verifiable_provider_name"
+            )
+            or ""
+        ).strip().upper()
+        == "ID ROBERTO LENTO"
+    )
+
     try:
         request_queue.enqueue(
             "worker_jobs."
             "process_group_request_job",
             job_data,
+            at_front=verif4_priority_front,
             job_id=final_rq_job_id,
             job_timeout=900,
             result_ttl=86400,
@@ -3533,6 +3567,7 @@ def _queue_verifiable_pair_for_pending(
             "matched_by": matched_by,
             "fanout_index": fanout_index,
             "corrected": correction_detected,
+            "priority_front": verif4_priority_front,
         },
         flush=True,
     )
