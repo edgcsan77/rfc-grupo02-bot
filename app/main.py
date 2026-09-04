@@ -333,7 +333,6 @@ BOT_VERIFIABLE_PROVIDER_OPTIONS = {
     "VERIF1": "LUPITA EXPRES",
     "VERIF3": "ROMA EXPRES",
     "VERIF4": "ROBERTO LENTO",
-    "VERIF5": "ISAAC",
 }
 
 
@@ -361,6 +360,12 @@ def _bot_verifiable_provider_code(
         code
         or ""
     ).strip().upper()
+
+    if (
+        code == "VERIF5"
+        and inst == "docifybot8mx"
+    ):
+        return "VERIF5"
 
     if code not in BOT_VERIFIABLE_PROVIDER_OPTIONS:
         return ""
@@ -395,15 +400,13 @@ def _set_bot_verifiable_provider_code(
         code = ""
 
 
-    if (
-        code == "VERIF5"
-        and inst != "docifybot8mx"
-    ):
-        raise ValueError(
-            "ISAAC solo está disponible para DOCIFY MX"
-        )
+    if code == "VERIF5":
+        if inst != "docifybot8mx":
+            raise ValueError(
+                "ISAAC solo está disponible para DOCIFY MX"
+            )
 
-    if code not in BOT_VERIFIABLE_PROVIDER_OPTIONS:
+    elif code not in BOT_VERIFIABLE_PROVIDER_OPTIONS:
         raise ValueError(
             "Proveedor verificable inválido"
         )

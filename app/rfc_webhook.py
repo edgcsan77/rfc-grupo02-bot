@@ -3100,8 +3100,18 @@ def _choose_verifiable_provider_for_group(
 
     # Si está seleccionado manualmente,
     # DE TODAS FORMAS debe estar encendido.
-    if not selected.get(
-        "enabled"
+    allow_docify_private_forced = (
+        instance_name == "docifybot8mx"
+        and selection_mode == "BOT_FORCED"
+        and forced_code in {
+            "VERIF4",
+            "VERIF5",
+        }
+    )
+
+    if (
+        not selected.get("enabled")
+        and not allow_docify_private_forced
     ):
         print(
             "RFC_VERIFIABLE_FORCED_PROVIDER_DISABLED =",
