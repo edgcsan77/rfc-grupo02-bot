@@ -4920,6 +4920,178 @@ def process_group_request_job(job_data: dict):
         )
 
         # ==========================================
+        # RFC_VERIFIABLE_ASPOSE_HTTP_FALLBACK_V1
+        #
+        # Si RFC+IDCIF ya fueron entregados por el
+        # proveedor, una caída de Aspose NO debe
+        # impedir entrega ni contabilización.
+        # ==========================================
+        if (
+            is_verifiable
+            and "ASPOSE_PDF_CONVERT_FAIL"
+                in resp_text.upper()
+        ):
+            fallback_rfc = str(
+                job_data.get("provider_rfc")
+                or ""
+            ).strip().upper()
+
+            fallback_idcif = str(
+                job_data.get("provider_idcif")
+                or ""
+            ).strip()
+
+            if fallback_rfc and fallback_idcif:
+                delivery_item_key = (
+                    "VERIFICABLE_ASPOSE_TEXT:"
+                    f"{fallback_rfc}:"
+                    f"{fallback_idcif}"
+                )
+
+                (
+                    claimed,
+                    delivery_lock_key,
+                    delivery_done_key,
+                ) = claim_delivery_once(
+                    job_data=job_data,
+                    item_key=delivery_item_key,
+                )
+
+                if not claimed:
+                    print(
+                        "[RFC VERIFICABLE ASPOSE "
+                        "TEXT DUPLICATE SUPPRESSED]",
+                        {
+                            "rfc": fallback_rfc,
+                            "idcif": fallback_idcif,
+                        },
+                        flush=True,
+                    )
+                    return
+
+                try:
+                    evolution_send_text_to_group(
+                        group_jid,
+                        _job_client_message(
+                            job_data,
+                            title=(
+                                "⚠️ Problema temporal "
+                                "al generar la constancia"
+                            ),
+                            requester_label=(
+                                requester_label
+                            ),
+                            body=(
+                                "El RFC e IDCIF fueron "
+                                "localizados correctamente, "
+                                "pero no fue posible generar "
+                                "el PDF en este momento."
+                            ),
+                            result_mode=True,
+                            result_rfc=fallback_rfc,
+                            result_idcif=fallback_idcif,
+                        ),
+                        instance_name=instance_name,
+                    )
+
+                    print(
+                        "[RFC VERIFICABLE ASPOSE "
+                        "TEXT FALLBACK SENT]",
+                        {
+                            "request_key":
+                                job_data.get(
+                                    "verifiable_request_key"
+                                ),
+                            "rfc": fallback_rfc,
+                            "idcif": fallback_idcif,
+                        },
+                        flush=True,
+                    )
+
+                except Exception:
+                    release_delivery_claim(
+                        delivery_lock_key
+                    )
+                    raise
+
+                success_recorded = (
+                    record_success_once(
+                        job_data=job_data,
+                        group_jid=group_jid,
+                        group_name=group_name,
+                        kind="RFC_VERIFICABLE",
+                        count=1,
+                        item_key=delivery_item_key,
+                    )
+                )
+
+                if (
+                    success_recorded
+                    and bool(
+                        job_data.get(
+                            "verifiable_count_provider_success",
+                            True,
+                        )
+                    )
+                ):
+                    record_verifiable_provider_success(
+                        job_data,
+                        count=1,
+                    )
+
+                mark_delivery_done(
+                    delivery_lock_key,
+                    delivery_done_key,
+                )
+
+                verifiable_key = str(
+                    job_data.get(
+                        "verifiable_request_key"
+                    )
+                    or job_data.get("request_key")
+                    or ""
+                ).strip()
+
+                if verifiable_key:
+                    completion_marked = (
+                        mark_verifiable_completed_24h(
+                            job_data
+                        )
+                    )
+
+                    if not completion_marked:
+                        raise RuntimeError(
+                            "RFC_VERIFICABLE_"
+                            "COMPLETED_24H_MARK_FAILED"
+                        )
+
+                    finish_pending(
+                        verifiable_key,
+                        provider_message_id=(
+                            job_data.get(
+                                "provider_request_msg_id"
+                            )
+                            or ""
+                        ),
+                    )
+
+                print(
+                    "[RFC VERIFICABLE ASPOSE "
+                    "TEXT FALLBACK COMPLETED]",
+                    {
+                        "request_key":
+                            verifiable_key,
+                        "rfc": fallback_rfc,
+                        "idcif": fallback_idcif,
+                        "success_recorded":
+                            success_recorded,
+                    },
+                    flush=True,
+                )
+
+                return
+
+        # ==========================================
         # ERROR HTTP TRANSITORIO:
         # mientras queden retries, no avisar todavía
         # al cliente. RQ debe reintentar.
