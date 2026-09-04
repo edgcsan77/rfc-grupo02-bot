@@ -5777,14 +5777,15 @@ def _save_rfc_panel_request_log(job_data: dict, result: dict | None = None, stat
                 "source_group_id": group_jid,
                 "instance_name": str(instance_name or "")[:50],
                 "evolution_message_id": str(msg_id or "")[:120],
-                # RFC_REQUEST_LOG_VERIFIABLE_PROVIDER_V2
+                # RFC_REQUEST_LOG_VERIFIABLE_PROVIDER_V3
                 #
-                # Para verificables guardar el proveedor
-                # REAL que atendió la solicitud.
+                # El detalle Roberto / Isaac es EXCLUSIVO
+                # de DOCIFY MX (docifybot8mx).
                 #
-                # Así el historial puede separar:
-                # VERIF4 / Roberto
-                # VERIF5 / Isaac
+                # Todos los demás bots conservan exactamente
+                # el formato histórico:
+                # provider_name=RFC_VERIFICABLE
+                # provider_group_id=RFC
                 "provider_name": (
                     (
                         job_data.get(
@@ -5795,8 +5796,18 @@ def _save_rfc_panel_request_log(job_data: dict, result: dict | None = None, stat
                         )
                         or "RFC_VERIFICABLE"
                     )
-                    if act_type == "RFC_VERIFICABLE"
-                    else "RFC"
+                    if (
+                        act_type == "RFC_VERIFICABLE"
+                        and str(
+                            instance_name or ""
+                        ).strip().lower()
+                        == "docifybot8mx"
+                    )
+                    else (
+                        "RFC_VERIFICABLE"
+                        if act_type == "RFC_VERIFICABLE"
+                        else "RFC"
+                    )
                 ),
                 "provider_group_id": (
                     (
@@ -5805,7 +5816,13 @@ def _save_rfc_panel_request_log(job_data: dict, result: dict | None = None, stat
                         )
                         or "RFC"
                     )
-                    if act_type == "RFC_VERIFICABLE"
+                    if (
+                        act_type == "RFC_VERIFICABLE"
+                        and str(
+                            instance_name or ""
+                        ).strip().lower()
+                        == "docifybot8mx"
+                    )
                     else "RFC"
                 ),
                 "provider_message": original_text,

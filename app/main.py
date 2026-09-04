@@ -2812,6 +2812,14 @@ def botpanel_audit_all_groups(
     if not instance_name:
         return HTMLResponse("<h3>Panel no válido.</h3>", status_code=404)
 
+    # DOCIFY_PROVIDER_AUDIT_ONLY_V1
+    # Roberto / Isaac / Sin identificar son métricas
+    # privadas EXCLUSIVAS del mini panel DOCIFY MX.
+    show_docify_provider_audit = (
+        _norm_instance(instance_name)
+        == "docifybot8mx"
+    )
+
     period_view = period or "day"
     time_min, time_max, view = _panel_period_bounds(period_view)
 
@@ -2880,7 +2888,10 @@ def botpanel_audit_all_groups(
         ).strip()
     ]
 
-    if audit_request_keys:
+    if (
+        show_docify_provider_audit
+        and audit_request_keys
+    ):
         stat_rows = (
             db.query(
                 VerifiableProviderStat.request_key,
@@ -3371,15 +3382,15 @@ def botpanel_audit_all_groups(
               <span>RFC verificable</span>
               <strong>{totals["done_verificable"]}</strong>
             </div>
-            <div class="stat">
+            <div class="stat docify-provider-stat">
               <span>Roberto lento</span>
               <strong>{done_verif4}</strong>
             </div>
-            <div class="stat">
+            <div class="stat docify-provider-stat">
               <span>Isaac</span>
               <strong>{done_verif5}</strong>
             </div>
-            <div class="stat">
+            <div class="stat docify-provider-stat">
               <span>Sin identificar</span>
               <strong>{done_verif_unknown}</strong>
             </div>
@@ -3388,7 +3399,7 @@ def botpanel_audit_all_groups(
     """
 
     html += """
-        <div class="box">
+        <div class="box docify-audit-cut">
           <h3>Corte diario y semanal</h3>
           <p class="small">
             Suma diaria del periodo seleccionado y corte automático de lunes a domingo.
@@ -3488,7 +3499,7 @@ def botpanel_audit_all_groups(
           </table>
         </div>
 
-        <div class="box">
+        <div class="box docify-audit-groups">
           <h3>Resumen por grupo</h3>
 
           <table>
@@ -3643,6 +3654,40 @@ def botpanel_audit_all_groups(
     </body>
     </html>
     """
+
+    # DOCIFY_PROVIDER_AUDIT_HIDE_CSS_V1
+    #
+    # Otros mini paneles conservan su audit original:
+    # 4 cards normales y sin columnas Roberto/Isaac.
+    if not show_docify_provider_audit:
+        hide_docify_provider_css = """
+        <style>
+          .docify-provider-stat {
+            display: none !important;
+          }
+
+          .docify-audit-cut
+          th:nth-child(n+7),
+          .docify-audit-cut
+          td:nth-child(n+7) {
+            display: none !important;
+          }
+
+          .docify-audit-groups
+          th:nth-child(n+6),
+          .docify-audit-groups
+          td:nth-child(n+6) {
+            display: none !important;
+          }
+        </style>
+        """
+
+        html = html.replace(
+            "</head>",
+            hide_docify_provider_css
+            + "</head>",
+            1,
+        )
 
     return HTMLResponse(content=html)
 
