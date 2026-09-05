@@ -1,0 +1,10 @@
+[Unit]
+Description=RFC Evolution webhook watchdog
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/rfc-grupo02-bot
+ExecStart=/opt/rfc-grupo02-bot/venv/bin/python /opt/rfc-grupo02-bot/scripts/evolution_rfc_watchdog.py
+User=root
