@@ -772,68 +772,99 @@ def _curp_to_moffin_rfc_cached(
             flush=True,
         )
 
-    try:
-        datos_curp = (
-            consultar_curp_nuevo_leon(
-                curp
+    # RFC_VERIFIABLE_CURP_RESILIENT_LOOKUP_V1
+    #
+    # Nuevo León es rápido pero puede devolver 500/timeout
+    # de forma transitoria. Hacemos un segundo intento corto
+    # antes de caer a gob.mx.
+    #
+    # Si gob.mx también falla, después de ese tiempo hacemos
+    # un último intento de rescate en Nuevo León.
+    #
+    # NL_CURP_NOT_FOUND y NL_CURP_MISMATCH NO se tratan como
+    # fallos técnicos.
+    import time as _verifiable_retry_time
+
+    datos_curp = {}
+    nl_error_text = ""
+
+    for nl_attempt in (1, 2):
+        try:
+            datos_curp = (
+                consultar_curp_nuevo_leon(
+                    curp,
+                    timeout_s=8,
+                )
+                or {}
             )
-            or {}
-        )
 
-        print(
-            "[VERIFIABLE_NL_CURP_OK]",
-            {
-                "curp": curp,
-            },
-            flush=True,
-        )
+            print(
+                "[VERIFIABLE_NL_CURP_OK]",
+                {
+                    "curp": curp,
+                    "attempt": nl_attempt,
+                },
+                flush=True,
+            )
 
-    except Exception as nl_error:
-        nl_error_text = str(
-            nl_error
-            or ""
-        ).strip()
+            break
 
-        print(
-            "[VERIFIABLE_NL_CURP_FAIL]",
-            {
-                "curp": curp,
-                "error": repr(nl_error),
-            },
-            flush=True,
-        )
+        except Exception as nl_error:
+            nl_error_text = str(
+                nl_error or ""
+            ).strip()
 
-        # ==========================================
-        # CURP CONFIRMADA COMO NO LOCALIZADA
-        # ==========================================
-        #
-        # Nuevo León respondió expresamente que
-        # la CURP no existe en su base.
-        #
-        # NO intentar gob.mx.
-        # NO intentar Moffin.
-        # ==========================================
-        if (
-            "NL_CURP_NOT_FOUND"
-            in nl_error_text
-        ):
-            raise RuntimeError(
-                "VERIFIABLE_CURP_NOT_FOUND:"
-                f"{curp}"
-            ) from nl_error
+            print(
+                "[VERIFIABLE_NL_CURP_FAIL]",
+                {
+                    "curp": curp,
+                    "attempt": nl_attempt,
+                    "error": repr(nl_error),
+                },
+                flush=True,
+            )
 
-        # ==========================================
-        # FALLO TÉCNICO DE NUEVO LEÓN
-        # ==========================================
-        #
-        # Ejemplos:
-        # - HTTP 500
-        # - HTTP 503
-        # - timeout
-        # - error de red
-        #
-        # En esos casos SÍ intentamos gob.mx.
-        # ==========================================
+            # Respuesta definitiva: CURP inexistente.
+            if (
+                "NL_CURP_NOT_FOUND"
+                in nl_error_text
+            ):
+                raise RuntimeError(
+                    "VERIFIABLE_CURP_NOT_FOUND:"
+                    f"{curp}"
+                ) from nl_error
+
+            # Nuevo León devolvió OTRA CURP.
+            # No usar datos de otra persona.
+            if (
+                "NL_CURP_MISMATCH:"
+                in nl_error_text
+            ):
+                raise RuntimeError(
+                    "VERIFIABLE_CURP_MISMATCH:"
+                    f"{nl_error_text}"
+                ) from nl_error
+
+            if nl_attempt < 2:
+                print(
+                    "[VERIFIABLE_NL_CURP_RETRY]",
+                    {
+                        "curp": curp,
+                        "next_attempt": (
+                            nl_attempt + 1
+                        ),
+                        "wait_s": 1.0,
+                    },
+                    flush=True,
+                )
+
+                _verifiable_retry_time.sleep(
+                    1.0
+                )
+
+    # Si los dos intentos NL fallaron técnicamente,
+    # probamos gob.mx.
+    if not datos_curp:
         try:
             datos_curp = (
                 consultar_curp_bot(
@@ -846,9 +877,7 @@ def _curp_to_moffin_rfc_cached(
                 "[VERIFIABLE_GOB_CURP_FALLBACK_OK]",
                 {
                     "curp": curp,
-                    "nl_error": (
-                        nl_error_text
-                    ),
+                    "nl_error": nl_error_text,
                 },
                 flush=True,
             )
@@ -858,9 +887,7 @@ def _curp_to_moffin_rfc_cached(
                 "[VERIFIABLE_GOB_CURP_FALLBACK_FAIL]",
                 {
                     "curp": curp,
-                    "nl_error": (
-                        nl_error_text
-                    ),
+                    "nl_error": nl_error_text,
                     "gob_error": repr(
                         gob_error
                     ),
@@ -868,12 +895,74 @@ def _curp_to_moffin_rfc_cached(
                 flush=True,
             )
 
-            raise RuntimeError(
-                "VERIFIABLE_CURP_SERVICE_UNAVAILABLE:"
-                f"curp={curp}:"
-                f"nl={nl_error_text}:"
-                f"gob={str(gob_error)}"
-            ) from gob_error
+            # gob.mx normalmente tarda bastante en fallar.
+            # Aprovechamos ese tiempo: NL puede haberse
+            # recuperado mientras tanto.
+            try:
+                datos_curp = (
+                    consultar_curp_nuevo_leon(
+                        curp,
+                        timeout_s=8,
+                    )
+                    or {}
+                )
+
+                print(
+                    "[VERIFIABLE_NL_CURP_RESCUE_OK]",
+                    {
+                        "curp": curp,
+                        "previous_nl_error":
+                            nl_error_text,
+                        "gob_error":
+                            repr(gob_error),
+                    },
+                    flush=True,
+                )
+
+            except Exception as rescue_error:
+                rescue_text = str(
+                    rescue_error or ""
+                ).strip()
+
+                print(
+                    "[VERIFIABLE_NL_CURP_RESCUE_FAIL]",
+                    {
+                        "curp": curp,
+                        "first_nl_error":
+                            nl_error_text,
+                        "gob_error":
+                            repr(gob_error),
+                        "rescue_error":
+                            repr(rescue_error),
+                    },
+                    flush=True,
+                )
+
+                if (
+                    "NL_CURP_NOT_FOUND"
+                    in rescue_text
+                ):
+                    raise RuntimeError(
+                        "VERIFIABLE_CURP_NOT_FOUND:"
+                        f"{curp}"
+                    ) from rescue_error
+
+                if (
+                    "NL_CURP_MISMATCH:"
+                    in rescue_text
+                ):
+                    raise RuntimeError(
+                        "VERIFIABLE_CURP_MISMATCH:"
+                        f"{rescue_text}"
+                    ) from rescue_error
+
+                raise RuntimeError(
+                    "VERIFIABLE_CURP_SERVICE_UNAVAILABLE:"
+                    f"curp={curp}:"
+                    f"nl={nl_error_text}:"
+                    f"gob={str(gob_error)}:"
+                    f"rescue={rescue_text}"
+                ) from rescue_error
 
     nombre = (
         datos_curp.get("NOMBRE")
@@ -7463,8 +7552,30 @@ async def evolution_rfc_webhook(request: Request):
                             "verifiable_curp_not_found"
                         )
 
+                    # RFC_VERIFIABLE_CURP_MISMATCH_NOTICE_V1
                     # ======================================
-                    # 2. SERVICIOS CURP NO DISPONIBLES
+                    # 2. CURP NO COINCIDE
+                    # ======================================
+                    elif (
+                        "VERIFIABLE_CURP_MISMATCH"
+                        in conversion_error_text
+                    ):
+                        client_message = _client_status_message(
+                            title='⚠️ CURP no coincide',
+                            requester_label=requester_label,
+                            query_type="RFC_VERIFICABLE",
+                            data_override=original_identifier,
+                            body='La consulta devolvió una CURP diferente a la enviada.\nVerifica que esté escrita correctamente.',
+                            family='result',
+                            status='VERIFICA CURP',
+                        )
+
+                        error_code = (
+                            "verifiable_curp_mismatch"
+                        )
+
+                    # ======================================
+                    # 3. SERVICIOS CURP NO DISPONIBLES
                     # ======================================
                     elif (
                         "VERIFIABLE_CURP_"
@@ -7476,7 +7587,7 @@ async def evolution_rfc_webhook(request: Request):
                             requester_label=requester_label,
                             query_type="RFC_VERIFICABLE",
                             data_override=original_identifier,
-                            body='No fue posible consultar la CURP en este momento.\\nIntenta nuevamente más tarde.',
+                            body='No fue posible consultar la CURP en este momento.\nIntenta nuevamente más tarde.',
                             family='service',
                             status='NO DISPONIBLE',
                         )
@@ -7496,7 +7607,7 @@ async def evolution_rfc_webhook(request: Request):
                             requester_label=requester_label,
                             query_type="RFC_VERIFICABLE",
                             data_override=original_identifier,
-                            body='La CURP fue localizada, pero no fue posible continuar con la solicitud verificable.\\nIntenta nuevamente.',
+                            body='La CURP fue localizada, pero no fue posible continuar con la solicitud verificable.\nIntenta nuevamente.',
                             family='result',
                             status='ERROR',
                         )
