@@ -7268,6 +7268,58 @@ async def evolution_rfc_webhook(request: Request):
                 ]
             )
 
+            # RFC_VERIFIABLE_EARLY_PROCESSING_ACK_V1
+            #
+            # A esta altura:
+            # - el grupo ya fue validado;
+            # - la solicitud ya reclamó processing + inflight;
+            # - existe un proveedor disponible.
+            #
+            # Todavía NO hacemos RENAPO/Moffin ni enviamos al
+            # proveedor. El cliente recibe PROCESANDO primero.
+            if not batch_suppress_ack:
+                try:
+                    send_text(
+                        remote_jid,
+                        _client_verifiable_received_message(
+                            requester_label=requester_label,
+                            count=1,
+                            identifier=original_identifier,
+                        ),
+                        instance_name=instance_name,
+                        fast=True,
+                    )
+
+                    print(
+                        "RFC_VERIFIABLE_EARLY_ACK_SENT =",
+                        {
+                            "instance": instance_name,
+                            "group_jid": remote_jid,
+                            "identifier": original_identifier,
+                            "query_type": original_query_type,
+                            "request_key": command_key,
+                            "provider_code": (
+                                selected_provider.get("code")
+                                or ""
+                            ),
+                        },
+                        flush=True,
+                    )
+
+                except Exception as ack_exc:
+                    # El ACK es informativo.
+                    # Su fallo NO debe cancelar una solicitud que ya
+                    # reclamó processing/inflight.
+                    print(
+                        "RFC_VERIFIABLE_EARLY_ACK_ERROR =",
+                        {
+                            "identifier": original_identifier,
+                            "request_key": command_key,
+                            "error": repr(ack_exc),
+                        },
+                        flush=True,
+                    )
+
             provider_query_type = (
                 original_query_type
             )
@@ -8138,25 +8190,6 @@ async def evolution_rfc_webhook(request: Request):
                 #
                 # El pendiente y processing tienen TTL propio,
                 # por lo que eventualmente se liberarán.
-
-            if not batch_suppress_ack:
-                try:
-                    send_text(
-                        remote_jid,
-                        _client_verifiable_received_message(
-                            requester_label=requester_label,
-                            count=1,
-                            identifier=original_identifier,
-                        ),
-                        instance_name=instance_name,
-                        fast=True,
-                    )
-                except Exception as ack_exc:
-                    print(
-                        "RFC_VERIFIABLE_ACK_ERROR =",
-                        repr(ack_exc),
-                        flush=True,
-                    )
 
             print(
                 "RFC_VERIFIABLE_SENT_TO_PROVIDER =",
