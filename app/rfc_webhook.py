@@ -614,6 +614,7 @@ LOCALIZACIONES_PROVIDER_GROUP = (
 ).strip()
 
 BLOCKED_GROUPS_KEY = "blocked_groups_no_response"
+BLOCKED_INSTANCES_KEY = "blocked_instances_no_response"
 
 REQUEST_INFLIGHT_TTL_SEC = int(
     os.getenv(
@@ -1064,6 +1065,48 @@ def _curp_to_moffin_rfc_cached(
 
 def _is_group(jid: str) -> bool:
     return (jid or "").endswith("@g.us")
+
+
+def _is_instance_blocked(
+    instance_name: str,
+) -> bool:
+    # RFC_INSTANCE_BLOCK_MINIPANEL_V1
+    #
+    # Usa exactamente el mismo set Redis que modifica
+    # "Apagar bot" desde el mini panel.
+    instance_name = str(
+        instance_name or ""
+    ).strip()
+
+    if not instance_name:
+        return False
+
+    redis_conn = request_queue.connection
+
+    try:
+        return bool(
+            redis_conn.sismember(
+                BLOCKED_INSTANCES_KEY,
+                instance_name,
+            )
+        )
+
+    except Exception as exc:
+        print(
+            "RFC_INSTANCE_BLOCK_CHECK_ERROR =",
+            {
+                "instance": instance_name,
+                "redis_key":
+                    BLOCKED_INSTANCES_KEY,
+                "error": repr(exc),
+            },
+            flush=True,
+        )
+
+        # Fail closed:
+        # si no podemos comprobar si el bot está apagado,
+        # no procesamos nuevas solicitudes.
+        raise
 
 
 def _is_group_blocked(group_jid: str) -> bool:
@@ -5668,8 +5711,56 @@ async def evolution_rfc_webhook(request: Request):
             return {"ok": True, "ignored": "private_chat"}
 
         # ======================================================
-        # BLOQUEO DEL MINI PANEL
-        # Debe ir ANTES de validar, responder ACK o encolar.
+        # BLOQUEO DEL BOT DESDE MINI PANEL
+        # RFC_INSTANCE_BLOCK_MINIPANEL_V1
+        #
+        # Debe ejecutarse ANTES de:
+        # - validar solicitud
+        # - enviar PROCESANDO
+        # - reservar saldo
+        # - encolar
+        # - enviar a Isaac / Roberto
+        # ======================================================
+        try:
+            instance_is_blocked = (
+                _is_instance_blocked(
+                    instance_name
+                )
+            )
+
+        except Exception:
+            return {
+                "ok": True,
+                "ignored":
+                    "instance_block_check_unavailable",
+                "instance": instance_name,
+                "group_jid": remote_jid,
+            }
+
+        if instance_is_blocked:
+            print(
+                "RFC_INSTANCE_BLOCKED_IGNORED =",
+                {
+                    "instance": instance_name,
+                    "group_jid": remote_jid,
+                    "requester_wa_id":
+                        requester_wa_id,
+                    "msg_id": msg_id,
+                    "redis_key":
+                        BLOCKED_INSTANCES_KEY,
+                },
+                flush=True,
+            )
+
+            return {
+                "ok": True,
+                "ignored": "instance_blocked",
+                "instance": instance_name,
+                "group_jid": remote_jid,
+            }
+
+        # ======================================================
+        # BLOQUEO DE GRUPO DESDE MINI PANEL
         # ======================================================
         try:
             group_is_blocked = _is_group_blocked(remote_jid)
