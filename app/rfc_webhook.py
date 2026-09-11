@@ -22,6 +22,7 @@ from app.models import (
     ProviderSetting,
     AppSetting,
 )
+from curp_fgr import consultar_curp_fgr
 from core_sat import (
     consultar_curp_bot,
     consultar_curp_nuevo_leon,
@@ -788,6 +789,7 @@ def _curp_to_moffin_rfc_cached(
 
     datos_curp = {}
     nl_error_text = ""
+    fgr_error_text = ""
 
     for nl_attempt in (1, 2):
         try:
@@ -825,26 +827,39 @@ def _curp_to_moffin_rfc_cached(
                 flush=True,
             )
 
-            # Respuesta definitiva: CURP inexistente.
+            # NL dijo no encontrada.
+            # Antes de declararla inexistente,
+            # dejamos que FGR/RENAPO la confirme.
             if (
                 "NL_CURP_NOT_FOUND"
                 in nl_error_text
             ):
-                raise RuntimeError(
-                    "VERIFIABLE_CURP_NOT_FOUND:"
-                    f"{curp}"
-                ) from nl_error
+                print(
+                    "[VERIFIABLE_NL_NOT_FOUND_TRY_FGR]",
+                    {
+                        "curp": curp,
+                        "error": nl_error_text,
+                    },
+                    flush=True,
+                )
+                break
 
-            # Nuevo León devolvió OTRA CURP.
-            # No usar datos de otra persona.
+            # Nuevo León devolvió otra CURP.
+            # No usamos esos datos; primero pedimos
+            # a FGR/RENAPO validar la CURP solicitada.
             if (
                 "NL_CURP_MISMATCH:"
                 in nl_error_text
             ):
-                raise RuntimeError(
-                    "VERIFIABLE_CURP_MISMATCH:"
-                    f"{nl_error_text}"
-                ) from nl_error
+                print(
+                    "[VERIFIABLE_NL_MISMATCH_TRY_FGR]",
+                    {
+                        "curp": curp,
+                        "error": nl_error_text,
+                    },
+                    flush=True,
+                )
+                break
 
             if nl_attempt < 2:
                 print(
@@ -862,6 +877,47 @@ def _curp_to_moffin_rfc_cached(
                 _verifiable_retry_time.sleep(
                     1.0
                 )
+
+    # RFC_VERIFIABLE_FGR_FALLBACK_V1
+    #
+    # NL ya tuvo sus intentos rápidos.
+    # Antes del scraper GOB.MX intentamos FGR/RENAPO.
+    if not datos_curp:
+        try:
+            datos_curp = (
+                consultar_curp_fgr(
+                    curp,
+                    timeout_s=12,
+                )
+                or {}
+            )
+
+            print(
+                "[VERIFIABLE_FGR_CURP_OK]",
+                {
+                    "curp": curp,
+                    "nl_error":
+                        nl_error_text,
+                },
+                flush=True,
+            )
+
+        except Exception as fgr_error:
+            fgr_error_text = str(
+                fgr_error or ""
+            ).strip()
+
+            print(
+                "[VERIFIABLE_FGR_CURP_FAIL]",
+                {
+                    "curp": curp,
+                    "nl_error":
+                        nl_error_text,
+                    "fgr_error":
+                        repr(fgr_error),
+                },
+                flush=True,
+            )
 
     # Si los dos intentos NL fallaron técnicamente,
     # probamos gob.mx.
@@ -961,6 +1017,7 @@ def _curp_to_moffin_rfc_cached(
                     "VERIFIABLE_CURP_SERVICE_UNAVAILABLE:"
                     f"curp={curp}:"
                     f"nl={nl_error_text}:"
+                    f"fgr={fgr_error_text}:"
                     f"gob={str(gob_error)}:"
                     f"rescue={rescue_text}"
                 ) from rescue_error

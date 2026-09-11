@@ -71,6 +71,7 @@ except Exception as e:
 from cache_store import cache_get, cache_set, cache_del
 from rfc_cli_pf_solo_completo_pro import rfc_pf_13, rfc_pf_13_candidates
 
+from curp_fgr import consultar_curp_fgr
 from core_sat import (
     consultar_curp_bot,
     consultar_curp_nuevo_leon,
@@ -644,17 +645,48 @@ def gobmx_curp_scrape(term: str) -> dict:
             flush=True,
         )
 
-        d = consultar_curp_bot(
-            curp
-        )
+        # -------------------------------------------------
+        # FGR/RENAPO es el segundo proveedor CURP.
+        # Solo si FGR falla usamos el scraper GOB.MX.
+        # -------------------------------------------------
+        try:
+            d = consultar_curp_fgr(
+                curp,
+                timeout_s=20,
+            )
 
-        print(
-            "[GOB_CURP_SECONDARY_OK]",
-            {
-                "curp": curp,
-            },
-            flush=True,
-        )
+            print(
+                "[FGR_CURP_SECONDARY_OK]",
+                {
+                    "curp": curp,
+                },
+                flush=True,
+            )
+
+        except Exception as fgr_error:
+            print(
+                "[FGR_CURP_SECONDARY_FAIL]",
+                {
+                    "curp": curp,
+                    "nl_error":
+                        repr(nl_error),
+                    "fgr_error":
+                        repr(fgr_error),
+                },
+                flush=True,
+            )
+
+            d = consultar_curp_bot(
+                curp
+            )
+
+            print(
+                "[GOB_CURP_TERTIARY_OK]",
+                {
+                    "curp": curp,
+                },
+                flush=True,
+            )
 
     print("[GOB KEYS]", sorted(list((d or {}).keys()))[:60])
     print(
