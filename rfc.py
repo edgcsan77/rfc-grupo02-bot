@@ -9186,10 +9186,10 @@ def _checkid_datos_suficientes(datos: dict) -> bool:
 
     return True
 
-CHECKID_ENABLED_INSTANCES = {
-    "group03",
-    "group04",
-}
+# VPS:
+# Ninguna instancia utiliza CheckID para solicitudes CURP.
+# RFC_ONLY sí mantiene CheckID mediante su excepción de routing.
+CHECKID_ENABLED_INSTANCES = set()
 
 RFC_SUSPENDED_BLOCK_GROUPS = {
     "120363430357222265@g.us", #ALBERTO
