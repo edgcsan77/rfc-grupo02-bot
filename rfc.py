@@ -9300,7 +9300,10 @@ def procesar_solicitud_interna_para_pdf(
         else:
             gob = gobmx_curp_scrape(query) or {}
         
-        fallback = enrich_curp_with_rfc_and_satpi(dict(gob)) or {}
+        # Grupo02 CURP:
+        # NL -> FGR -> gob.mx -> Moffin/SEPOMEX.
+        # Sin CheckID y sin SATPI como fallback.
+        fallback = dict(gob or {})
         fallback = normalize_regimen_fields(fallback)
 
         # conservar CURP de entrada
@@ -9417,53 +9420,79 @@ def procesar_solicitud_interna_para_pdf(
 
         return normalize_regimen_fields(datos)
 
-    def _internal_rfc_only_fallback(query: str, datos_base: dict | None = None) -> dict:
+    def _internal_rfc_only_fallback(
+        query: str,
+        datos_base: dict | None = None
+    ) -> dict:
         """
-        Fallback simple RFC_ONLY:
-        - SATPI
-        - normalización
-        - merge sin perder datos existentes
-        - reconcile por CP si existe
+        RFC_ONLY grupo02.
+
+        CheckID es la única fuente.
+        No consulta SATPI ni otra fuente secundaria.
         """
         datos = dict(datos_base or {})
 
-        print("[INTERNAL RFC_ONLY FALLBACK] query=", query, "used_before=", rfc_only_fallback_used, flush=True)
+        print(
+            "[INTERNAL RFC_ONLY NO FALLBACK]",
+            {
+                "rfc": query,
+                "has_partial_data": bool(datos),
+            },
+            flush=True,
+        )
 
-        sat = _rfc_only_fallback_satpi(query) or {}
-        fallback = normalize_satpi_rfc_only(sat, rfc_query=query)
-        fallback = normalize_regimen_fields(fallback)
+        rfc_now = (
+            datos.get("RFC")
+            or datos.get("rfc")
+            or query
+            or ""
+        ).strip().upper()
 
-        for k, v in fallback.items():
-            if v is None:
-                continue
-            if isinstance(v, str):
-                if v.strip() and not (str(datos.get(k) or "").strip()):
-                    datos[k] = v
-            else:
-                if v and not datos.get(k):
-                    datos[k] = v
+        cp_now = re.sub(
+            r"\D+",
+            "",
+            str(
+                datos.get("CP")
+                or datos.get("cp")
+                or ""
+            ),
+        ).strip()
 
-        try:
-            seed_key = (datos.get("RFC") or datos.get("CURP") or query).strip().upper()
-            datos = ensure_default_status_and_dates(datos, seed_key=seed_key)
-        except Exception as e2:
-            print("internal RFC_ONLY ensure_default_status_and_dates fail:", repr(e2), flush=True)
+        regimen_now = str(
+            datos.get("REGIMEN")
+            or datos.get("regimen")
+            or ""
+        ).strip()
 
-        try:
-            seed_key = (datos.get("RFC") or datos.get("CURP") or query).strip().upper()
-            cp_val = re.sub(r"\D+", "", (datos.get("CP") or datos.get("cp") or "")).strip()
+        # Únicamente conserva datos parciales si YA son
+        # datos suficientes provenientes de CheckID.
+        if (
+            rfc_now
+            and len(cp_now) == 5
+            and cp_now.isdigit()
+            and regimen_now
+        ):
+            datos["RFC"] = rfc_now
+            datos["RFC_ETIQUETA"] = rfc_now
+            datos["CP"] = cp_now
 
-            if len(cp_val) == 5:
-                datos["CP"] = cp_val
-                datos = reconcile_location_by_cp(
-                    datos,
-                    seed_key=seed_key,
-                    force_mun=True
-                )
-        except Exception as e2:
-            print("internal RFC_ONLY final reconcile fail:", repr(e2), flush=True)
+            datos["_CP_SOURCE"] = (
+                datos.get("_CP_SOURCE")
+                or "CHECKID"
+            )
 
-        return normalize_regimen_fields(datos)
+            datos["_REG_SOURCE"] = (
+                datos.get("_REG_SOURCE")
+                or "CHECKID"
+            )
+
+            return normalize_regimen_fields(
+                datos
+            )
+
+        raise RuntimeError(
+            "RFC_ONLY_CHECKID_NO_DATA"
+        )
 
     # ----------------------------------------
     # 0) Detectar batch RFC + IDCIF
@@ -9796,7 +9825,14 @@ def procesar_solicitud_interna_para_pdf(
         # Bloqueo duro anterior, pero CLON lo desbloquea.
         strict_checkid_group = (
             group_now in RFC_SUSPENDED_BLOCK_GROUPS
-            and input_type in ("CURP", "RFC_ONLY")
+            and (
+                input_type == "RFC_ONLY"
+                or (
+                    input_type == "CURP"
+                    and (instance_name or "").strip()
+                    in CHECKID_ENABLED_INSTANCES
+                )
+            )
             and not clon_mode_internal
             and not verifiable_fallback_mode
         )
@@ -9805,6 +9841,8 @@ def procesar_solicitud_interna_para_pdf(
         checkid_first_then_clon_group = (
             group_now in CHECKID_FIRST_THEN_CLON_GROUPS
             and input_type == "CURP"
+            and (instance_name or "").strip()
+            in CHECKID_ENABLED_INSTANCES
             and not clon_mode_internal
         )
         
