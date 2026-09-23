@@ -7645,6 +7645,28 @@ def internal_generate_pdf():
             e
         ).strip().upper()
 
+        # RFC_ONLY usa únicamente CheckID.
+        # Si CheckID no entregó datos suficientes,
+        # es un resultado terminal, NO una falla 5xx.
+        if error_code == "RFC_ONLY_CHECKID_NO_DATA":
+            print(
+                "[INTERNAL RFC_ONLY TERMINAL NO DATA]",
+                {
+                    "error_code": error_code,
+                    "group_jid": group_jid,
+                    "instance_name": instance_name,
+                    "query": query,
+                },
+                flush=True,
+            )
+
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": error_code,
+                }
+            ), 422
+
         sat_rejection_codes = {
             "SIN_DATOS_SAT",
             "SAT_CIF_NOT_ISSUED",

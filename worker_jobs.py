@@ -5594,6 +5594,42 @@ def process_group_request_job(job_data: dict):
                 )
 
             elif (
+                "RFC_ONLY_CHECKID_NO_DATA"
+                in resp_text
+                or err_code
+                == "RFC_ONLY_CHECKID_NO_DATA"
+            ):
+                evolution_send_text_to_group(
+                    group_jid,
+                    _job_client_message(
+                        job_data,
+                        title=(
+                            "⚠️ RFC sin información disponible"
+                        ),
+                        requester_label=(
+                            requester_label
+                        ),
+                        body=(
+                            "CheckID no devolvió información "
+                            "suficiente para generar la constancia.\n"
+                            "No se generó el documento."
+                        ),
+                    ),
+                    instance_name=instance_name,
+                )
+
+                print(
+                    "[RFC ONLY TERMINAL NO DATA]",
+                    {
+                        "group_jid": group_jid,
+                        "query": query,
+                        "retry_remaining":
+                            retry_remaining,
+                    },
+                    flush=True,
+                )
+
+            elif (
                 "CLIENT_CURP_NOT_FOUND_OR_WRONG"
                 in resp_text
                 or err_code
