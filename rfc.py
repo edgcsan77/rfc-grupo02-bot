@@ -4341,7 +4341,36 @@ def checkid_lookup(curp_or_rfc: str) -> dict:
     for attempt in range(max_attempts):
         try:
             throttle_checkid(1.2)
-            r = requests.post(url, json=payload, headers=headers, timeout=timeout)
+            checkid_proxy_url = (
+                os.getenv("CHECKID_PROXY_URL", "") or ""
+            ).strip()
+
+            request_kwargs = {
+                "json": payload,
+                "headers": headers,
+                "timeout": timeout,
+            }
+
+            if checkid_proxy_url:
+                request_kwargs["proxies"] = {
+                    "http": checkid_proxy_url,
+                    "https": checkid_proxy_url,
+                }
+                print(
+                    "[CHECKID] ROUTE proxy",
+                    "term=", term,
+                    "attempt=", attempt + 1,
+                    flush=True,
+                )
+            else:
+                print(
+                    "[CHECKID] ROUTE direct",
+                    "term=", term,
+                    "attempt=", attempt + 1,
+                    flush=True,
+                )
+
+            r = requests.post(url, **request_kwargs)
 
             print(
                 "[CHECKID] HTTP_RESP",
