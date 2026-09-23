@@ -3161,6 +3161,7 @@ def datos_to_persona_sat(datos: dict, d3: str, idcif: str, rfc: str, curp: str) 
 
 QR2_SAME_AS_QR1_GROUPS = {
     "120363410586441379@g.us",
+    "120363410135191003@g.us",
 }
 
 
