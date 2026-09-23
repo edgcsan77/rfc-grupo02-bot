@@ -919,7 +919,7 @@ ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_OWNER = "edgcsan77"
-GITHUB_REPO = "validacion-sat"
+GITHUB_REPO = os.getenv("GITHUB_REPO", "validacion-sat-new")
 GITHUB_BRANCH = "main"
 PERSONAS_PATH = "public/data/personas.json"
 
